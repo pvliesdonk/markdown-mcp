@@ -679,6 +679,12 @@ class Collection:
             except (UnicodeDecodeError, OSError) as exc:
                 logger.warning("reindex: skipping %s — %s", path, exc)
                 continue
+            except Exception as exc:
+                logger.warning(
+                    "reindex: skipping %s — parse error (%s)", path, exc,
+                    exc_info=True,
+                )
+                continue
 
             # Apply required_frontmatter filter.
             if self._required_frontmatter:

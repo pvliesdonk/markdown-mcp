@@ -63,11 +63,11 @@ def mock_provider() -> MockEmbeddingProvider:
 
 @pytest.fixture
 def vault_path(tmp_path: Path, fixtures_path: Path) -> Path:
-    """Copy valid (parseable) fixtures into a temp directory.
+    """Copy fixtures into a temp directory.
 
-    Excludes ``malformed_yaml.md`` (crashes YAML parser) and
-    ``invalid_utf8.md`` (non-UTF-8 bytes) so that Collection tests
-    can scan the vault without errors.
+    Excludes ``invalid_utf8.md`` (non-UTF-8 bytes) so that Collection tests
+    can scan the vault without errors.  ``malformed_yaml.md`` is included
+    because ``scan_directory`` handles YAML parse errors gracefully.
 
     Returns:
         Path to the vault root inside ``tmp_path``.
@@ -77,7 +77,7 @@ def vault_path(tmp_path: Path, fixtures_path: Path) -> Path:
     vault = tmp_path / "vault"
     vault.mkdir()
 
-    _EXCLUDED = {"malformed_yaml.md", "invalid_utf8.md"}
+    _EXCLUDED = {"invalid_utf8.md"}
 
     for src in fixtures_path.rglob("*.md"):
         if src.name in _EXCLUDED:

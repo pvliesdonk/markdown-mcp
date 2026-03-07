@@ -41,14 +41,12 @@ def test_scan_directory_discovers_all_md_files(fixtures_path: Path) -> None:
     """scan_directory yields all .md files except invalid_utf8 and malformed_yaml.
 
     invalid_utf8.md is skipped due to UnicodeDecodeError.
-    malformed_yaml.md is excluded via the exclude_patterns argument because
-    python-frontmatter raises ParserError on malformed YAML, which scan_directory
-    does not catch.
+    malformed_yaml.md is skipped due to YAML parse error.
+    Both are handled gracefully without aborting the scan.
     """
     notes = list(
         scan_directory(
             fixtures_path,
-            exclude_patterns=["malformed_yaml.md"],
         )
     )
     paths = {n.path for n in notes}
@@ -207,7 +205,6 @@ def test_required_frontmatter_filters(fixtures_path: Path) -> None:
         scan_directory(
             fixtures_path,
             required_frontmatter=["title", "cluster"],
-            exclude_patterns=["malformed_yaml.md"],
         )
     )
 
@@ -229,11 +226,11 @@ def test_utf8_fault_tolerance(fixtures_path: Path) -> None:
     notes = list(
         scan_directory(
             fixtures_path,
-            exclude_patterns=["malformed_yaml.md"],
         )
     )
     paths = {n.path for n in notes}
     assert "invalid_utf8.md" not in paths
+    assert "malformed_yaml.md" not in paths
 
 
 def test_parse_note_invalid_utf8_raises(fixtures_path: Path) -> None:
@@ -257,7 +254,6 @@ def test_exclude_patterns(fixtures_path: Path) -> None:
         scan_directory(
             fixtures_path,
             exclude_patterns=[
-                "malformed_yaml.md",
                 "subfolder/*",
                 "subfolder/**/*",
             ],
