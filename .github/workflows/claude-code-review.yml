@@ -2,27 +2,15 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    types: [opened, synchronize]
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
       id-token: write
 
     steps:
@@ -34,11 +22,33 @@ jobs:
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
+        continue-on-error: true
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
 
+            Perform a DIFFERENTIAL code review. Only review the CHANGES in this PR.
+
+            Steps:
+            1. Run `gh pr diff ${{ github.event.pull_request.number }}` to see what changed
+            2. Read CLAUDE.md for project conventions
+            3. Read docs/design.md for the authoritative design specification
+            4. Review the changed code for:
+               - Bugs or logic errors
+               - Security issues
+               - Convention violations (from CLAUDE.md)
+               - Missing tests for new code
+               - Type safety issues
+               - Design conformance: does the implementation match docs/design.md?
+                 Check data types, method signatures, error handling, and database schema.
+
+            Use `mcp__github_inline_comment__create_inline_comment` for specific line feedback.
+            Use `gh pr comment` for summary feedback.
+
+            Be concise. Focus on actionable issues. Don't comment on unchanged code.
+
+          claude_args: |
+            --allowedTools mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Read,Grep,Glob
