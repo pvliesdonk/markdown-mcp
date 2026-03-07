@@ -1051,6 +1051,7 @@ all = [
     { name = "httpx" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "sentence-transformers" },
 ]
 dev = [
     { name = "mypy" },
@@ -1088,6 +1089,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "python-frontmatter", specifier = ">=1.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1" },
+    { name = "sentence-transformers", marker = "extra == 'all'", specifier = ">=2.0" },
     { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=2.0" },
 ]
 provides-extras = ["mcp", "embeddings-api", "embeddings", "all", "dev"]

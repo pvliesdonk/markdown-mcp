@@ -21,6 +21,7 @@ from markdown_mcp.types import (
     ReindexResult,
     RenameResult,
     SearchResult,
+    WriteCallback,
     WriteResult,
 )
 
@@ -43,5 +44,6 @@ __all__ = [
     "ReindexResult",
     "RenameResult",
     "SearchResult",
+    "WriteCallback",
     "WriteResult",
 ]
