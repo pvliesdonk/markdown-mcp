@@ -174,6 +174,7 @@ class TestSearchWithFilters:
         collection, _ = corpus_collection
         results = collection.search("gothic", filters={"cluster": "fiction"})
 
+        assert len(results) > 0, "Expected at least one fiction result for 'gothic'"
         paths = {r.path for r in results}
         assert all(p in {"exemplar1.md", "exemplar3.md"} for p in paths), (
             f"Unexpected paths in results: {paths}"
@@ -190,6 +191,9 @@ class TestSearchWithFilters:
             filters={"cluster": "fiction", "topics": "gothic"},
         )
 
+        assert len(results) > 0, (
+            "Expected at least one result for cluster=fiction AND topics=gothic"
+        )
         paths = {r.path for r in results}
         # Both exemplar1 and exemplar3 have cluster=fiction and topics contains gothic.
         assert paths.issubset({"exemplar1.md", "exemplar3.md"})
