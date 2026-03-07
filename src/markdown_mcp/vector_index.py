@@ -1,0 +1,277 @@
+"""Numpy-backed vector index for semantic (cosine similarity) search."""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from markdown_mcp.providers import EmbeddingProvider
+
+try:
+    import numpy as np
+
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    _NUMPY_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
+
+
+class VectorIndex:
+    """Cosine-similarity vector index backed by numpy.
+
+    Stores embedding vectors as a 2-D numpy array (shape ``[n, dim]``)
+    with normalised rows so that similarity queries reduce to a dot-product.
+    A parallel ``list[dict]`` holds the per-row metadata.
+
+    The index is serialised as two sidecar files:
+
+    - ``{path}.npy`` — the embedding matrix.
+    - ``{path}.json`` — the metadata list.
+
+    Args:
+        provider: Initialised :class:`~markdown_mcp.providers.EmbeddingProvider`
+            used to embed query strings at search time.
+
+    Raises:
+        ImportError: If ``numpy`` is not installed.
+    """
+
+    def __init__(self, provider: EmbeddingProvider) -> None:
+        """Initialise an empty VectorIndex.
+
+        Args:
+            provider: Embedding provider used for query embedding.
+
+        Raises:
+            ImportError: If ``numpy`` is not installed.
+        """
+        if not _NUMPY_AVAILABLE:
+            raise ImportError(
+                "VectorIndex requires 'numpy'. "
+                "Install it with: pip install 'markdown-mcp[embeddings]'"
+            )
+        self._provider = provider
+        # Shape: (0, dim) — will grow with each add() call.
+        self._embeddings: np.ndarray = np.empty((0, 0), dtype=np.float32)
+        self._metadata: list[dict] = []
+
+    # ------------------------------------------------------------------
+    # Class-method constructor
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def load(cls, path: Path, provider: EmbeddingProvider) -> VectorIndex:
+        """Load a VectorIndex from sidecar files.
+
+        Args:
+            path: Base path; files ``{path}.npy`` and ``{path}.json``
+                must exist.
+            provider: Embedding provider to attach to the loaded index.
+
+        Returns:
+            A :class:`VectorIndex` populated with the stored embeddings
+            and metadata.
+
+        Raises:
+            ImportError: If ``numpy`` is not installed.
+            FileNotFoundError: If either sidecar file is missing.
+        """
+        if not _NUMPY_AVAILABLE:
+            raise ImportError(
+                "VectorIndex requires 'numpy'. "
+                "Install it with: pip install 'markdown-mcp[embeddings]'"
+            )
+
+        npy_path = Path(str(path) + ".npy")
+        json_path = Path(str(path) + ".json")
+
+        embeddings: np.ndarray = np.load(str(npy_path))
+        with json_path.open("r", encoding="utf-8") as fh:
+            metadata: list[dict] = json.load(fh)
+
+        index = cls(provider)
+        index._embeddings = embeddings
+        index._metadata = metadata
+
+        logger.info(
+            "VectorIndex.load: loaded %d vectors from %s",
+            len(metadata),
+            path,
+        )
+        return index
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    @property
+    def count(self) -> int:
+        """Number of embedding rows currently stored.
+
+        Returns:
+            Integer row count.
+        """
+        return len(self._metadata)
+
+    def add(self, texts: list[str], metadata: list[dict]) -> int:
+        """Embed ``texts`` and append rows to the index.
+
+        Vectors are L2-normalised before storage so that similarity
+        queries can use a plain dot product.
+
+        If the provider raises during embedding, no state is modified —
+        the index remains exactly as it was before the call.
+
+        Args:
+            texts: Texts to embed.  Length must equal ``len(metadata)``.
+            metadata: Per-row dicts (keys: ``path``, ``title``, ``folder``,
+                ``heading``, ``content``).  Each dict is stored verbatim.
+
+        Returns:
+            Number of rows added.
+
+        Raises:
+            ValueError: If ``len(texts) != len(metadata)`` or ``texts``
+                is empty.
+            RuntimeError: Propagated from the embedding provider.
+        """
+        if len(texts) != len(metadata):
+            raise ValueError(
+                f"texts and metadata must have the same length "
+                f"(got {len(texts)} vs {len(metadata)})"
+            )
+        if not texts:
+            return 0
+
+        # Embed first — do NOT mutate state until this succeeds.
+        raw: list[list[float]] = self._provider.embed(texts)
+        vectors = np.array(raw, dtype=np.float32)
+
+        # L2-normalise each row.
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        # Avoid division by zero for zero-magnitude vectors.
+        norms = np.where(norms == 0, 1.0, norms)
+        vectors = vectors / norms
+
+        if self._embeddings.size == 0:
+            self._embeddings = vectors
+        else:
+            self._embeddings = np.vstack([self._embeddings, vectors])
+
+        self._metadata.extend(metadata)
+
+        logger.debug(
+            "VectorIndex.add: added %d rows (total=%d)", len(texts), self.count
+        )
+        return len(texts)
+
+    def search(self, query: str, *, limit: int = 10) -> list[dict]:
+        """Return the top-k most similar chunks for ``query``.
+
+        Args:
+            query: Natural-language search string.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of metadata dicts ordered by descending cosine similarity.
+            Each dict contains all stored metadata fields plus a ``score``
+            key (float in ``[-1, 1]``).
+
+        Raises:
+            RuntimeError: Propagated from the embedding provider.
+        """
+        if self.count == 0:
+            return []
+
+        raw = self._provider.embed([query])
+        q_vec = np.array(raw[0], dtype=np.float32)
+
+        norm = np.linalg.norm(q_vec)
+        if norm > 0:
+            q_vec = q_vec / norm
+
+        # Dot product against normalised rows = cosine similarity.
+        scores: np.ndarray = self._embeddings @ q_vec
+
+        k = min(limit, self.count)
+        # np.argpartition is O(n); full argsort for small indexes is fine.
+        top_indices = np.argsort(scores)[::-1][:k]
+
+        results: list[dict] = []
+        for idx in top_indices:
+            entry = dict(self._metadata[int(idx)])
+            entry["score"] = float(scores[int(idx)])
+            results.append(entry)
+
+        return results
+
+    def delete_by_path(self, path: str) -> int:
+        """Remove all rows for a given document path.
+
+        Args:
+            path: Relative document path (e.g. ``"Journal/note.md"``).
+
+        Returns:
+            Number of rows removed.
+        """
+        if self.count == 0:
+            return 0
+
+        keep_mask = np.array(
+            [m.get("path") != path for m in self._metadata], dtype=bool
+        )
+        removed = int(np.sum(~keep_mask))
+
+        if removed == 0:
+            return 0
+
+        if np.all(~keep_mask):
+            # All rows belong to this path — reset to empty.
+            self._embeddings = np.empty((0, 0), dtype=np.float32)
+            self._metadata = []
+        else:
+            self._embeddings = self._embeddings[keep_mask]
+            self._metadata = [
+                m for m, keep in zip(self._metadata, keep_mask, strict=True) if keep
+            ]
+
+        logger.debug(
+            "VectorIndex.delete_by_path: removed %d rows for %s (remaining=%d)",
+            removed,
+            path,
+            self.count,
+        )
+        return removed
+
+    def save(self, path: Path) -> None:
+        """Persist the index to sidecar files.
+
+        Writes ``{path}.npy`` (the embedding matrix) and ``{path}.json``
+        (the metadata list).  An empty index is saved as a zero-row array.
+
+        Args:
+            path: Base path for the sidecar files.  Parent directory must
+                exist.
+        """
+        npy_path = Path(str(path) + ".npy")
+        json_path = Path(str(path) + ".json")
+
+        if self._embeddings.size == 0:
+            # Save a zero-shape array so load() can always read it back.
+            empty = np.empty((0, 0), dtype=np.float32)
+            np.save(str(npy_path), empty)
+        else:
+            np.save(str(npy_path), self._embeddings)
+
+        with json_path.open("w", encoding="utf-8") as fh:
+            json.dump(self._metadata, fh, ensure_ascii=False)
+
+        logger.info(
+            "VectorIndex.save: saved %d vectors to %s",
+            self.count,
+            path,
+        )
