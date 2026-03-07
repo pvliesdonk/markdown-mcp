@@ -56,6 +56,11 @@ select = [
 ]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Phase 1 write stubs: method signatures define the public API but bodies are
+# not yet implemented. ARG002 fires because parameters are unused.
+"src/markdown_mcp/collection.py" = ["ARG002"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["markdown_mcp"]
 
