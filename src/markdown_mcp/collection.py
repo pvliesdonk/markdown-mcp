@@ -6,6 +6,7 @@ LangChain wrappers, and CLI commands all go through this class.
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import json
 import logging
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from markdown_mcp.exceptions import ReadOnlyError
-from markdown_mcp.fts_index import FTSIndex
+from markdown_mcp.fts_index import FTSIndex, _derive_folder
 from markdown_mcp.scanner import (
     ChunkStrategy,
     HeadingChunker,
@@ -231,7 +232,9 @@ class Collection:
 
         if mode == "semantic":
             self._require_vectors()
-            return self._semantic_search(query, limit=limit)
+            return self._semantic_search(
+                query, limit=limit, filters=filters, folder=folder
+            )
 
         # hybrid
         self._require_vectors()
@@ -296,22 +299,71 @@ class Collection:
             for r in fts_results
         ]
 
-    def _semantic_search(self, query: str, *, limit: int) -> list[SearchResult]:
+    def _semantic_search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        filters: dict[str, str] | None = None,
+        folder: str | None = None,
+    ) -> list[SearchResult]:
         vectors = self._load_vectors()
-        raw = vectors.search(query, limit=limit)
-        return [
-            SearchResult(
-                path=r["path"],
-                title=r["title"],
-                folder=r["folder"],
-                heading=r.get("heading"),
-                content=r["content"],
-                score=r["score"],
-                search_type="semantic",
-                frontmatter=self._get_frontmatter(r["path"]),
+        # Fetch extra candidates so post-filtering still yields *limit* results.
+        candidate_limit = max(limit * 3, 30) if (folder or filters) else limit
+        raw = vectors.search(query, limit=candidate_limit)
+
+        results: list[SearchResult] = []
+        for r in raw:
+            if len(results) >= limit:
+                break
+
+            # Apply folder prefix filter.
+            if folder is not None:
+                r_folder = r.get("folder", "")
+                if r_folder != folder and not r_folder.startswith(folder + "/"):
+                    continue
+
+            # Apply tag filters: check FTS index for each required tag.
+            if filters:
+                note_row = self._fts.get_note(r["path"])
+                if note_row is None:
+                    continue
+                fm_raw = note_row.get("frontmatter_json")
+                fm: dict = {}
+                if fm_raw:
+                    with contextlib.suppress(ValueError, TypeError):
+                        fm = json.loads(fm_raw)
+                match = True
+                for key, value in filters.items():
+                    fm_val = fm.get(key)
+                    if fm_val is None:
+                        match = False
+                        break
+                    # Support both scalar and list values.
+                    if isinstance(fm_val, list):
+                        if str(value) not in [str(v) for v in fm_val]:
+                            match = False
+                            break
+                    else:
+                        if str(fm_val) != str(value):
+                            match = False
+                            break
+                if not match:
+                    continue
+
+            results.append(
+                SearchResult(
+                    path=r["path"],
+                    title=r["title"],
+                    folder=r["folder"],
+                    heading=r.get("heading"),
+                    content=r["content"],
+                    score=r["score"],
+                    search_type="semantic",
+                    frontmatter=self._get_frontmatter(r["path"]),
+                )
             )
-            for r in raw
-        ]
+        return results
 
     def _hybrid_search(
         self,
@@ -356,6 +408,39 @@ class Collection:
                 }
 
         for rank, r in enumerate(vec_results, start=1):
+            # Apply folder prefix filter to semantic results.
+            if folder is not None:
+                r_folder = r.get("folder", "")
+                if r_folder != folder and not r_folder.startswith(folder + "/"):
+                    continue
+
+            # Apply tag filters to semantic results via frontmatter lookup.
+            if filters:
+                note_row = self._fts.get_note(r["path"])
+                if note_row is None:
+                    continue
+                fm_raw = note_row.get("frontmatter_json")
+                fm: dict = {}
+                if fm_raw:
+                    with contextlib.suppress(json.JSONDecodeError, TypeError):
+                        fm = json.loads(fm_raw)
+                skip = False
+                for key, value in filters.items():
+                    fm_val = fm.get(key)
+                    if fm_val is None:
+                        skip = True
+                        break
+                    if isinstance(fm_val, list):
+                        if str(value) not in [str(v) for v in fm_val]:
+                            skip = True
+                            break
+                    else:
+                        if str(fm_val) != str(value):
+                            skip = True
+                            break
+                if skip:
+                    continue
+
             heading = r.get("heading")
             key = (r["path"], heading)
             rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (_RRF_K + rank)
@@ -580,7 +665,13 @@ class Collection:
                 self._vectors.delete_by_path(path)
 
         # Parse and upsert added/modified documents.
-        updated_notes = []
+        # Track actually-indexed counts separately from detected-change counts
+        # so that skipped files (parse errors, missing required frontmatter)
+        # are not reported as successfully added or modified.
+        indexed_added = 0
+        indexed_modified = 0
+        added_set = set(changes.added)
+
         for path in changes.added + changes.modified:
             abs_path = self._source_dir / path
             try:
@@ -601,7 +692,10 @@ class Collection:
                     continue
 
             self._fts.upsert_note(note)
-            updated_notes.append(note)
+            if path in added_set:
+                indexed_added += 1
+            else:
+                indexed_modified += 1
 
             # Update vector index for changed notes if loaded.
             if self._vectors is not None and self._embeddings_path is not None:
@@ -611,7 +705,7 @@ class Collection:
                     {
                         "path": note.path,
                         "title": note.title,
-                        "folder": str(Path(note.path).parent).replace(".", ""),
+                        "folder": _derive_folder(note.path),
                         "heading": c.heading,
                         "content": c.content,
                     }
@@ -642,8 +736,8 @@ class Collection:
         self._tracker.update_state(state_notes)
 
         return ReindexResult(
-            added=len(changes.added),
-            modified=len(changes.modified),
+            added=indexed_added,
+            modified=indexed_modified,
             deleted=len(changes.deleted),
             unchanged=changes.unchanged,
         )
@@ -793,11 +887,8 @@ class Collection:
         rows = self._fts.list_notes()
         doc_count = len(rows)
 
-        # Chunk count: sum sections per document.
-        chunk_count_row = self._fts._conn.execute(
-            "SELECT COUNT(*) FROM sections"
-        ).fetchone()
-        chunk_count = chunk_count_row[0] if chunk_count_row else 0
+        # Chunk count via the public FTSIndex method.
+        chunk_count = self._fts.count_chunks()
 
         folders = self._fts.list_folders()
         folder_count = len(folders)
