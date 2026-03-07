@@ -105,7 +105,7 @@ def _open_connection(db_path: Path | str) -> sqlite3.Connection:
         An open :class:`sqlite3.Connection` with the schema applied and
         ``foreign_keys`` enforcement active.
     """
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     # Apply schema; executescript commits implicitly.
     conn.executescript(_SCHEMA_SQL)
