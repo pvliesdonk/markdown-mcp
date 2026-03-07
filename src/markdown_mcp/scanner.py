@@ -312,7 +312,7 @@ def scan_directory(
             logger.debug("Excluding %s (matched exclude pattern)", rel)
             continue
 
-        # Parse the file; skip on decode / I/O errors.
+        # Parse the file; skip on decode / I/O / YAML errors.
         try:
             note = parse_note(abs_path, source_dir, chunk_strategy)
         except UnicodeDecodeError:
@@ -322,6 +322,9 @@ def scan_directory(
             continue
         except OSError as exc:
             logger.warning("Skipping %s: I/O error (%s)", abs_path, exc)
+            continue
+        except Exception as exc:
+            logger.warning("Skipping %s: parse error (%s)", abs_path, exc)
             continue
 
         # Apply required_frontmatter filter.

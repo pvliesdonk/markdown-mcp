@@ -79,7 +79,7 @@ class TestBuildIndex:
         col = _make_collection(vault_path)
         stats = col.build_index()
 
-        # 9 valid .md files (excludes malformed_yaml.md and invalid_utf8.md).
+        # 9 valid .md files (excludes invalid_utf8.md; malformed_yaml.md skipped).
         assert stats.documents_indexed == 9
         # All fixtures are short (<= 30 lines) → 1 chunk each.
         assert stats.chunks_indexed == 9
