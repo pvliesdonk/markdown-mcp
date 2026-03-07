@@ -571,6 +571,15 @@ class FTSIndex:
         )
         return [row[0] for row in cur.fetchall()]
 
+    def count_chunks(self) -> int:
+        """Return the total number of chunk rows in the ``sections`` table.
+
+        Returns:
+            Integer count of all indexed chunks across all documents.
+        """
+        row = self._conn.execute("SELECT COUNT(*) FROM sections").fetchone()
+        return row[0] if row else 0
+
     def close(self) -> None:
         """Close the underlying database connection.
 
