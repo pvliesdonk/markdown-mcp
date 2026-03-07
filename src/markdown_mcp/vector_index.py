@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from markdown_mcp.providers import EmbeddingProvider
 
 try:
@@ -86,8 +87,8 @@ class VectorIndex:
                 "Install it with: pip install 'markdown-mcp[embeddings]'"
             )
 
-        npy_path = Path(str(path) + ".npy")
-        json_path = Path(str(path) + ".json")
+        npy_path = path.with_suffix(".npy")
+        json_path = path.with_suffix(".json")
 
         embeddings: np.ndarray = np.load(str(npy_path))
         with json_path.open("r", encoding="utf-8") as fh:
@@ -135,8 +136,9 @@ class VectorIndex:
             Number of rows added.
 
         Raises:
-            ValueError: If ``len(texts) != len(metadata)`` or ``texts``
-                is empty.
+            ValueError: If ``len(texts) != len(metadata)``, ``texts`` is
+                empty, or the new vectors' dimension does not match the
+                dimension of vectors already stored in the index.
             RuntimeError: Propagated from the embedding provider.
         """
         if len(texts) != len(metadata):
@@ -160,6 +162,14 @@ class VectorIndex:
         if self._embeddings.size == 0:
             self._embeddings = vectors
         else:
+            existing_dim = self._embeddings.shape[1]
+            new_dim = vectors.shape[1]
+            if new_dim != existing_dim:
+                raise ValueError(
+                    f"Embedding dimension mismatch: existing index has dim={existing_dim}, "
+                    f"but new vectors have dim={new_dim}. "
+                    "All embeddings must use the same model and dimension."
+                )
             self._embeddings = np.vstack([self._embeddings, vectors])
 
         self._metadata.extend(metadata)
@@ -198,7 +208,7 @@ class VectorIndex:
         scores: np.ndarray = self._embeddings @ q_vec
 
         k = min(limit, self.count)
-        # np.argpartition is O(n); full argsort for small indexes is fine.
+        # argsort descending, then take the top-k indices.
         top_indices = np.argsort(scores)[::-1][:k]
 
         results: list[dict] = []
@@ -257,8 +267,8 @@ class VectorIndex:
             path: Base path for the sidecar files.  Parent directory must
                 exist.
         """
-        npy_path = Path(str(path) + ".npy")
-        json_path = Path(str(path) + ".json")
+        npy_path = path.with_suffix(".npy")
+        json_path = path.with_suffix(".json")
 
         if self._embeddings.size == 0:
             # Save a zero-shape array so load() can always read it back.
