@@ -58,6 +58,22 @@ CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
 """
 
 
+def _escape_like(value: str) -> str:
+    """Escape SQLite LIKE special characters in ``value``.
+
+    SQLite LIKE treats ``%`` and ``_`` as wildcards and ``\\`` as the escape
+    character (when ``ESCAPE '\\'`` is declared).  This function escapes all
+    three so that a user-supplied folder name is matched literally.
+
+    Args:
+        value: Raw string that will be embedded in a LIKE pattern.
+
+    Returns:
+        String with ``\\``, ``%``, and ``_`` replaced by their escaped forms.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _derive_folder(path: str) -> str:
     """Derive the folder from a document's relative path.
 
@@ -151,6 +167,9 @@ class FTSIndex:
 
         Returns:
             The ``ROWID`` / ``id`` of the newly inserted document row.
+
+        Raises:
+            RuntimeError: If the INSERT did not return a row ID.
         """
         cur.execute(
             """
@@ -167,7 +186,8 @@ class FTSIndex:
                 note.modified_at,
             ),
         )
-        assert cur.lastrowid is not None
+        if cur.lastrowid is None:
+            raise RuntimeError("INSERT did not return a row ID")
         return cur.lastrowid
 
     def _insert_sections(
@@ -303,7 +323,8 @@ class FTSIndex:
 
         Existing documents are upserted (delete + re-insert) so
         ``build_from_notes`` is idempotent when called on an already-populated
-        index.
+        index.  All inserts are wrapped in a single transaction for
+        performance and atomicity.
 
         Args:
             notes: Iterable of parsed documents to index.
@@ -312,8 +333,20 @@ class FTSIndex:
             Total number of chunks (sections) indexed.
         """
         total_chunks = 0
-        for note in notes:
-            total_chunks += self.upsert_note(note)
+        with self._conn:
+            cur = self._conn.cursor()
+            for note in notes:
+                folder = _derive_folder(note.path)
+                self._delete_document(cur, note.path)
+                doc_id = self._insert_document(cur, note, folder)
+                self._insert_sections(cur, doc_id, note)
+                self._insert_tags(cur, doc_id, note)
+                total_chunks += len(note.chunks)
+                logger.debug(
+                    "build_from_notes: indexed %d chunks for %s",
+                    len(note.chunks),
+                    note.path,
+                )
         logger.info("build_from_notes: indexed %d chunks total", total_chunks)
         return total_chunks
 
@@ -398,9 +431,12 @@ class FTSIndex:
         folder_clause = ""
         folder_params: list[str] = []
         if folder is not None:
-            # Match exact folder or sub-folders.
-            folder_clause = "AND (d.folder = ? OR d.folder LIKE ?)"
-            folder_params = [folder, folder + "/%"]
+            # Match exact folder or sub-folders.  Escape LIKE wildcards in the
+            # user-supplied folder value so that literal '%' and '_' characters
+            # are matched as-is rather than treated as SQL wildcards.
+            escaped = _escape_like(folder)
+            folder_clause = "AND (d.folder = ? OR d.folder LIKE ? ESCAPE '\\')"
+            folder_params = [folder, escaped + "/%"]
 
         tag_filter_sql = ""
         if tag_clauses:
@@ -477,15 +513,18 @@ class FTSIndex:
             List of dicts with the same shape as :meth:`get_note`.
         """
         if folder is not None:
+            # Escape LIKE wildcards in the user-supplied folder value so that
+            # literal '%' and '_' characters are matched as-is.
+            escaped = _escape_like(folder)
             cur = self._conn.execute(
                 """
                 SELECT path, title, folder, frontmatter_json,
                        content_hash, modified_at
                 FROM documents
-                WHERE folder = ? OR folder LIKE ?
+                WHERE folder = ? OR folder LIKE ? ESCAPE '\\'
                 ORDER BY path
                 """,
-                (folder, folder + "/%"),
+                (folder, escaped + "/%"),
             )
         else:
             cur = self._conn.execute(
