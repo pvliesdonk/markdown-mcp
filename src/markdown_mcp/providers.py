@@ -106,7 +106,7 @@ class OllamaProvider(EmbeddingProvider):
         logger.debug("POST %s model=%s texts=%d", url, self._model, len(texts))
 
         with self._httpx.Client() as client:
-            response = client.post(url, json=payload)
+            response = client.post(url, json=payload, timeout=30.0)
 
         if response.status_code != 200:
             raise RuntimeError(
@@ -133,7 +133,11 @@ class OllamaProvider(EmbeddingProvider):
         """
         if self._dimension is None:
             self.embed(["dimension probe"])
-        assert self._dimension is not None  # guaranteed by embed()
+        if self._dimension is None:
+            raise RuntimeError(
+                "OllamaProvider.embed() returned no embeddings; "
+                "cannot determine dimension."
+            )
         return self._dimension
 
 
@@ -199,7 +203,9 @@ class OpenAIProvider(EmbeddingProvider):
         )
 
         with self._httpx.Client() as client:
-            response = client.post(self._ENDPOINT, json=payload, headers=headers)
+            response = client.post(
+                self._ENDPOINT, json=payload, headers=headers, timeout=30.0
+            )
 
         if response.status_code != 200:
             raise RuntimeError(
@@ -228,7 +234,11 @@ class OpenAIProvider(EmbeddingProvider):
         """
         if self._dimension is None:
             self.embed(["dimension probe"])
-        assert self._dimension is not None  # guaranteed by embed()
+        if self._dimension is None:
+            raise RuntimeError(
+                "OpenAIProvider.embed() returned no embeddings; "
+                "cannot determine dimension."
+            )
         return self._dimension
 
 
@@ -280,7 +290,12 @@ class SentenceTransformersProvider(EmbeddingProvider):
         Returns:
             Integer dimension of each embedding vector.
         """
-        dim: int = self._model.get_sentence_embedding_dimension()
+        dim: int | None = self._model.get_sentence_embedding_dimension()
+        if dim is None:
+            raise RuntimeError(
+                "SentenceTransformer.get_sentence_embedding_dimension() returned None; "
+                "the model may not have been loaded correctly."
+            )
         return dim
 
 
