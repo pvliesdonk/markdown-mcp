@@ -5,12 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import TYPE_CHECKING
+import os
+import tempfile
+from pathlib import Path
 
 from markdown_mcp.types import ChangeSet, ParsedNote
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ class ChangeTracker:
                 logger.warning("File outside source_dir, skipping: %s", abs_path)
                 continue
             try:
-                content_hash = hashlib.sha256(abs_path.read_bytes()).hexdigest()
+                content_hash = self._compute_hash(abs_path)
             except OSError as exc:
                 logger.warning("Cannot read %s, skipping: %s", abs_path, exc)
                 continue
@@ -192,6 +191,33 @@ class ChangeTracker:
             state: Mapping of relative document path to SHA256 hex digest.
         """
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._state_path.open("w", encoding="utf-8") as fh:
-            json.dump(state, fh, indent=2, sort_keys=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=self._state_path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+                json.dump(state, fh, indent=2, sort_keys=True)
+            Path(tmp_path).replace(self._state_path)
+        except:
+            Path(tmp_path).unlink(missing_ok=True)
+            raise
         logger.debug("Saved state for %d path(s) to %s", len(state), self._state_path)
+
+    def _compute_hash(self, path: Path) -> str:
+        """Compute the SHA256 hex digest of *path* using chunked reads.
+
+        Reads the file in 8 KiB chunks so that large files do not require
+        loading the entire content into memory at once.
+
+        Args:
+            path: Absolute path to the file to hash.
+
+        Returns:
+            Lowercase hex-encoded SHA256 digest.
+
+        Raises:
+            OSError: If the file cannot be opened or read.
+        """
+        h = hashlib.sha256()
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        return h.hexdigest()
