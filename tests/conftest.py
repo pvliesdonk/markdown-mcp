@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -32,7 +33,8 @@ class MockEmbeddingProvider(EmbeddingProvider):
         """
         vectors = []
         for text in texts:
-            rng = np.random.RandomState(hash(text) % 2**31)
+            seed = int(hashlib.md5(text.encode()).hexdigest(), 16) % 2**31
+            rng = np.random.RandomState(seed)
             vec = rng.randn(self._dim).tolist()
             vectors.append(vec)
         return vectors

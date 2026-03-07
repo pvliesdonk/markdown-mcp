@@ -20,6 +20,22 @@ if TYPE_CHECKING:
 _METADATA_KEYS = {"path", "title", "folder", "heading", "content"}
 
 
+def _derive_folder(path: str) -> str:
+    """Derive the folder string from a relative document path.
+
+    Mirrors the logic in fts_index._derive_folder: parent directory of the
+    path, with "." replaced by "" for root-level documents.
+
+    Args:
+        path: Relative document path (forward-slash separated).
+
+    Returns:
+        Parent directory string, or "" for root-level documents.
+    """
+    parent = Path(path).parent.as_posix()
+    return "" if parent == "." else parent
+
+
 def _make_meta(path: str, heading: str | None = None) -> dict:
     """Build a minimal metadata dict for testing.
 
@@ -33,7 +49,7 @@ def _make_meta(path: str, heading: str | None = None) -> dict:
     return {
         "path": path,
         "title": f"Title for {path}",
-        "folder": str(Path(path).parent).replace(".", ""),
+        "folder": _derive_folder(path),
         "heading": heading,
         "content": f"Content for {path} section {heading}",
     }
