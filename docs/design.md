@@ -4,6 +4,23 @@
 > frontmatter-aware indexing, and incremental reindexing. Extracted from
 > and replacing the search layer in `pvliesdonk/if-craft-corpus`.
 
+## Terminology
+
+This spec uses the following terms consistently:
+
+- **Document**: a single `.md` file in the collection. The primary term used
+  throughout this spec.
+- **Folder**: a subdirectory within `source_dir`, represented as a
+  `/`-separated relative path (e.g., `Journal/2024`). The root of `source_dir`
+  is represented as an empty string `""`.
+- **Chunk**: a portion of a document, typically a section under a heading.
+  Stored in the `sections` database table.
+- **Tag**: a key-value pair from document frontmatter, stored in the
+  `document_tags` table for indexed filtering.
+
+In code: `ParsedNote` (scanner output), `Chunk` (section of a document),
+`sections` (database table name).
+
 ## Problem
 
 `pvliesdonk/if-craft-corpus` has a well-tested search stack (FTS5 + vector
@@ -56,18 +73,21 @@ the existing package until a complete refactor after markdown-mcp is stable.
 All code below lives in `pvliesdonk/if-craft-corpus`. Read these files for
 implementation patterns:
 
-| File | Reuse | Notes |
-|------|-------|-------|
+| File | Reuse Strategy | Notes |
+|------|----------------|-------|
 | `providers.py` | **Copy + adapt** | Rename env var prefix `IFCRAFTCORPUS_` to `MARKDOWN_MCP_`. Fix hardcoded imports. |
-| `embeddings.py` | **Copy + adapt** | Rename to `vector_index.py`. Fix `load()` import path. |
+| `embeddings.py` | **Copy + adapt** | Rename to `vector_index.py`. The `load()` classmethod contains a hardcoded `from ifcraftcorpus.providers import get_embedding_provider` -- this **must** be changed to `from markdown_mcp.providers import get_embedding_provider` or it will raise `ImportError` at runtime. |
 | `search.py` | **Adapt** | Pattern for `Collection` facade. Replace domain methods with generic API. |
-| `index.py` | **Adapt** | Pattern for `fts_index.py`. Replace corpus-specific schema. Fix hybrid score bug. |
-| `parser.py` | **Replace** | Replace with generic frontmatter + heading-based chunking. |
-| `mcp_server.py` | **Adapt** | Replace domain tools with generic tools. Use lifespan hooks. |
+| `index.py` | **Adapt** | Pattern for `fts_index.py`. Replace corpus-specific schema. Fix hybrid score bug (see RRF section). |
+| `parser.py` | **Replace** | Replace with generic frontmatter + heading-based chunking using `python-frontmatter`. |
+| `mcp_server.py` | **Adapt** | Replace domain tools with generic tools. Use lifespan hooks instead of lazy global singleton. |
 | `cli.py` | **Adapt** | Simplify for markdown-mcp. |
 
-Temporary code duplication is accepted. It resolves when ifcraftcorpus is
-eventually refactored to depend on markdown-mcp.
+**Reuse strategy definitions**:
+- **Copy + adapt**: copy the file as a starting point, then modify for the new
+  package. Temporary code duplication accepted until ifcraftcorpus refactor.
+- **Adapt**: use as a design reference; rewrite for the new package.
+- **Replace**: discard and write new implementation.
 
 ## Core Design Decisions
 
@@ -79,26 +99,36 @@ including the `.md` extension. Example: `Journal/2024-01-15.md`.
 This avoids collisions between files with the same stem in different
 directories (e.g., `Journal/2024-01-15.md` vs `Archive/2024-01-15.md`).
 
+### Folder Derivation
+
+The `folder` field is derived as the parent directory of the document's
+relative path:
+
+- `README.md` -> folder `""`  (root)
+- `Journal/2024-01-15.md` -> folder `"Journal"`
+- `Journal/2024/January/note.md` -> folder `"Journal/2024/January"`
+
+`list_folders()` returns all distinct folder values across the collection.
+
 ### Frontmatter Handling
 
-Frontmatter is **optional by default**. Files without frontmatter are indexed
-normally with an empty metadata dict. Title defaults to the first H1 heading,
-then the filename.
+Frontmatter is **optional by default**. Documents without frontmatter are
+indexed normally with an empty metadata dict. Title defaults to the first H1
+heading, then the filename (without extension).
 
 A `required_frontmatter` configuration option enforces specific fields:
 
 ```python
 Collection(
     source_dir=Path("corpus/"),
-    required_frontmatter=["title", "cluster"],  # files missing these are skipped
+    required_frontmatter=["title", "cluster"],
 )
 ```
 
 - `None` (default): all `.md` files are indexed regardless of frontmatter.
-- `["title", "cluster"]`: files missing any listed field are silently skipped.
-
-This lets ifcraftcorpus enforce its schema while Obsidian vaults index
-everything.
+- `["title", "cluster"]`: documents missing any listed field are excluded from
+  the index entirely and will not be searchable. At scan completion, the
+  number of skipped documents is logged at `INFO` level.
 
 ### Frontmatter Filtering
 
@@ -106,8 +136,11 @@ Hybrid approach:
 
 1. **`document_tags` table** (indexed) for structured filtering. An
    `indexed_frontmatter_fields` config option specifies which frontmatter keys
-   get promoted into `(tag_key, tag_value)` rows. Multi-valued fields (lists)
-   produce one row per value.
+   get promoted into `(tag_key, tag_value)` rows. Each unique
+   `(document_id, tag_key, tag_value)` tuple produces one row (duplicates in
+   source lists are deduplicated). Complex types (nested dicts, objects) in
+   frontmatter are stored in the JSON blob but are **not** indexed -- only
+   scalar and simple list values are indexed.
 2. **Raw frontmatter JSON blob** stored in the `documents` table for display
    and retrieval only -- not queried via index.
 
@@ -115,20 +148,18 @@ The `filters` parameter on `search()` generates
 `document_id IN (SELECT ... FROM document_tags WHERE ...)` subqueries. This
 gives O(1) indexed lookup without `json_extract()` performance problems.
 
+**Filter semantics**: `filters` is `dict[str, str]`. Each key-value pair is
+ANDed. Example: `filters={"cluster": "fiction", "genre": "horror"}` returns
+documents tagged with both `cluster=fiction` AND `genre=horror`. Multi-valued
+OR queries within a single key are not supported in Phase 1; use multiple
+searches and merge client-side.
+
 ### FTS5 Schema
 
-Generic columns replacing the corpus-specific `cluster`/`topics`:
+See the [Database Schema](#database-schema) section for full DDL.
 
-```sql
-CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-    path,
-    title,
-    folder,
-    heading,
-    content,
-    tokenize='porter unicode61'
-);
-```
+Generic columns replacing the corpus-specific `cluster`/`topics`:
+`path`, `title`, `folder`, `heading`, `content`.
 
 Domain-specific filtering (by cluster, topic, tag) happens via the
 `document_tags` table, not FTS5 columns.
@@ -149,14 +180,25 @@ This produces sensible merged rankings regardless of the raw score scales.
 A `ChunkStrategy` protocol enables extensible chunking:
 
 ```python
+@runtime_checkable
 class ChunkStrategy(Protocol):
-    def chunk(self, content: str, metadata: dict) -> list[Chunk]: ...
+    def chunk(self, content: str, metadata: dict[str, Any]) -> list[Chunk]:
+        """Chunk the markdown body into sections.
+
+        Args:
+            content: Markdown body after frontmatter has been stripped.
+            metadata: Parsed frontmatter dict (for context, not modification).
+
+        Returns:
+            List of Chunk objects.
+        """
+        ...
 ```
 
 **Phase 1 implementations**:
-- `HeadingChunker`: split on H1/H2 boundaries. Short notes stay as single
-  chunk. Each chunk inherits the note's frontmatter. Default.
-- `WholeDocumentChunker`: one chunk per note. Good for short notes.
+- `HeadingChunker`: split on H1/H2 boundaries. Short documents stay as single
+  chunk. Each chunk inherits the document's frontmatter. Default.
+- `WholeDocumentChunker`: one chunk per document. Good for short documents.
 
 **Future** (deferred):
 - `SlidingWindowChunker`: fixed-size overlapping windows with configurable
@@ -169,7 +211,10 @@ for built-in names, or pass a custom instance.
 
 **Hash-based**, not git-based. Works with any directory, no git dependency.
 
-- State file: `{relative_path: sha256_hash}` as JSON.
+- **State file** (the JSON persistence layer for hash-based change detection):
+  `{relative_path: sha256_hash}` as JSON.
+- **Default path**: `{source_dir}/.markdown_mcp/state.json` (when
+  `state_path=None`).
 - On `reindex()`: scan all files, compare hashes to stored state, re-parse and
   re-embed only changed/added files, remove deleted entries.
 
@@ -183,18 +228,45 @@ Full numpy array rebuild on every reindex (filter unchanged rows + append new).
 Only changed files are re-embedded (the expensive API call part). This is
 correct and simple at vault scale (even 10k chunks at 768 dimensions is ~60MB).
 
-Each embedding row stores the source file path in metadata, enabling
-group-delete by file.
+The `VectorIndex` maintains a sidecar metadata list mapping each row index to
+its source document path, enabling bulk deletion when a document is reindexed.
+
+### Index Lifecycle
+
+Two methods manage the index:
+
+- **`build_index(force=False)`**: initial population. Scans `source_dir` and
+  builds the FTS index. If the index already has data and `force=False`, this
+  is a no-op. `force=True` drops and rebuilds from scratch.
+- **`reindex()`**: incremental update. Uses `ChangeTracker` to detect
+  adds/modifies/deletes since the last scan and applies only the delta.
+
+**Lazy initialization**: on first call to `search()`, `list()`, or `read()`,
+`Collection` lazily builds the FTS index from `source_dir` if no pre-built
+`index_path` was provided. `build_index()` can be called explicitly to
+pre-warm the index or to force a rebuild.
 
 ### Error Handling
 
 Two-layer model:
 
 - **Library layer** (`Collection`, `FTSIndex`, `VectorIndex`, etc.): raises
-  specific exceptions (`DocumentNotFoundError`, `ReadOnlyError`,
-  `IndexError`). Callers catch and handle.
+  specific exceptions. Callers catch and handle.
 - **MCP tool layer**: catches exceptions, returns structured error responses
   per FastMCP conventions.
+
+**Exception types**:
+
+| Exception | Raised by | When |
+|-----------|-----------|------|
+| `DocumentNotFoundError` | `read()`, `edit()`, `delete()`, `rename()` | Document path does not exist on disk |
+| `ReadOnlyError` | `write()`, `edit()`, `delete()`, `rename()` | `read_only=True` |
+| `EditConflictError` | `edit()` | `old_text` not found or appears more than once |
+| `DocumentExistsError` | `rename()` | `new_path` already exists |
+| `ValueError` | `build_embeddings()` | No `embedding_provider` or `embeddings_path` configured |
+
+If a provider fails mid-`build_embeddings()`, the partial state is NOT saved;
+the previous embeddings file (if any) is left intact.
 
 ### Concurrency
 
@@ -214,6 +286,193 @@ Follow FastMCP conventions and standard Python logging:
 `logging.getLogger(__name__)` throughout. Include a `configure_logging()` setup
 module (adapted from ifcraftcorpus). No `print()` for operational output.
 
+## Data Types
+
+All public return types and major internal structures:
+
+```python
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+# --- Scanner types ---
+
+@dataclass
+class ParsedNote:
+    """A parsed markdown document."""
+    path: str                         # relative to source_dir, includes .md
+    frontmatter: dict[str, Any]       # parsed YAML frontmatter (empty dict if none)
+    title: str                        # from frontmatter, first H1, or filename
+    chunks: list[Chunk]               # content chunks
+    content_hash: str                 # SHA256 of raw file content
+    modified_at: float                # file mtime
+
+@dataclass
+class Chunk:
+    """A chunk of a document, typically a section under a heading."""
+    heading: str | None               # heading text, None for preamble
+    heading_level: int                # 0 for preamble, 1-6 for headings
+    content: str                      # markdown body (frontmatter stripped)
+    start_line: int                   # line number in source file
+
+# --- Search types ---
+
+@dataclass
+class SearchResult:
+    """A search result from the Collection API."""
+    path: str                         # document relative path
+    title: str                        # document title
+    folder: str                       # derived folder
+    heading: str | None               # matched section heading (None for summary)
+    content: str                      # matched text content
+    score: float                      # relevance score (RRF in hybrid mode)
+    search_type: Literal["keyword", "semantic"]
+    frontmatter: dict[str, Any]       # document frontmatter
+
+@dataclass
+class FTSResult:
+    """A raw search result from the FTS5 index layer."""
+    path: str
+    title: str
+    folder: str
+    heading: str | None
+    content: str
+    score: float                      # BM25 score (abs value)
+
+# --- CRUD types ---
+
+@dataclass
+class NoteContent:
+    """Full content of a document, returned by read()."""
+    path: str
+    title: str
+    folder: str
+    content: str                      # raw markdown (including frontmatter)
+    frontmatter: dict[str, Any]
+    modified_at: float
+
+@dataclass
+class NoteInfo:
+    """Summary info for a document, returned by list()."""
+    path: str
+    title: str
+    folder: str
+    frontmatter: dict[str, Any]
+    modified_at: float
+
+@dataclass
+class WriteResult:
+    """Result of a write operation."""
+    path: str
+    created: bool                     # True if new file, False if overwrite
+
+@dataclass
+class EditResult:
+    """Result of an edit operation."""
+    path: str
+    replacements: int                 # always 1 (enforced by edit semantics)
+
+@dataclass
+class DeleteResult:
+    """Result of a delete operation."""
+    path: str
+
+@dataclass
+class RenameResult:
+    """Result of a rename operation."""
+    old_path: str
+    new_path: str
+
+# --- Index types ---
+
+@dataclass
+class IndexStats:
+    """Statistics from build_index()."""
+    documents_indexed: int
+    chunks_indexed: int
+    skipped: int                      # documents skipped (required_frontmatter)
+
+@dataclass
+class ReindexResult:
+    """Result of an incremental reindex."""
+    added: int
+    modified: int
+    deleted: int
+    unchanged: int
+
+@dataclass
+class CollectionStats:
+    """Collection-wide statistics."""
+    document_count: int
+    chunk_count: int
+    folder_count: int
+    semantic_search_available: bool
+    indexed_frontmatter_fields: list[str]
+
+# --- Change tracking ---
+
+@dataclass
+class ChangeSet:
+    """Documents that changed since last index."""
+    added: list[str]
+    modified: list[str]
+    deleted: list[str]
+    unchanged: int
+```
+
+## Database Schema
+
+Full DDL for the SQLite database used by `FTSIndex`:
+
+```sql
+-- Documents table: one row per .md file
+CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY,
+    path TEXT UNIQUE NOT NULL,        -- relative path (document identity)
+    title TEXT NOT NULL,
+    folder TEXT NOT NULL DEFAULT '',  -- derived from path parent
+    frontmatter_json TEXT,            -- raw YAML frontmatter as JSON (for display)
+    content_hash TEXT NOT NULL,       -- SHA256 of raw file content
+    modified_at REAL NOT NULL         -- file mtime
+);
+
+-- Sections table: one row per chunk within a document
+CREATE TABLE IF NOT EXISTS sections (
+    id INTEGER PRIMARY KEY,
+    document_id INTEGER NOT NULL,
+    heading TEXT,                     -- heading text, NULL for preamble
+    heading_level INTEGER NOT NULL,   -- 0 for preamble, 1-6 for headings
+    content TEXT NOT NULL,            -- chunk content (frontmatter stripped)
+    start_line INTEGER NOT NULL,      -- line number in source file
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+-- Document tags: indexed frontmatter key-value pairs
+CREATE TABLE IF NOT EXISTS document_tags (
+    id INTEGER PRIMARY KEY,
+    document_id INTEGER NOT NULL,
+    tag_key TEXT NOT NULL,
+    tag_value TEXT NOT NULL,
+    UNIQUE(document_id, tag_key, tag_value),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tags_kv
+    ON document_tags(tag_key, tag_value);
+
+CREATE INDEX IF NOT EXISTS idx_tags_docid
+    ON document_tags(document_id);
+
+-- FTS5 virtual table for full-text search
+CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+    path,
+    title,
+    folder,
+    heading,
+    content,
+    tokenize='porter unicode61'
+);
+```
+
 ## Module Design
 
 ### `collection.py` -- Thin Facade
@@ -226,15 +485,15 @@ class Collection:
         self,
         *,
         source_dir: Path,
-        index_path: Path | None = None,
-        embeddings_path: Path | None = None,
+        index_path: Path | None = None,       # None = in-memory SQLite
+        embeddings_path: Path | None = None,  # None = semantic search disabled
         embedding_provider: EmbeddingProvider | None = None,
         read_only: bool = True,
-        state_path: Path | None = None,
+        state_path: Path | None = None,       # None = {source_dir}/.markdown_mcp/state.json
         indexed_frontmatter_fields: list[str] | None = None,
         required_frontmatter: list[str] | None = None,
         chunk_strategy: str | ChunkStrategy = "heading",
-        on_write: Callable[[Path, str], None] | None = None,
+        on_write: WriteCallback | None = None,
     ): ...
 
     # --- Search ---
@@ -260,6 +519,7 @@ class Collection:
     def build_index(self, *, force: bool = False) -> IndexStats: ...
     def reindex(self) -> ReindexResult: ...
     def build_embeddings(self, *, force: bool = False) -> int: ...
+    def embeddings_status(self) -> dict: ...
 
     # --- Metadata ---
     def list_folders(self) -> list[str]: ...
@@ -267,38 +527,63 @@ class Collection:
     def stats(self) -> CollectionStats: ...
 ```
 
+**Constructor defaults**:
+- `index_path=None`: index is created in-memory (`:memory:` SQLite). If
+  provided, persisted to disk.
+- `embeddings_path=None`: semantic search is disabled.
+- `state_path=None`: defaults to `{source_dir}/.markdown_mcp/state.json`.
+
+**Lazy initialization**: on first call to `search()`, `list()`, or `read()`,
+`Collection` lazily builds the FTS index from `source_dir` if no pre-built
+`index_path` was provided.
+
 **Write operations** (`write`, `edit`, `delete`, `rename`) raise
 `ReadOnlyError` when `read_only=True`.
 
-**`edit` behavior**: reads the file first, verifies `old_text` exists exactly
-once in the file content, replaces it with `new_text`, writes back, updates
-index, triggers `on_write` callback. Fails if `old_text` is not found or is
-ambiguous (multiple matches).
+**`write()` behavior**: creates or overwrites the document at `path`. Creates
+intermediate directories as needed (`mkdir -p` semantics). If `frontmatter` is
+provided, it is serialized as YAML front matter at the top of the file. Updates
+the FTS index and triggers `on_write`.
 
-**`on_write` callback**: generic interface invoked after any write operation.
-Default: no-op. Built-in option: git strategy (auto-commit + push using
-configured PAT via `GITHUB_TOKEN` or `MARKDOWN_MCP_GIT_TOKEN`). Extensible
-for future strategies.
+**`edit()` behavior**: reads the file first, verifies `old_text` exists exactly
+once in the full file content (including frontmatter). Replaces it with
+`new_text`, writes back, updates index, triggers `on_write`. Raises
+`DocumentNotFoundError` if the file does not exist. Raises `EditConflictError`
+if `old_text` is not found or appears more than once.
+
+**`delete()` behavior**: removes the file from disk, deletes FTS and embedding
+entries, triggers `on_write`. Raises `DocumentNotFoundError` if not found.
+
+**`rename()` behavior** (Phase 2-3): renames the file on disk, deletes old
+FTS/embedding entries, inserts new entries under the new path, updates
+embedding metadata in-place. Triggers `on_write` with the new path. Raises
+`DocumentNotFoundError` if `old_path` does not exist. Raises
+`DocumentExistsError` if `new_path` already exists.
+
+**`list()` pattern parameter**: if provided, `pattern` is a Unix glob matched
+against the relative path using `fnmatch.fnmatch()`. Example:
+`pattern="Journal/*.md"` returns only documents in the Journal folder.
+
+**`list_tags(field)` behavior**: queries only the `document_tags` table. If
+`field` was not in `indexed_frontmatter_fields`, returns `[]`.
+
+**`on_write` callback**:
+
+```python
+WriteCallback = Callable[[Path, str, Literal["write", "edit", "delete", "rename"]], None]
+```
+
+- `path`: absolute path on disk (for `delete`, the path before deletion; for
+  `rename`, the new path).
+- `content`: new file content (empty string `""` for `delete`).
+- `operation`: which operation triggered the callback.
+
+Default: `None` (no callback). Built-in option: git strategy factory
+`git_write_strategy(token=...)` that auto-commits and pushes.
 
 ### `scanner.py` -- File Discovery and Parsing
 
 ```python
-@dataclass
-class ParsedNote:
-    path: str                    # relative to source_dir, includes .md extension
-    frontmatter: dict[str, Any]  # parsed YAML frontmatter (empty dict if none)
-    title: str                   # from frontmatter, first H1, or filename
-    chunks: list[Chunk]
-    content_hash: str            # SHA256 of raw file content
-    modified_at: float           # file mtime
-
-@dataclass
-class Chunk:
-    heading: str | None          # heading text, None for preamble
-    heading_level: int           # 0 for preamble, 1-6 for headings
-    content: str
-    start_line: int
-
 def scan_directory(
     source_dir: Path,
     *,
@@ -311,7 +596,14 @@ def parse_note(path: Path, source_dir: Path) -> ParsedNote: ...
 ```
 
 **Frontmatter parsing**: use `python-frontmatter` library. Schema-agnostic.
-Files without frontmatter get an empty dict and proceed normally.
+Documents without frontmatter get an empty dict and proceed normally.
+
+**Exclude patterns**: glob patterns (e.g., `[".obsidian/**", "_templates/**"]`)
+matched against relative paths from `source_dir` using `pathlib.Path.match()`.
+
+**Fault tolerance**: documents that cannot be decoded as UTF-8 are skipped with
+a `WARNING` log message. `scan_directory()` is fault-tolerant; a single bad
+file does not abort the scan.
 
 ### `fts_index.py` -- SQLite FTS5
 
@@ -323,7 +615,7 @@ class FTSIndex:
     def delete_by_path(self, path: str) -> int: ...
     def search(self, query: str, *, limit: int = 10,
                folder: str | None = None,
-               filters: dict[str, str] | None = None) -> list[SearchResult]: ...
+               filters: dict[str, str] | None = None) -> list[FTSResult]: ...
     def get_note(self, path: str) -> dict | None: ...
     def list_notes(self, *, folder: str | None = None) -> list[dict]: ...
     def list_folders(self) -> list[str]: ...
@@ -331,13 +623,21 @@ class FTSIndex:
     def close(self) -> None: ...
 ```
 
-Schema: `documents`, `sections`, `document_tags` (indexed), `notes_fts`
-(FTS5 virtual table with `path`, `title`, `folder`, `heading`, `content`).
+Uses the schema defined in [Database Schema](#database-schema). Note that
+`FTSIndex.search()` returns `list[FTSResult]` (raw BM25 results), while
+`Collection.search()` returns `list[SearchResult]` (unified results with RRF
+scoring in hybrid mode).
 
 ### `vector_index.py` -- Numpy Embeddings
 
 Adapted from ifcraftcorpus `embeddings.py`. Rename `EmbeddingIndex` to
-`VectorIndex`. Fix hardcoded import in `load()`.
+`VectorIndex`. The `load()` classmethod **must** import from
+`markdown_mcp.providers`, not `ifcraftcorpus.providers`.
+
+The `VectorIndex` maintains a sidecar metadata list where each entry maps a
+row index to `{path, title, folder, heading, content}`. This enables:
+- Bulk deletion by document path (for reindex)
+- Returning rich metadata with semantic search results
 
 ### `providers.py` -- Embedding Providers
 
@@ -350,13 +650,6 @@ Copied from ifcraftcorpus, adapted:
 ### `tracker.py` -- Change Detection
 
 ```python
-@dataclass
-class ChangeSet:
-    added: list[str]
-    modified: list[str]
-    deleted: list[str]
-    unchanged: int
-
 class ChangeTracker:
     def __init__(self, state_path: Path): ...
     def detect_changes(self, source_dir: Path,
@@ -364,6 +657,9 @@ class ChangeTracker:
     def update_state(self, notes: list[ParsedNote]) -> None: ...
     def reset(self) -> None: ...
 ```
+
+`tracker.py` is entirely new code (no ifcraftcorpus equivalent). State file
+format: `{"Journal/note.md": "sha256hex", ...}` as JSON.
 
 ### `mcp_server.py` -- Generic MCP Server
 
@@ -375,21 +671,23 @@ pattern). Each tool is annotated with MCP `ToolAnnotations`:
 | Tool | Description | `readOnlyHint` | `destructiveHint` | `idempotentHint` |
 |------|-------------|:-:|:-:|:-:|
 | `search` | Search the collection by query | `True` | `False` | `True` |
-| `read` | Read a note's full content | `True` | `False` | `True` |
-| `list` | List notes, optionally filtered by folder | `True` | `False` | `True` |
-| `write` | Create or overwrite a note | `False` | `False` | `True` |
-| `edit` | Patch a section of a note (read-before-edit) | `False` | `False` | `False` |
-| `rename` | Rename/move a note (Phase 2-3) | `False` | `False` | `False` |
-| `delete` | Delete a note | `False` | **`True`** | `True` |
-| `list_folders` | List all folders in the collection | `True` | `False` | `True` |
-| `list_tags` | List tag values for a frontmatter field | `True` | `False` | `True` |
+| `read` | Read a document's full content | `True` | `False` | `True` |
+| `list` | List documents, optionally filtered | `True` | `False` | `True` |
+| `write` | Create or overwrite a document | `False` | `False` | `True` |
+| `edit` | Patch a section (read-before-edit) | `False` | `False` | `False` |
+| `rename` | Rename/move a document (Phase 2-3) | `False` | `False` | `False` |
+| `delete` | Delete a document | `False` | **`True`** | `True` |
+| `list_folders` | List all folders | `True` | `False` | `True` |
+| `list_tags` | List tag values for a field | `True` | `False` | `True` |
 | `stats` | Collection statistics | `True` | `False` | `True` |
-| `reindex` | Incremental reindex (detect changes) | `False` | `False` | `True` |
+| `reindex` | Incremental reindex | `False` | `False` | `True` |
 | `build_embeddings` | Build/rebuild vector embeddings | `False` | `False` | `True` |
 | `embeddings_status` | Check embedding provider status | `True` | `False` | `True` |
 
 **Conditional registration**: `write`, `edit`, `delete`, `rename` are only
-registered when `read_only=False`.
+registered when `read_only=False`. If a client somehow invokes them on a
+read-only server, `ReadOnlyError` is raised (converted to structured error
+response by the MCP layer).
 
 **Tool semantics**:
 - `read(path)` returns full file content + frontmatter metadata
@@ -428,6 +726,32 @@ For MCP server deployment:
 | `MARKDOWN_MCP_OLLAMA_CPU_ONLY` | Force CPU-only inference | `false` |
 | `OPENAI_API_KEY` | OpenAI API key | none |
 
+#### Example Configurations
+
+**Obsidian vault (read-only)**:
+```bash
+MARKDOWN_MCP_SOURCE_DIR=/home/user/Obsidian
+MARKDOWN_MCP_READ_ONLY=true
+MARKDOWN_MCP_EXCLUDE=.obsidian/**,.trash/**
+EMBEDDING_PROVIDER=ollama
+```
+
+**IF Craft Corpus (strict frontmatter)**:
+```bash
+MARKDOWN_MCP_SOURCE_DIR=/data/corpus
+MARKDOWN_MCP_READ_ONLY=true
+MARKDOWN_MCP_REQUIRED_FIELDS=title,cluster
+MARKDOWN_MCP_INDEXED_FIELDS=cluster,topics
+```
+
+**Obsidian vault (read-write, git-backed)**:
+```bash
+MARKDOWN_MCP_SOURCE_DIR=/data/vault
+MARKDOWN_MCP_READ_ONLY=false
+MARKDOWN_MCP_EXCLUDE=.obsidian/**,.trash/**,_templates/**
+MARKDOWN_MCP_GIT_TOKEN=ghp_xxx
+```
+
 ### Phase 3: Evaluate YAML
 
 If multi-collection or complex per-collection settings are needed, add YAML
@@ -441,7 +765,6 @@ Evaluate at deploy time, not before.
 name = "markdown-mcp"
 requires-python = ">=3.10"
 dependencies = [
-    "pyyaml>=6.0",
     "python-frontmatter>=1.0",
 ]
 
@@ -459,6 +782,9 @@ markdown-mcp = "markdown_mcp.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 ```
+
+Note: `pyyaml` is not listed as a direct dependency; it is a transitive
+dependency of `python-frontmatter`.
 
 ## Deployment
 
@@ -492,6 +818,10 @@ credentials. Options: SSH key mount or PAT via env var.
 
 ### Phase 1: Core Library + API Validation
 
+**API surface**: `Collection.__init__`, `search`, `read`, `list`,
+`build_index`, `reindex`, `build_embeddings`, `embeddings_status`,
+`list_folders`, `list_tags`, `stats`.
+
 1. Create repo structure, packaging, CI/CD (adapted from ifcraftcorpus)
 2. Copy + adapt `providers.py` and `embeddings.py` (rename to `vector_index.py`)
 3. Implement `scanner.py` -- frontmatter parsing, heading-based chunking,
@@ -500,15 +830,20 @@ credentials. Options: SSH key mount or PAT via env var.
 5. Implement `tracker.py` -- hash-based change detection
 6. Implement `collection.py` -- thin facade tying it all together
 7. Tests for all modules (fixtures with sample .md files covering: no
-   frontmatter, partial frontmatter, malformed YAML, deep headings, unicode)
-8. **Validate API**: attempt to configure `Collection` with ifcraftcorpus
-   settings (`required_frontmatter=["title", "cluster"]`,
-   `indexed_frontmatter_fields=["cluster", "topics"]`). If the API doesn't
-   accommodate the corpus use case cleanly, fix it now.
+   frontmatter, partial frontmatter, malformed YAML, deep headings, unicode,
+   invalid UTF-8)
+8. **Validate API**: configure `Collection` with ifcraftcorpus settings
+   (`required_frontmatter=["title", "cluster"]`,
+   `indexed_frontmatter_fields=["cluster", "topics"]`). Build index, run
+   search, verify tag filtering works. If the API doesn't accommodate the
+   corpus use case, fix it before Phase 2.
 
 ### Phase 2: MCP Server + CI/CD
 
-9. Implement `mcp_server.py` with all tools, `ToolAnnotations`, lifespan hooks
+**API surface adds**: MCP tools, CLI.
+
+9. Implement `mcp_server.py` with all read-only tools, `ToolAnnotations`,
+   lifespan hooks
 10. Implement `cli.py` -- `serve`, `index`, `search`, `reindex` commands
 11. Configuration loading (env vars)
 12. Docker + GitHub Actions + PyPI (adapted from ifcraftcorpus)
@@ -517,6 +852,8 @@ credentials. Options: SSH key mount or PAT via env var.
 14. MCP tool integration tests using FastMCP test client
 
 ### Phase 3: Deploy + Write Support
+
+**API surface adds**: `write`, `edit`, `delete`, `rename`.
 
 15. Deploy to homelab (Traefik + mcp-auth-proxy)
 16. Write support: `write`, `edit`, `delete` tools
@@ -533,19 +870,22 @@ credentials. Options: SSH key mount or PAT via env var.
 
 ## Testing Strategy
 
-- **Fixtures**: `tests/fixtures/` directory with sample vault notes in several
-  shapes: no frontmatter, minimal frontmatter, full frontmatter, malformed
-  YAML, deeply nested headings, unicode, empty files.
+- **Fixtures**: `tests/fixtures/` directory with sample vault documents in
+  several shapes: no frontmatter, minimal frontmatter, full frontmatter,
+  malformed YAML, deeply nested headings, unicode, empty files, invalid UTF-8.
 - **Unit tests**: scanner (frontmatter parsing, chunking, required_frontmatter
-  filtering), FTS index (CRUD, search, tag filtering, RRF hybrid), change
-  tracker (detect changes, update state), vector index (add, search,
-  save/load, metadata consistency).
+  filtering, UTF-8 fault tolerance), FTS index (CRUD, search, tag filtering,
+  RRF hybrid), change tracker (detect changes, update state), vector index
+  (add, search, save/load, metadata consistency).
 - **Integration tests**: Collection end-to-end (scan -> index -> search ->
   reindex), write + reindex roundtrip (write makes content searchable),
   MCP server tool invocations via FastMCP test client.
-- **Regression tests**: hybrid score ordering (verify RRF produces sensible
-  merged rankings), document identity (same filename in different folders),
-  frontmatter-less files indexed correctly.
+- **Regression tests**: hybrid score ordering (search for a query that matches
+  in both FTS5 and semantic; verify RRF merges ranks so neither signal
+  dominates), document identity (same filename in different folders produces
+  distinct results), frontmatter-less documents indexed correctly.
+- **API validation**: Phase 1 includes a test that configures `Collection`
+  with ifcraftcorpus settings and verifies search + tag filtering work.
 - **Coverage**: enforce with `coverage.py` `fail_under` (same pattern as
   ifcraftcorpus).
 
@@ -554,7 +894,7 @@ credentials. Options: SSH key mount or PAT via env var.
 | Risk | Mitigation |
 |------|-----------|
 | VRAM contention (Ollama on RTX 4060 8GB) | `cpu_only` mode, batch embeddings |
-| Vault scale (numpy in-memory) | Fine for thousands of notes. If tens of thousands, evaluate Qdrant. |
+| Vault scale (numpy in-memory) | Fine for thousands of documents. If tens of thousands, evaluate Qdrant. |
 | Concurrent writes (Obsidian + MCP) | Use git as sync layer. MCP server should not write directly to live Obsidian vault without git in between. |
 | FastMCP breaking changes | Pin `>=2.5,<3`. Monitor for 3.0 migration. |
 | `Collection` API doesn't fit ifcraftcorpus | Validate in Phase 1 before building MCP server. |
@@ -577,11 +917,11 @@ Decisions made during design review (2026-03-07):
 | 10 | FastMCP | Pin `>=2.5,<3`; lifespan hooks; follow conventions | Proper init/teardown; forward-compatible |
 | 11 | Write support | Separate frontmatter param; generic `on_write` callback | Git strategy as built-in; extensible for future strategies |
 | 12 | Docker/CI | Bring early (Phase 2); adapt from ifcraftcorpus | Proven infrastructure, minimal changes needed |
-| 13a | Error handling | Library raises; MCP catches and returns structured | Clean separation of concerns |
-| 13b | Logging | Follow FastMCP conventions; `logging.getLogger(__name__)` | Standardized, no `print()` |
-| 13c | Concurrency | Library sync; `asyncio.to_thread()` in MCP layer | Appropriate for single-user; async provider as future work |
-| 13d | FTS5 schema | `path`, `title`, `folder`, `heading`, `content` | Generic; domain filtering via `document_tags` |
-| 13e | File extension | Include `.md` in document identifier | Unambiguous, matches filesystem |
+| 13.1 | Error handling | Library raises; MCP catches and returns structured | Clean separation of concerns |
+| 13.2 | Logging | Follow FastMCP conventions; `logging.getLogger(__name__)` | Standardized, no `print()` |
+| 13.3 | Concurrency | Library sync; `asyncio.to_thread()` in MCP layer | Appropriate for single-user; async provider as future work |
+| 13.4 | FTS5 schema | `path`, `title`, `folder`, `heading`, `content` | Generic; domain filtering via `document_tags` |
+| 13.5 | File extension | Include `.md` in document identifier | Unambiguous, matches filesystem |
 | 14 | Python library use | Document as use case; `Collection` is primary API | MCP is one consumer; LangChain wrapper is downstream |
 | 15 | Rename | Include in design, defer to Phase 2-3 | Touches every layer; not critical for initial release |
 | 16 | Tool semantics | Mirror Claude Code Read/Write/Edit; MCP `ToolAnnotations` | Familiar to LLMs; `delete` marked destructive |
