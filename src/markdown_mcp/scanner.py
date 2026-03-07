@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import logging
 import re
@@ -16,9 +17,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-# Heading pattern: matches H1 or H2 at the start of a line.
-_HEADING_RE = re.compile(r"^(#{1,2})\s+(.+)$", re.MULTILINE)
 
 # Threshold below which a document is not split (single chunk).
 _SHORT_DOC_LINES = 30
@@ -157,6 +155,9 @@ class HeadingChunker:
                 content_end = len(lines)
 
             section_content = "".join(lines[content_start:content_end])
+            # Skip heading-only sections that have no meaningful body content.
+            if not section_content.strip():
+                continue
             chunks.append(
                 Chunk(
                     heading=heading_text,
@@ -275,8 +276,9 @@ def scan_directory(
         glob_pattern: Glob pattern relative to ``source_dir`` that selects
             files to scan. Defaults to ``"**/*.md"``.
         exclude_patterns: List of glob patterns matched against each file's
-            relative path using :meth:`pathlib.Path.match`. Files whose
-            relative path matches any pattern are excluded.
+            relative POSIX path using :func:`fnmatch.fnmatch`. Files whose
+            path matches any pattern are excluded. Supports ``**`` on all
+            Python versions (unlike :meth:`pathlib.Path.match` in < 3.12).
             Example: ``[".obsidian/**", "_templates/**"]``.
         required_frontmatter: If provided, documents missing any of the listed
             frontmatter fields are excluded from the results. The number of
@@ -302,8 +304,11 @@ def scan_directory(
             logger.warning("File outside source_dir, skipping: %s", abs_path)
             continue
 
-        # Check exclude patterns against the relative path.
-        if any(rel.match(pat) for pat in exclude_patterns):
+        # Check exclude patterns against the relative POSIX path string.
+        # fnmatch is used instead of Path.match() because Path.match() does
+        # not support ** patterns in Python < 3.12.
+        rel_posix = rel.as_posix()
+        if any(fnmatch.fnmatch(rel_posix, pat) for pat in exclude_patterns):
             logger.debug("Excluding %s (matched exclude pattern)", rel)
             continue
 
@@ -325,7 +330,7 @@ def scan_directory(
                 field for field in required_frontmatter if field not in note.frontmatter
             ]
             if missing:
-                logger.info(
+                logger.debug(
                     "Skipping %s: missing required frontmatter fields: %s",
                     rel,
                     missing,
