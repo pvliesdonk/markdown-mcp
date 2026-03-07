@@ -174,12 +174,11 @@ class TestSearchWithFilters:
         collection, _ = corpus_collection
         results = collection.search("gothic", filters={"cluster": "fiction"})
 
-        assert len(results) > 0, "Expected at least one fiction result for 'gothic'"
         paths = {r.path for r in results}
-        assert all(p in {"exemplar1.md", "exemplar3.md"} for p in paths), (
-            f"Unexpected paths in results: {paths}"
-        )
-        assert "exemplar2.md" not in paths
+        # Keyword search for "gothic" only matches exemplar3.md (gothic in
+        # title + body).  exemplar1.md has gothic only in frontmatter topics,
+        # which is not in the FTS5 virtual table.
+        assert paths == {"exemplar3.md"}, f"Unexpected paths in results: {paths}"
 
     def test_multi_tag_filter(
         self, corpus_collection: tuple[Collection, IndexStats]
@@ -191,13 +190,11 @@ class TestSearchWithFilters:
             filters={"cluster": "fiction", "topics": "gothic"},
         )
 
-        assert len(results) > 0, (
-            "Expected at least one result for cluster=fiction AND topics=gothic"
-        )
         paths = {r.path for r in results}
-        # Both exemplar1 and exemplar3 have cluster=fiction and topics contains gothic.
-        assert paths.issubset({"exemplar1.md", "exemplar3.md"})
-        assert "exemplar2.md" not in paths
+        # Keyword search for "gothic" only hits exemplar3.md (gothic in FTS
+        # content).  The filters further restrict to cluster=fiction AND
+        # topics=gothic, which exemplar3 satisfies.
+        assert paths == {"exemplar3.md"}, f"Unexpected paths in results: {paths}"
 
 
 class TestListTags:
