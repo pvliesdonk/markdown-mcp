@@ -85,7 +85,7 @@ class CollectionConfig:
     required_frontmatter: list[str] | None = None
     exclude_patterns: list[str] | None = field(default=None)
 
-    def to_collection_kwargs(self) -> dict:
+    def to_collection_kwargs(self) -> dict[str, object]:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
 
         Excludes :attr:`exclude_patterns` because :class:`Collection` does not
@@ -101,7 +101,7 @@ class CollectionConfig:
             config = load_config()
             collection = Collection(**config.to_collection_kwargs())
         """
-        kwargs: dict = {
+        kwargs: dict[str, object] = {
             "source_dir": self.source_dir,
             "read_only": self.read_only,
             "index_path": self.index_path,
