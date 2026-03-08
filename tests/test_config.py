@@ -44,6 +44,7 @@ class TestLoadConfig:
             "MARKDOWN_MCP_INDEXED_FIELDS",
             "MARKDOWN_MCP_REQUIRED_FIELDS",
             "MARKDOWN_MCP_EXCLUDE",
+            "MARKDOWN_MCP_GIT_TOKEN",
         ):
             monkeypatch.delenv(var, raising=False)
 
@@ -57,6 +58,7 @@ class TestLoadConfig:
         assert config.indexed_frontmatter_fields is None
         assert config.required_frontmatter is None
         assert config.exclude_patterns is None
+        assert config.git_token is None
 
     def test_full_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", "/data/vault")
@@ -67,6 +69,7 @@ class TestLoadConfig:
         monkeypatch.setenv("MARKDOWN_MCP_INDEXED_FIELDS", "cluster, topics")
         monkeypatch.setenv("MARKDOWN_MCP_REQUIRED_FIELDS", "title,cluster")
         monkeypatch.setenv("MARKDOWN_MCP_EXCLUDE", ".obsidian/**, .trash/**")
+        monkeypatch.setenv("MARKDOWN_MCP_GIT_TOKEN", "ghp_test123")
 
         config = load_config()
 
@@ -78,6 +81,7 @@ class TestLoadConfig:
         assert config.indexed_frontmatter_fields == ["cluster", "topics"]
         assert config.required_frontmatter == ["title", "cluster"]
         assert config.exclude_patterns == [".obsidian/**", ".trash/**"]
+        assert config.git_token == "ghp_test123"
 
     def test_comma_separated_strips_whitespace(
         self, monkeypatch: pytest.MonkeyPatch
@@ -105,6 +109,14 @@ class TestToCollectionKwargs:
         kwargs = config.to_collection_kwargs()
         assert kwargs["exclude_patterns"] == [".obsidian/**"]
         assert kwargs["source_dir"] == Path("/tmp/vault")
+
+    def test_excludes_git_token(self) -> None:
+        config = CollectionConfig(
+            source_dir=Path("/tmp/vault"),
+            git_token="ghp_secret",
+        )
+        kwargs = config.to_collection_kwargs()
+        assert "git_token" not in kwargs
 
     def test_includes_all_collection_params(self) -> None:
         config = CollectionConfig(

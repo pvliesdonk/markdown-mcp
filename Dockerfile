@@ -11,12 +11,12 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=uv.lock,target=uv.lock \
-    uv sync --frozen --no-install-project --no-dev --extra mcp
+    uv sync --frozen --no-install-project --no-dev --extra all
 
 # Copy source and install project.
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra mcp
+    uv sync --frozen --no-dev --extra all
 
 # Create non-root user.
 RUN useradd --system -d /app appuser && chown -R appuser:appuser /app
