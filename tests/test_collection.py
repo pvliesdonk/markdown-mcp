@@ -764,5 +764,3 @@ class TestDelete:
 
         after = writable_with_embeddings.search("simple document", mode="semantic")
         assert not any(r.path == "simple.md" for r in after)
-
-
