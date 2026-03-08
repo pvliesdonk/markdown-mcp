@@ -2,9 +2,6 @@
 
 Tests exercise all MCP tools via the in-memory Client transport,
 verifying end-to-end behaviour through the full Collection stack.
-
-Write tools (write, edit, delete, rename) are tested only for registration;
-the underlying Collection methods are Phase 3 stubs.
 """
 
 from __future__ import annotations
@@ -43,7 +40,6 @@ def _parse_tool_data(result: Any) -> Any:
 def _mcp_env(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Set minimal env vars for create_server."""
     monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
-    monkeypatch.setenv("MARKDOWN_MCP_READ_ONLY", "false")
     for var in (
         "MARKDOWN_MCP_INDEX_PATH",
         "MARKDOWN_MCP_EMBEDDINGS_PATH",
@@ -51,22 +47,7 @@ def _mcp_env(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "MARKDOWN_MCP_INDEXED_FIELDS",
         "MARKDOWN_MCP_REQUIRED_FIELDS",
         "MARKDOWN_MCP_EXCLUDE",
-    ):
-        monkeypatch.delenv(var, raising=False)
-
-
-@pytest.fixture
-def _mcp_env_readonly(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set env vars with read_only=true."""
-    monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
-    monkeypatch.setenv("MARKDOWN_MCP_READ_ONLY", "true")
-    for var in (
-        "MARKDOWN_MCP_INDEX_PATH",
-        "MARKDOWN_MCP_EMBEDDINGS_PATH",
-        "MARKDOWN_MCP_STATE_PATH",
-        "MARKDOWN_MCP_INDEXED_FIELDS",
-        "MARKDOWN_MCP_REQUIRED_FIELDS",
-        "MARKDOWN_MCP_EXCLUDE",
+        "MARKDOWN_MCP_READ_ONLY",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -96,7 +77,7 @@ class TestToolListing:
     """Verify correct tools are registered based on read_only setting."""
 
     @pytest.mark.usefixtures("_mcp_env")
-    async def test_all_tools_registered_when_writable(self) -> None:
+    async def test_read_only_tools_registered(self) -> None:
         server = create_server()
         async with Client(server) as client:
             tools = await client.list_tools()
@@ -111,22 +92,7 @@ class TestToolListing:
         assert "embeddings_status" in names
         assert "reindex" in names
         assert "build_embeddings" in names
-        # Write tools present when read_only=false
-        assert "write" in names
-        assert "edit" in names
-        assert "delete" in names
-        assert "rename" in names
-
-    @pytest.mark.usefixtures("_mcp_env_readonly")
-    async def test_write_tools_absent_when_readonly(self) -> None:
-        server = create_server()
-        async with Client(server) as client:
-            tools = await client.list_tools()
-            names = {t.name for t in tools}
-
-        assert "search" in names
-        assert "read" in names
-        # Write tools absent when read_only=true
+        # Write tools deferred to Phase 3
         assert "write" not in names
         assert "edit" not in names
         assert "delete" not in names
@@ -185,9 +151,8 @@ class TestReadTool:
     async def test_read_nonexistent(self) -> None:
         server = create_server()
         async with Client(server) as client:
-            result = await client.call_tool("read", {"path": "nonexistent.md"})
-        assert isinstance(result.data, str)
-        assert "not found" in result.data.lower()
+            result = await client.call_tool_mcp("read", {"path": "nonexistent.md"})
+        assert result.isError is True
 
     @pytest.mark.usefixtures("_mcp_env")
     async def test_read_with_frontmatter(self) -> None:
@@ -295,47 +260,3 @@ class TestReindexTool:
         assert data["deleted"] == 0
 
 
-# ---------------------------------------------------------------------------
-# Write tools — registration only (Collection stubs are Phase 3)
-# ---------------------------------------------------------------------------
-
-
-class TestWriteToolsRegistration:
-    """Verify write tools are registered and callable (they raise NotImplementedError)."""
-
-    @pytest.mark.usefixtures("_mcp_env")
-    async def test_write_tool_raises_not_implemented(self) -> None:
-        server = create_server()
-        async with Client(server) as client:
-            result = await client.call_tool_mcp(
-                "write",
-                {"path": "test.md", "content": "# Test"},
-            )
-        assert result.isError is True
-
-    @pytest.mark.usefixtures("_mcp_env")
-    async def test_edit_tool_raises_not_implemented(self) -> None:
-        server = create_server()
-        async with Client(server) as client:
-            result = await client.call_tool_mcp(
-                "edit",
-                {"path": "simple.md", "old_text": "a", "new_text": "b"},
-            )
-        assert result.isError is True
-
-    @pytest.mark.usefixtures("_mcp_env")
-    async def test_delete_tool_raises_not_implemented(self) -> None:
-        server = create_server()
-        async with Client(server) as client:
-            result = await client.call_tool_mcp("delete", {"path": "simple.md"})
-        assert result.isError is True
-
-    @pytest.mark.usefixtures("_mcp_env")
-    async def test_rename_tool_raises_not_implemented(self) -> None:
-        server = create_server()
-        async with Client(server) as client:
-            result = await client.call_tool_mcp(
-                "rename",
-                {"old_path": "simple.md", "new_path": "renamed.md"},
-            )
-        assert result.isError is True
