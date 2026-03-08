@@ -18,12 +18,11 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --extra mcp
 
-ENV PATH="/app/.venv/bin:$PATH"
-
-# Run as non-root user.
-RUN useradd --system --create-home --home-dir /app appuser \
-    && chown -R appuser:appuser /app
+# Create non-root user.
+RUN useradd --system -d /app appuser && chown -R appuser:appuser /app
 USER appuser
+
+ENV PATH="/app/.venv/bin:$PATH"
 
 ENTRYPOINT ["markdown-mcp"]
 CMD ["serve"]
