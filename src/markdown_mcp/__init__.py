@@ -1,5 +1,6 @@
 """Generic markdown collection with FTS5 + semantic search."""
 
+from markdown_mcp.collection import Collection
 from markdown_mcp.config import CollectionConfig, load_config
 from markdown_mcp.exceptions import (
     DocumentExistsError,
@@ -29,6 +30,7 @@ from markdown_mcp.types import (
 __all__ = [
     "ChangeSet",
     "Chunk",
+    "Collection",
     "CollectionConfig",
     "CollectionStats",
     "DeleteResult",

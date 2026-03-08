@@ -10,6 +10,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class CollectionConfig:
     exclude_patterns: list[str] | None = None
     git_token: str | None = None
 
-    def to_collection_kwargs(self) -> dict[str, object]:
+    def to_collection_kwargs(self) -> dict[str, Any]:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
 
         Returns:
@@ -98,7 +99,7 @@ class CollectionConfig:
             config = load_config()
             collection = Collection(**config.to_collection_kwargs())
         """
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "source_dir": self.source_dir,
             "read_only": self.read_only,
             "index_path": self.index_path,

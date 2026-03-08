@@ -349,43 +349,143 @@ class TestErrorHandling:
 
 
 # ---------------------------------------------------------------------------
-# Write tools — registration and Phase 3 stubs
+# Write tools
 # ---------------------------------------------------------------------------
 
 
-class TestWriteToolsStubs:
-    """Verify write tools raise NotImplementedError (Phase 3 stubs)."""
+class TestWriteTool:
+    """Test the write MCP tool."""
 
     @pytest.mark.usefixtures("_mcp_env_writable")
-    async def test_write_tool_raises_not_implemented(self) -> None:
+    async def test_write_creates_document(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "write", {"path": "new_note.md", "content": "# New\n\nBody.\n"}
+            )
+        data = result.data
+        assert isinstance(data, dict)
+        assert data["path"] == "new_note.md"
+        assert data["created"] is True
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_write_overwrites_existing(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "write", {"path": "simple.md", "content": "# Replaced\n"}
+            )
+        data = result.data
+        assert data["created"] is False
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_write_with_frontmatter(self) -> None:
+        """write tool with frontmatter parameter creates document and returns created=True."""
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "write",
+                {
+                    "path": "fm_note.md",
+                    "content": "# Frontmatter Note\n\nBody.\n",
+                    "frontmatter": {"title": "Frontmatter Note", "tags": ["x", "y"]},
+                },
+            )
+        data = result.data
+        assert isinstance(data, dict)
+        assert data["created"] is True
+        assert data["path"] == "fm_note.md"
+
+
+class TestEditTool:
+    """Test the edit MCP tool."""
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_edit_patches_document(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "edit",
+                {
+                    "path": "simple.md",
+                    "old_text": "Simple Document",
+                    "new_text": "Updated Document",
+                },
+            )
+        data = result.data
+        assert data["path"] == "simple.md"
+        assert data["replacements"] == 1
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_edit_nonexistent_returns_error(self) -> None:
         server = create_server()
         async with Client(server) as client:
             result = await client.call_tool_mcp(
-                "write", {"path": "test.md", "content": "# Test"}
+                "edit",
+                {"path": "nonexistent.md", "old_text": "a", "new_text": "b"},
             )
         assert result.isError is True
 
     @pytest.mark.usefixtures("_mcp_env_writable")
-    async def test_edit_tool_raises_not_implemented(self) -> None:
+    async def test_edit_conflict_returns_error(self) -> None:
         server = create_server()
         async with Client(server) as client:
             result = await client.call_tool_mcp(
-                "edit", {"path": "simple.md", "old_text": "a", "new_text": "b"}
+                "edit",
+                {"path": "simple.md", "old_text": "missing text", "new_text": "b"},
             )
         assert result.isError is True
 
-    @pytest.mark.usefixtures("_mcp_env_writable")
-    async def test_delete_tool_raises_not_implemented(self) -> None:
-        server = create_server()
-        async with Client(server) as client:
-            result = await client.call_tool_mcp("delete", {"path": "simple.md"})
-        assert result.isError is True
+
+class TestDeleteTool:
+    """Test the delete MCP tool."""
 
     @pytest.mark.usefixtures("_mcp_env_writable")
-    async def test_rename_tool_raises_not_implemented(self) -> None:
+    async def test_delete_removes_document(self) -> None:
         server = create_server()
         async with Client(server) as client:
-            result = await client.call_tool_mcp(
-                "rename", {"old_path": "simple.md", "new_path": "renamed.md"}
-            )
+            result = await client.call_tool("delete", {"path": "simple.md"})
+        data = result.data
+        assert data["path"] == "simple.md"
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_delete_nonexistent_returns_error(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp("delete", {"path": "nonexistent.md"})
         assert result.isError is True
+
+
+# ---------------------------------------------------------------------------
+# Exclude patterns
+# ---------------------------------------------------------------------------
+
+
+class TestMCPExcludePatterns:
+    """Test that MARKDOWN_MCP_EXCLUDE env var is respected by the MCP server."""
+
+    async def test_exclude_patterns_hides_subfolder_docs(
+        self,
+        vault_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """list_documents does not return docs matching MARKDOWN_MCP_EXCLUDE."""
+        monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
+        monkeypatch.setenv("MARKDOWN_MCP_EXCLUDE", "subfolder/**")
+        monkeypatch.delenv("MARKDOWN_MCP_READ_ONLY", raising=False)
+        for var in _CLEAR_VARS:
+            if var != "MARKDOWN_MCP_EXCLUDE":
+                monkeypatch.delenv(var, raising=False)
+
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("list_documents", {})
+
+        data = _parse_tool_data(result)
+        assert isinstance(data, list)
+        paths = [d["path"] for d in data]
+
+        # Root-level docs should be present.
+        assert "simple.md" in paths
+        # Subfolder docs should be excluded.
+        assert not any(p.startswith("subfolder/") for p in paths)

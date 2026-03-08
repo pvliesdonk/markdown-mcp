@@ -13,7 +13,13 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from markdown_mcp.exceptions import ReadOnlyError
+import frontmatter as fm
+
+from markdown_mcp.exceptions import (
+    DocumentNotFoundError,
+    EditConflictError,
+    ReadOnlyError,
+)
 from markdown_mcp.fts_index import FTSIndex, _derive_folder
 from markdown_mcp.scanner import (
     ChunkStrategy,
@@ -30,6 +36,7 @@ from markdown_mcp.types import (
     IndexStats,
     NoteContent,
     NoteInfo,
+    ParsedNote,
     ReindexResult,
     RenameResult,
     SearchResult,
@@ -741,10 +748,8 @@ class Collection:
 
         # Update tracker state: rebuild from current FTS index contents.
         # ChangeTracker.update_state needs objects with .path and .content_hash.
-        from markdown_mcp.types import ParsedNote as _ParsedNote
-
-        state_notes: list[_ParsedNote] = [
-            _ParsedNote(
+        state_notes: list[ParsedNote] = [
+            ParsedNote(
                 path=r["path"],
                 frontmatter={},
                 title=r["title"],
@@ -927,7 +932,7 @@ class Collection:
         )
 
     # ------------------------------------------------------------------
-    # Write stubs (Phase 1 — raise ReadOnlyError when read_only=True)
+    # Write operations
     # ------------------------------------------------------------------
 
     def _check_writable(self) -> None:
@@ -941,13 +946,63 @@ class Collection:
                 "Collection is read-only; write operations are not permitted."
             )
 
+    def _validate_path(self, path: str) -> Path:
+        """Resolve a relative path and validate it is inside source_dir.
+
+        Args:
+            path: Relative document path.
+
+        Returns:
+            The resolved absolute path.
+
+        Raises:
+            ValueError: If the path escapes the source directory or does
+                not end with ``.md``.
+        """
+        if not path.endswith(".md"):
+            raise ValueError(f"Path must end with '.md': {path}")
+        abs_path = (self._source_dir / path).resolve()
+        if not abs_path.is_relative_to(self._source_dir.resolve()):
+            raise ValueError(f"Path traversal detected: {path}")
+        return abs_path
+
+    def _update_vector_index(self, note: ParsedNote) -> None:
+        """Update the vector index for a single document.
+
+        Deletes existing entries for the document path and re-adds
+        chunks if the vector index is active.
+
+        Args:
+            note: Parsed document to index.
+        """
+        if self._vectors is None or self._embeddings_path is None:
+            return
+        self._vectors.delete_by_path(note.path)
+        texts = [c.content for c in note.chunks]
+        meta = [
+            {
+                "path": note.path,
+                "title": note.title,
+                "folder": _derive_folder(note.path),
+                "heading": c.heading,
+                "content": c.content,
+            }
+            for c in note.chunks
+        ]
+        if texts:
+            self._vectors.add(texts, meta)
+        self._vectors.save(self._embeddings_path)
+
     def write(
         self,
         path: str,
         content: str,
         frontmatter: dict | None = None,
     ) -> WriteResult:
-        """Create or overwrite a document (Phase 3).
+        """Create or overwrite a document.
+
+        Creates intermediate directories as needed.  If *frontmatter* is
+        provided, it is serialised as a YAML header at the top of the file.
 
         Args:
             path: Relative document path.
@@ -959,12 +1014,45 @@ class Collection:
 
         Raises:
             ReadOnlyError: If the collection is read-only.
+            ValueError: If *path* escapes the source directory.
         """
         self._check_writable()
-        raise NotImplementedError("write() is not yet implemented (Phase 3).")
+        self._ensure_initialized()
+
+        abs_path = self._validate_path(path)
+        created = not abs_path.is_file()
+
+        # Create intermediate directories.
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Build file content with optional frontmatter.
+        if frontmatter is not None:
+            post = fm.Post(content, **frontmatter)
+            file_content = fm.dumps(post)
+        else:
+            file_content = content
+
+        abs_path.write_text(file_content, encoding="utf-8")
+
+        # Update FTS index.
+        note = parse_note(abs_path, self._source_dir, self._chunk_strategy)
+        self._fts.upsert_note(note)
+
+        # Update vector index if active.
+        self._update_vector_index(note)
+
+        # Trigger callback.
+        if self._on_write is not None:
+            self._on_write(abs_path, file_content, "write")
+
+        return WriteResult(path=path, created=created)
 
     def edit(self, path: str, old_text: str, new_text: str) -> EditResult:
-        """Patch a section of a document (Phase 3).
+        """Patch a section of a document.
+
+        Reads the file, verifies *old_text* exists exactly once in the
+        full file content (including frontmatter), replaces it with
+        *new_text*, and writes back.
 
         Args:
             path: Relative document path.
@@ -977,12 +1065,50 @@ class Collection:
         Raises:
             ReadOnlyError: If the collection is read-only.
             DocumentNotFoundError: If the file does not exist.
+            EditConflictError: If *old_text* is not found or appears
+                more than once.
         """
         self._check_writable()
-        raise NotImplementedError("edit() is not yet implemented (Phase 3).")
+        self._ensure_initialized()
+
+        if not old_text:
+            raise ValueError("old_text must not be empty")
+
+        abs_path = self._validate_path(path)
+        if not abs_path.is_file():
+            raise DocumentNotFoundError(f"Document not found: {path}")
+
+        file_content = abs_path.read_text(encoding="utf-8")
+        count = file_content.count(old_text)
+
+        if count == 0:
+            raise EditConflictError(f"old_text not found in {path}")
+        if count > 1:
+            raise EditConflictError(
+                f"old_text appears {count} times in {path}; must appear exactly once"
+            )
+
+        new_content = file_content.replace(old_text, new_text, 1)
+        abs_path.write_text(new_content, encoding="utf-8")
+
+        # Update FTS index.
+        note = parse_note(abs_path, self._source_dir, self._chunk_strategy)
+        self._fts.upsert_note(note)
+
+        # Update vector index if active.
+        self._update_vector_index(note)
+
+        # Trigger callback.
+        if self._on_write is not None:
+            self._on_write(abs_path, new_content, "edit")
+
+        return EditResult(path=path, replacements=1)
 
     def delete(self, path: str) -> DeleteResult:
-        """Delete a document (Phase 3).
+        """Delete a document.
+
+        Removes the file from disk and deletes all FTS and embedding
+        index entries.
 
         Args:
             path: Relative document path.
@@ -995,10 +1121,31 @@ class Collection:
             DocumentNotFoundError: If the file does not exist.
         """
         self._check_writable()
-        raise NotImplementedError("delete() is not yet implemented (Phase 3).")
+        self._ensure_initialized()
+
+        abs_path = self._validate_path(path)
+        if not abs_path.is_file():
+            raise DocumentNotFoundError(f"Document not found: {path}")
+
+        # Remove file from disk.
+        abs_path.unlink()
+
+        # Delete FTS index entries.
+        self._fts.delete_by_path(path)
+
+        # Delete vector index entries if active.
+        if self._vectors is not None and self._embeddings_path is not None:
+            self._vectors.delete_by_path(path)
+            self._vectors.save(self._embeddings_path)
+
+        # Trigger callback.
+        if self._on_write is not None:
+            self._on_write(abs_path, "", "delete")
+
+        return DeleteResult(path=path)
 
     def rename(self, old_path: str, new_path: str) -> RenameResult:
-        """Rename or move a document (Phase 2-3).
+        """Rename or move a document.
 
         Args:
             old_path: Current relative document path.
@@ -1009,8 +1156,7 @@ class Collection:
 
         Raises:
             ReadOnlyError: If the collection is read-only.
-            DocumentNotFoundError: If *old_path* does not exist.
-            DocumentExistsError: If *new_path* already exists.
+            NotImplementedError: Always — not yet implemented (Phase 3).
         """
         self._check_writable()
-        raise NotImplementedError("rename() is not yet implemented (Phase 2-3).")
+        raise NotImplementedError("rename is not yet implemented")
