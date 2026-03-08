@@ -144,7 +144,7 @@ Write tools (`write`, `edit`, `delete`, `rename`) are only available when `MARKD
 ```bash
 git clone https://github.com/pvliesdonk/markdown-vault-mcp.git
 cd markdown-vault-mcp
-pip install -e ".[all,dev]"
+uv pip install -e ".[all,dev]"
 
 # Run tests
 uv run python -m pytest tests/ -x -q
