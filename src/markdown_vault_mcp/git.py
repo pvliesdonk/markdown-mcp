@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+import shlex
+import stat
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -212,12 +216,10 @@ def _push(git_root: Path, token: str | None) -> None:
         token: Optional PAT for HTTPS push.  If ``None``, relies on SSH
             keys or pre-configured git credentials.
     """
-    import contextlib
-    import stat
-    import tempfile
-
     root = str(git_root)
 
+    # Always push to "origin".  If the remote is named differently,
+    # configure a git remote alias or adjust this constant.
     if not token:
         subprocess.run(
             ["git", "-C", root, "push", "origin"],
@@ -230,8 +232,6 @@ def _push(git_root: Path, token: str | None) -> None:
     fd, script_path_str = tempfile.mkstemp(suffix=".sh", prefix="git_askpass_")
     script_path = Path(script_path_str)
     try:
-        import shlex
-
         with os.fdopen(fd, "w") as f:
             f.write(f"#!/bin/sh\necho {shlex.quote(token)}\n")
         script_path.chmod(stat.S_IRWXU)  # 0o700 — owner-only rwx
