@@ -1021,7 +1021,7 @@ class Collection:
         abs_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Build file content with optional frontmatter.
-        if frontmatter:
+        if frontmatter is not None:
             import frontmatter as fm
 
             post = fm.Post(content, **frontmatter)

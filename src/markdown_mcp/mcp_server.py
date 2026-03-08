@@ -331,9 +331,6 @@ def create_server() -> FastMCP:
         return {"chunks_embedded": count}
 
     # --- Write tools (conditionally registered) ---
-    # The underlying Collection methods are Phase 3 stubs that raise
-    # NotImplementedError.  The conditional registration mechanism is in
-    # place now so clients see the correct tool surface based on read_only.
 
     raw_read_only = os.environ.get("MARKDOWN_MCP_READ_ONLY", "true").strip().lower()
     is_read_only = raw_read_only in ("true", "1", "yes")
