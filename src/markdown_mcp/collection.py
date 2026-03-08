@@ -148,6 +148,7 @@ class Collection:
         required_frontmatter: list[str] | None = None,
         chunk_strategy: str | ChunkStrategy = "heading",
         on_write: WriteCallback | None = None,
+        exclude_patterns: list[str] | None = None,
     ) -> None:
         self._source_dir = source_dir
         self._index_path = index_path
@@ -158,6 +159,7 @@ class Collection:
         self._required_frontmatter = required_frontmatter
         self._chunk_strategy = _resolve_chunk_strategy(chunk_strategy)
         self._on_write = on_write
+        self._exclude_patterns = exclude_patterns
 
         # Default state path: {source_dir}/.markdown_mcp/state.json
         if state_path is None:
@@ -617,6 +619,7 @@ class Collection:
                 self._source_dir,
                 required_frontmatter=self._required_frontmatter,
                 chunk_strategy=self._chunk_strategy,
+                exclude_patterns=self._exclude_patterns,
             )
         )
 

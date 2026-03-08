@@ -174,12 +174,12 @@ class TestCmdIndex:
     def test_valueerror_exits_with_message(
         self,
         mock_build: MagicMock,
-        capsys: pytest.CaptureFixture[str],
     ) -> None:
         mock_build.side_effect = ValueError("MARKDOWN_MCP_SOURCE_DIR is required")
 
-        with patch("sys.argv", ["markdown-mcp", "index"]), pytest.raises(
-            SystemExit, match="1"
+        with (
+            patch("sys.argv", ["markdown-mcp", "index"]),
+            pytest.raises(SystemExit, match="1"),
         ):
             main()
 
