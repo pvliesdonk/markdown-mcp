@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from dataclasses import asdict
+from pathlib import Path
 
 from markdown_mcp.collection import Collection
 from markdown_mcp.config import load_config
@@ -19,14 +21,31 @@ from markdown_mcp.config import load_config
 logger = logging.getLogger(__name__)
 
 
-def _build_collection() -> Collection:
-    """Build a Collection from environment variables.
+def _build_collection(args: argparse.Namespace) -> Collection:
+    """Build a Collection from environment variables and CLI overrides.
+
+    CLI arguments ``--source-dir`` and ``--index-path`` override the
+    corresponding environment variables when provided.
+
+    Args:
+        args: Parsed CLI arguments (may contain ``source_dir`` and
+            ``index_path`` attributes).
 
     Returns:
         A fully initialised :class:`Collection` (index not yet built).
     """
+    # CLI --source-dir overrides env var.
+    source_dir_override = getattr(args, "source_dir", None)
+    if source_dir_override:
+        os.environ["MARKDOWN_MCP_SOURCE_DIR"] = source_dir_override
+
     config = load_config()
     kwargs = config.to_collection_kwargs()
+
+    # CLI --index-path overrides env var.
+    index_path_override = getattr(args, "index_path", None)
+    if index_path_override:
+        kwargs["index_path"] = Path(index_path_override)
 
     if config.embeddings_path is not None:
         try:
@@ -59,14 +78,14 @@ def _cmd_serve(args: argparse.Namespace) -> None:
 
 def _cmd_index(args: argparse.Namespace) -> None:
     """Build the full-text search index."""
-    collection = _build_collection()
+    collection = _build_collection(args)
     stats = collection.build_index(force=args.force)
     print(f"Indexed {stats.documents_indexed} documents, {stats.chunks_indexed} chunks")
 
 
 def _cmd_search(args: argparse.Namespace) -> None:
     """Search the collection."""
-    collection = _build_collection()
+    collection = _build_collection(args)
 
     results = collection.search(
         args.query,
@@ -85,9 +104,9 @@ def _cmd_search(args: argparse.Namespace) -> None:
                 print(f"    {r.title}")
 
 
-def _cmd_reindex(args: argparse.Namespace) -> None:  # noqa: ARG001
+def _cmd_reindex(args: argparse.Namespace) -> None:
     """Incrementally reindex the collection."""
-    collection = _build_collection()
+    collection = _build_collection(args)
     result = collection.reindex()
     print(
         f"Reindex: {result.added} added, {result.modified} modified, "
@@ -126,6 +145,14 @@ def _build_parser() -> argparse.ArgumentParser:
     # index
     index_parser = sub.add_parser("index", help="build the full-text search index")
     index_parser.add_argument(
+        "--source-dir",
+        help="path to markdown collection (overrides MARKDOWN_MCP_SOURCE_DIR)",
+    )
+    index_parser.add_argument(
+        "--index-path",
+        help="path to SQLite index file (overrides MARKDOWN_MCP_INDEX_PATH)",
+    )
+    index_parser.add_argument(
         "--force",
         action="store_true",
         help="drop and rebuild the index from scratch",
@@ -134,6 +161,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # search
     search_parser = sub.add_parser("search", help="search the collection")
     search_parser.add_argument("query", help="search query")
+    search_parser.add_argument(
+        "--source-dir",
+        help="path to markdown collection (overrides MARKDOWN_MCP_SOURCE_DIR)",
+    )
     search_parser.add_argument(
         "-n",
         "--limit",
@@ -159,7 +190,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # reindex
-    sub.add_parser("reindex", help="incrementally reindex the collection")
+    reindex_parser = sub.add_parser("reindex", help="incrementally reindex the collection")
+    reindex_parser.add_argument(
+        "--source-dir",
+        help="path to markdown collection (overrides MARKDOWN_MCP_SOURCE_DIR)",
+    )
+    reindex_parser.add_argument(
+        "--index-path",
+        help="path to SQLite index file (overrides MARKDOWN_MCP_INDEX_PATH)",
+    )
 
     return parser
 

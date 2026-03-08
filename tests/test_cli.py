@@ -71,10 +71,33 @@ class TestBuildParser:
         assert args.folder == "Journal"
         assert args.json is True
 
+    def test_index_source_dir_and_index_path(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(
+            ["index", "--source-dir", "/data/vault", "--index-path", "/data/idx.db"]
+        )
+        assert args.source_dir == "/data/vault"
+        assert args.index_path == "/data/idx.db"
+
+    def test_search_source_dir(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(
+            ["search", "query", "--source-dir", "/data/vault"]
+        )
+        assert args.source_dir == "/data/vault"
+
     def test_reindex_command(self) -> None:
         parser = _build_parser()
         args = parser.parse_args(["reindex"])
         assert args.command == "reindex"
+
+    def test_reindex_source_dir_and_index_path(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(
+            ["reindex", "--source-dir", "/data/vault", "--index-path", "/data/idx.db"]
+        )
+        assert args.source_dir == "/data/vault"
+        assert args.index_path == "/data/idx.db"
 
     def test_verbose_flag(self) -> None:
         parser = _build_parser()
