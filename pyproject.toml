@@ -39,7 +39,7 @@ markdown-vault-mcp = "markdown_vault_mcp.cli:main"
 
 [project.urls]
 Repository = "https://github.com/pvliesdonk/markdown-vault-mcp"
-Documentation = "https://github.com/pvliesdonk/markdown-vault-mcp/blob/main/docs/design.md"
+Documentation = "https://github.com/pvliesdonk/markdown-vault-mcp/blob/main/README.md"
 Issues = "https://github.com/pvliesdonk/markdown-vault-mcp/issues"
 Changelog = "https://github.com/pvliesdonk/markdown-vault-mcp/blob/main/CHANGELOG.md"
 
