@@ -9,7 +9,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from markdown_mcp.git import _find_git_root, git_write_strategy
+from markdown_vault_mcp.git import _find_git_root, git_write_strategy
 
 
 @pytest.fixture
@@ -224,7 +224,7 @@ class TestConfigIntegration:
         tmp_path: Path,
     ) -> None:
         """to_collection_kwargs() includes on_write when git_token is set."""
-        from markdown_mcp.config import CollectionConfig
+        from markdown_vault_mcp.config import CollectionConfig
 
         config = CollectionConfig(
             source_dir=tmp_path,
@@ -237,7 +237,7 @@ class TestConfigIntegration:
 
     def test_no_git_token_no_callback(self, tmp_path: Path) -> None:
         """to_collection_kwargs() omits on_write when git_token is None."""
-        from markdown_mcp.config import CollectionConfig
+        from markdown_vault_mcp.config import CollectionConfig
 
         config = CollectionConfig(
             source_dir=tmp_path,

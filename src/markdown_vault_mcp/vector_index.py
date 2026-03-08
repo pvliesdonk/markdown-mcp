@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from markdown_mcp.providers import EmbeddingProvider
+    from markdown_vault_mcp.providers import EmbeddingProvider
 
 try:
     import numpy as np
@@ -34,7 +34,7 @@ class VectorIndex:
     - ``{path}.json`` — the metadata list.
 
     Args:
-        provider: Initialised :class:`~markdown_mcp.providers.EmbeddingProvider`
+        provider: Initialised :class:`~markdown_vault_mcp.providers.EmbeddingProvider`
             used to embed query strings at search time.
 
     Raises:
@@ -53,7 +53,7 @@ class VectorIndex:
         if not _NUMPY_AVAILABLE:
             raise ImportError(
                 "VectorIndex requires 'numpy'. "
-                "Install it with: pip install 'markdown-mcp[embeddings]'"
+                "Install it with: pip install 'markdown-vault-mcp[embeddings]'"
             )
         self._provider = provider
         # Shape: (0, dim) — will grow with each add() call.
@@ -84,7 +84,7 @@ class VectorIndex:
         if not _NUMPY_AVAILABLE:
             raise ImportError(
                 "VectorIndex requires 'numpy'. "
-                "Install it with: pip install 'markdown-mcp[embeddings]'"
+                "Install it with: pip install 'markdown-vault-mcp[embeddings]'"
             )
 
         npy_path = path.with_suffix(".npy")

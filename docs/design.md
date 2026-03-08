@@ -1,4 +1,4 @@
-# markdown-mcp: Design Specification v2
+# markdown-vault-mcp: Design Specification v2
 
 > Generic markdown collection MCP server with FTS5 + semantic search,
 > frontmatter-aware indexing, and incremental reindexing. Extracted from
@@ -46,7 +46,7 @@ vault becomes another.
 Two packages, one dependency edge (eventual):
 
 ```
-markdown-mcp (new package)
+markdown-vault-mcp (new package)
 +-- scanner.py        -- file discovery, frontmatter parsing, chunking
 +-- fts_index.py      -- SQLite FTS5 schema, BM25 search
 +-- vector_index.py   -- numpy embeddings, cosine similarity
@@ -58,15 +58,15 @@ markdown-mcp (new package)
 +-- cli.py            -- CLI entry point
 
 ifcraftcorpus (existing, refactored later)
-+-- depends on markdown-mcp
++-- depends on markdown-vault-mcp
 +-- ships corpus/ content
 +-- adds domain-specific tools (search_exemplars, list_exemplar_tags)
 +-- adds subagent prompts
 +-- thin wrapper: configures Collection with required_frontmatter
 ```
 
-**ifcraftcorpus stays as-is** during markdown-mcp development. No changes to
-the existing package until a complete refactor after markdown-mcp is stable.
+**ifcraftcorpus stays as-is** during markdown-vault-mcp development. No changes to
+the existing package until a complete refactor after markdown-vault-mcp is stable.
 
 ## Reference Code
 
@@ -75,13 +75,13 @@ implementation patterns:
 
 | File | Reuse Strategy | Notes |
 |------|----------------|-------|
-| `providers.py` | **Copy + adapt** | Rename env var prefix `IFCRAFTCORPUS_` to `MARKDOWN_MCP_`. Fix hardcoded imports. |
-| `embeddings.py` | **Copy + adapt** | Rename to `vector_index.py`. The `load()` classmethod contains a hardcoded `from ifcraftcorpus.providers import get_embedding_provider` -- this **must** be changed to `from markdown_mcp.providers import get_embedding_provider` or it will raise `ImportError` at runtime. |
+| `providers.py` | **Copy + adapt** | Rename env var prefix `IFCRAFTCORPUS_` to `MARKDOWN_VAULT_MCP_`. Fix hardcoded imports. |
+| `embeddings.py` | **Copy + adapt** | Rename to `vector_index.py`. The `load()` classmethod contains a hardcoded `from ifcraftcorpus.providers import get_embedding_provider` -- this **must** be changed to `from markdown_vault_mcp.providers import get_embedding_provider` or it will raise `ImportError` at runtime. |
 | `search.py` | **Adapt** | Pattern for `Collection` facade. Replace domain methods with generic API. |
 | `index.py` | **Adapt** | Pattern for `fts_index.py`. Replace corpus-specific schema. Fix hybrid score bug (see RRF section). |
 | `parser.py` | **Replace** | Replace with generic frontmatter + heading-based chunking using `python-frontmatter`. |
 | `mcp_server.py` | **Adapt** | Replace domain tools with generic tools. Use lifespan hooks instead of lazy global singleton. |
-| `cli.py` | **Adapt** | Simplify for markdown-mcp. |
+| `cli.py` | **Adapt** | Simplify for markdown-vault-mcp. |
 
 **Reuse strategy definitions**:
 - **Copy + adapt**: copy the file as a starting point, then modify for the new
@@ -213,7 +213,7 @@ for built-in names, or pass a custom instance.
 
 - **State file** (the JSON persistence layer for hash-based change detection):
   `{relative_path: sha256_hash}` as JSON.
-- **Default path**: `{source_dir}/.markdown_mcp/state.json` (when
+- **Default path**: `{source_dir}/.markdown_vault_mcp/state.json` (when
   `state_path=None`).
 - On `reindex()`: scan all files, compare hashes to stored state, re-parse and
   re-embed only changed/added files, remove deleted entries.
@@ -489,7 +489,7 @@ class Collection:
         embeddings_path: Path | None = None,  # None = semantic search disabled
         embedding_provider: EmbeddingProvider | None = None,
         read_only: bool = True,
-        state_path: Path | None = None,       # None = {source_dir}/.markdown_mcp/state.json
+        state_path: Path | None = None,       # None = {source_dir}/.markdown_vault_mcp/state.json
         indexed_frontmatter_fields: list[str] | None = None,
         required_frontmatter: list[str] | None = None,
         chunk_strategy: str | ChunkStrategy = "heading",
@@ -531,7 +531,7 @@ class Collection:
 - `index_path=None`: index is created in-memory (`:memory:` SQLite). If
   provided, persisted to disk.
 - `embeddings_path=None`: semantic search is disabled.
-- `state_path=None`: defaults to `{source_dir}/.markdown_mcp/state.json`.
+- `state_path=None`: defaults to `{source_dir}/.markdown_vault_mcp/state.json`.
 
 **Lazy initialization**: on first call to `search()`, `list()`, or `read()`,
 `Collection` lazily builds the FTS index from `source_dir` if no pre-built
@@ -632,7 +632,7 @@ scoring in hybrid mode).
 
 Adapted from ifcraftcorpus `embeddings.py`. Rename `EmbeddingIndex` to
 `VectorIndex`. The `load()` classmethod **must** import from
-`markdown_mcp.providers`, not `ifcraftcorpus.providers`.
+`markdown_vault_mcp.providers`, not `ifcraftcorpus.providers`.
 
 The `VectorIndex` maintains a sidecar metadata list where each entry maps a
 row index to `{path, title, folder, heading, content}`. This enables:
@@ -642,7 +642,7 @@ row index to `{path, title, folder, heading, content}`. This enables:
 ### `providers.py` -- Embedding Providers
 
 Copied from ifcraftcorpus, adapted:
-- Rename env var prefix `IFCRAFTCORPUS_` to `MARKDOWN_MCP_`
+- Rename env var prefix `IFCRAFTCORPUS_` to `MARKDOWN_VAULT_MCP_`
 - Fix any hardcoded package imports
 - Keep the same provider ABC and implementations (Ollama, OpenAI,
   SentenceTransformers)
@@ -712,44 +712,44 @@ For MCP server deployment:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `MARKDOWN_MCP_SOURCE_DIR` | Path to markdown files | required |
-| `MARKDOWN_MCP_READ_ONLY` | Disable write tools | `true` |
-| `MARKDOWN_MCP_INDEX_PATH` | SQLite index path | in-memory |
-| `MARKDOWN_MCP_EMBEDDINGS_PATH` | Embeddings directory | disabled |
-| `MARKDOWN_MCP_INDEXED_FIELDS` | Comma-separated frontmatter fields to index | none |
-| `MARKDOWN_MCP_REQUIRED_FIELDS` | Comma-separated required frontmatter fields | none |
-| `MARKDOWN_MCP_EXCLUDE` | Comma-separated glob patterns to exclude | none |
-| `MARKDOWN_MCP_GIT_TOKEN` | PAT for git push on write | disabled |
+| `MARKDOWN_VAULT_MCP_SOURCE_DIR` | Path to markdown files | required |
+| `MARKDOWN_VAULT_MCP_READ_ONLY` | Disable write tools | `true` |
+| `MARKDOWN_VAULT_MCP_INDEX_PATH` | SQLite index path | in-memory |
+| `MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH` | Embeddings directory | disabled |
+| `MARKDOWN_VAULT_MCP_INDEXED_FIELDS` | Comma-separated frontmatter fields to index | none |
+| `MARKDOWN_VAULT_MCP_REQUIRED_FIELDS` | Comma-separated required frontmatter fields | none |
+| `MARKDOWN_VAULT_MCP_EXCLUDE` | Comma-separated glob patterns to exclude | none |
+| `MARKDOWN_VAULT_MCP_GIT_TOKEN` | PAT for git push on write | disabled |
 | `EMBEDDING_PROVIDER` | `ollama`, `openai`, `sentence-transformers` | auto-detect |
 | `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
-| `MARKDOWN_MCP_OLLAMA_MODEL` | Ollama embedding model | `nomic-embed-text` |
-| `MARKDOWN_MCP_OLLAMA_CPU_ONLY` | Force CPU-only inference | `false` |
+| `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | Ollama embedding model | `nomic-embed-text` |
+| `MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY` | Force CPU-only inference | `false` |
 | `OPENAI_API_KEY` | OpenAI API key | none |
 
 #### Example Configurations
 
 **Obsidian vault (read-only)**:
 ```bash
-MARKDOWN_MCP_SOURCE_DIR=/home/user/Obsidian
-MARKDOWN_MCP_READ_ONLY=true
-MARKDOWN_MCP_EXCLUDE=.obsidian/**,.trash/**
+MARKDOWN_VAULT_MCP_SOURCE_DIR=/home/user/Obsidian
+MARKDOWN_VAULT_MCP_READ_ONLY=true
+MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**
 EMBEDDING_PROVIDER=ollama
 ```
 
 **IF Craft Corpus (strict frontmatter)**:
 ```bash
-MARKDOWN_MCP_SOURCE_DIR=/data/corpus
-MARKDOWN_MCP_READ_ONLY=true
-MARKDOWN_MCP_REQUIRED_FIELDS=title,cluster
-MARKDOWN_MCP_INDEXED_FIELDS=cluster,topics
+MARKDOWN_VAULT_MCP_SOURCE_DIR=/data/corpus
+MARKDOWN_VAULT_MCP_READ_ONLY=true
+MARKDOWN_VAULT_MCP_REQUIRED_FIELDS=title,cluster
+MARKDOWN_VAULT_MCP_INDEXED_FIELDS=cluster,topics
 ```
 
 **Obsidian vault (read-write, git-backed)**:
 ```bash
-MARKDOWN_MCP_SOURCE_DIR=/data/vault
-MARKDOWN_MCP_READ_ONLY=false
-MARKDOWN_MCP_EXCLUDE=.obsidian/**,.trash/**,_templates/**
-MARKDOWN_MCP_GIT_TOKEN=ghp_xxx
+MARKDOWN_VAULT_MCP_SOURCE_DIR=/data/vault
+MARKDOWN_VAULT_MCP_READ_ONLY=false
+MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**,_templates/**
+MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_xxx
 ```
 
 ### Phase 3: Evaluate YAML
@@ -762,7 +762,7 @@ Evaluate at deploy time, not before.
 
 ```toml
 [project]
-name = "markdown-mcp"
+name = "markdown-vault-mcp"
 requires-python = ">=3.10"
 dependencies = [
     "python-frontmatter>=1.0",
@@ -776,7 +776,7 @@ all = ["fastmcp>=2.5,<3", "httpx>=0.25", "numpy>=1.20"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.1", "mypy>=1.0"]
 
 [project.scripts]
-markdown-mcp = "markdown_mcp.cli:main"
+markdown-vault-mcp = "markdown_vault_mcp.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -803,7 +803,7 @@ Two strategies supported via the `on_write` callback:
 
 1. **No push (default)**: write to disk only. External process (cron, hook)
    handles `git add + commit + push`.
-2. **Git strategy**: auto-commit + push using `MARKDOWN_MCP_GIT_TOKEN` or
+2. **Git strategy**: auto-commit + push using `MARKDOWN_VAULT_MCP_GIT_TOKEN` or
    `GITHUB_TOKEN`. Entire vault runs in-container.
 
 For private repos (like `pvliesdonk/obsidian.md`), the git strategy needs
@@ -864,8 +864,8 @@ credentials. Options: SSH key mount or PAT via env var.
 
 ### Phase 4: Publish + ifcraftcorpus Refactor
 
-21. Publish markdown-mcp 1.0 to PyPI
-22. Refactor ifcraftcorpus to depend on markdown-mcp
+21. Publish markdown-vault-mcp 1.0 to PyPI
+22. Refactor ifcraftcorpus to depend on markdown-vault-mcp
 23. ifcraftcorpus becomes thin wrapper + domain tools + subagent prompts
 
 ## Testing Strategy

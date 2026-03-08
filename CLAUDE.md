@@ -1,4 +1,4 @@
-# markdown-mcp
+# markdown-vault-mcp
 
 Generic markdown collection MCP server with FTS5 + semantic search, frontmatter-aware indexing, and incremental reindexing.
 
@@ -9,7 +9,7 @@ The authoritative design specification lives at [`docs/design.md`](docs/design.m
 ## Project Structure
 
 ```
-src/markdown_mcp/
+src/markdown_vault_mcp/
   scanner.py        -- file discovery, frontmatter parsing, chunking
   fts_index.py      -- SQLite FTS5 schema, BM25 search
   vector_index.py   -- numpy embeddings, cosine similarity

@@ -1,4 +1,4 @@
-"""Hash-based change detection for markdown-mcp."""
+"""Hash-based change detection for markdown-vault-mcp."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from markdown_mcp.types import ChangeSet, ParsedNote
+from markdown_vault_mcp.types import ChangeSet, ParsedNote
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class ChangeTracker:
 
     Example::
 
-        tracker = ChangeTracker(Path("/data/vault/.markdown_mcp/state.json"))
+        tracker = ChangeTracker(Path("/data/vault/.markdown_vault_mcp/state.json"))
         changes = tracker.detect_changes(Path("/data/vault"))
         # process changes ...
         tracker.update_state(notes)
@@ -61,7 +61,7 @@ class ChangeTracker:
            - present in state but absent from disk → **deleted**
            - present in both and hash matches → **unchanged** (counted only)
 
-        5. Return a :class:`~markdown_mcp.types.ChangeSet`.
+        5. Return a :class:`~markdown_vault_mcp.types.ChangeSet`.
 
         Args:
             source_dir: Root directory of the markdown collection.
@@ -69,7 +69,7 @@ class ChangeTracker:
                 *source_dir*. Defaults to ``"**/*.md"``.
 
         Returns:
-            A :class:`~markdown_mcp.types.ChangeSet` describing the delta.
+            A :class:`~markdown_vault_mcp.types.ChangeSet` describing the delta.
         """
         stored_state = self._load_state()
 

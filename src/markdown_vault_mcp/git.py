@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse, urlunparse
 
 if TYPE_CHECKING:
-    from markdown_mcp.types import WriteCallback
+    from markdown_vault_mcp.types import WriteCallback
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +65,9 @@ def git_write_strategy(token: str | None = None) -> WriteCallback:
         are also no-ops.  Create a new strategy instance to reset.
 
     Returns:
-        A :data:`~markdown_mcp.types.WriteCallback` suitable for the
+        A :data:`~markdown_vault_mcp.types.WriteCallback` suitable for the
         ``on_write`` parameter of
-        :class:`~markdown_mcp.collection.Collection`.
+        :class:`~markdown_vault_mcp.collection.Collection`.
     """
     _git_root: Path | None = None
     _checked = False

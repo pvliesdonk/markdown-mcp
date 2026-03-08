@@ -23,7 +23,7 @@ coverage:
 ignore:
   - "tests/**"
   - "docs/**"
-  - "src/markdown_mcp/__main__.py"
+  - "src/markdown_vault_mcp/__main__.py"
 
 comment:
   layout: "reach,diff,flags,files"

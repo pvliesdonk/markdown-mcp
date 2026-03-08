@@ -1,16 +1,16 @@
 """Generic markdown collection with FTS5 + semantic search."""
 
-from markdown_mcp.collection import Collection
-from markdown_mcp.config import CollectionConfig, load_config
-from markdown_mcp.exceptions import (
+from markdown_vault_mcp.collection import Collection
+from markdown_vault_mcp.config import CollectionConfig, load_config
+from markdown_vault_mcp.exceptions import (
     DocumentExistsError,
     DocumentNotFoundError,
     EditConflictError,
     MarkdownMCPError,
     ReadOnlyError,
 )
-from markdown_mcp.git import git_write_strategy
-from markdown_mcp.types import (
+from markdown_vault_mcp.git import git_write_strategy
+from markdown_vault_mcp.types import (
     ChangeSet,
     Chunk,
     CollectionStats,

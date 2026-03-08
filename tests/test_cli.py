@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from markdown_mcp.cli import _build_parser, main
+from markdown_vault_mcp.cli import _build_parser, main
 
 
 class TestBuildParser:
@@ -107,33 +107,36 @@ class TestMainDispatch:
     """Test main() dispatches to the correct subcommand handler."""
 
     def test_no_command_exits(self) -> None:
-        with patch("sys.argv", ["markdown-mcp"]), pytest.raises(SystemExit, match="2"):
+        with (
+            patch("sys.argv", ["markdown-vault-mcp"]),
+            pytest.raises(SystemExit, match="2"),
+        ):
             main()
 
-    @patch("markdown_mcp.cli._COMMANDS")
+    @patch("markdown_vault_mcp.cli._COMMANDS")
     def test_index_dispatch(self, mock_commands: MagicMock) -> None:
         mock_handler = MagicMock()
         mock_commands.__getitem__ = MagicMock(return_value=mock_handler)
-        with patch("sys.argv", ["markdown-mcp", "index"]):
+        with patch("sys.argv", ["markdown-vault-mcp", "index"]):
             main()
         mock_commands.__getitem__.assert_called_once_with("index")
         mock_handler.assert_called_once()
 
-    @patch("markdown_mcp.cli._COMMANDS")
+    @patch("markdown_vault_mcp.cli._COMMANDS")
     def test_valueerror_exits_with_message(self, mock_commands: MagicMock) -> None:
         mock_handler = MagicMock(side_effect=ValueError("SOURCE_DIR not set"))
         mock_commands.__getitem__ = MagicMock(return_value=mock_handler)
         with (
-            patch("sys.argv", ["markdown-mcp", "index"]),
+            patch("sys.argv", ["markdown-vault-mcp", "index"]),
             pytest.raises(SystemExit, match="1"),
         ):
             main()
 
-    @patch("markdown_mcp.cli._COMMANDS")
+    @patch("markdown_vault_mcp.cli._COMMANDS")
     def test_serve_dispatch(self, mock_commands: MagicMock) -> None:
         mock_handler = MagicMock()
         mock_commands.__getitem__ = MagicMock(return_value=mock_handler)
-        with patch("sys.argv", ["markdown-mcp", "serve"]):
+        with patch("sys.argv", ["markdown-vault-mcp", "serve"]):
             main()
         mock_commands.__getitem__.assert_called_once_with("serve")
         mock_handler.assert_called_once()
@@ -142,7 +145,7 @@ class TestMainDispatch:
 class TestCmdIndex:
     """Test the index subcommand."""
 
-    @patch("markdown_mcp.cli._build_collection")
+    @patch("markdown_vault_mcp.cli._build_collection")
     def test_index_prints_stats(
         self,
         mock_build: MagicMock,
@@ -155,7 +158,7 @@ class TestCmdIndex:
         mock_collection.build_index.return_value = mock_stats
         mock_build.return_value = mock_collection
 
-        with patch("sys.argv", ["markdown-mcp", "index"]):
+        with patch("sys.argv", ["markdown-vault-mcp", "index"]):
             main()
 
         mock_collection.build_index.assert_called_once_with(force=False)
@@ -164,20 +167,20 @@ class TestCmdIndex:
         assert "128 chunks" in captured.out
         mock_collection.build_index.assert_called_once_with(force=False)
 
-    @patch("markdown_mcp.cli._build_collection")
+    @patch("markdown_vault_mcp.cli._build_collection")
     def test_valueerror_exits_with_message(
         self,
         mock_build: MagicMock,
     ) -> None:
-        mock_build.side_effect = ValueError("MARKDOWN_MCP_SOURCE_DIR is required")
+        mock_build.side_effect = ValueError("MARKDOWN_VAULT_MCP_SOURCE_DIR is required")
 
         with (
-            patch("sys.argv", ["markdown-mcp", "index"]),
+            patch("sys.argv", ["markdown-vault-mcp", "index"]),
             pytest.raises(SystemExit, match="1"),
         ):
             main()
 
-    @patch("markdown_mcp.cli._build_collection")
+    @patch("markdown_vault_mcp.cli._build_collection")
     def test_index_force_propagates(
         self,
         mock_build: MagicMock,
@@ -189,7 +192,7 @@ class TestCmdIndex:
         mock_collection.build_index.return_value = mock_stats
         mock_build.return_value = mock_collection
 
-        with patch("sys.argv", ["markdown-mcp", "index", "--force"]):
+        with patch("sys.argv", ["markdown-vault-mcp", "index", "--force"]):
             main()
 
         mock_collection.build_index.assert_called_once_with(force=True)
@@ -198,7 +201,7 @@ class TestCmdIndex:
 class TestCmdSearch:
     """Test the search subcommand."""
 
-    @patch("markdown_mcp.cli._build_collection")
+    @patch("markdown_vault_mcp.cli._build_collection")
     def test_search_text_output(
         self,
         mock_build: MagicMock,
@@ -213,7 +216,7 @@ class TestCmdSearch:
         mock_collection.search.return_value = [mock_result]
         mock_build.return_value = mock_collection
 
-        with patch("sys.argv", ["markdown-mcp", "search", "test"]):
+        with patch("sys.argv", ["markdown-vault-mcp", "search", "test"]):
             main()
 
         captured = capsys.readouterr()
@@ -221,13 +224,13 @@ class TestCmdSearch:
         assert "0.9876" in captured.out
         assert "Test Note" in captured.out
 
-    @patch("markdown_mcp.cli._build_collection")
+    @patch("markdown_vault_mcp.cli._build_collection")
     def test_search_json_output(
         self,
         mock_build: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        from markdown_mcp.types import SearchResult
+        from markdown_vault_mcp.types import SearchResult
 
         result = SearchResult(
             path="a.md",
@@ -243,7 +246,7 @@ class TestCmdSearch:
         mock_collection.search.return_value = [result]
         mock_build.return_value = mock_collection
 
-        with patch("sys.argv", ["markdown-mcp", "search", "test", "--json"]):
+        with patch("sys.argv", ["markdown-vault-mcp", "search", "test", "--json"]):
             main()
 
         captured = capsys.readouterr()
@@ -252,7 +255,7 @@ class TestCmdSearch:
         assert data[0]["path"] == "a.md"
         assert data[0]["score"] == 1.0
 
-    @patch("markdown_mcp.cli._build_collection")
+    @patch("markdown_vault_mcp.cli._build_collection")
     def test_search_passes_options(self, mock_build: MagicMock) -> None:
         mock_collection = MagicMock()
         mock_collection.search.return_value = []
@@ -261,7 +264,7 @@ class TestCmdSearch:
         with patch(
             "sys.argv",
             [
-                "markdown-mcp",
+                "markdown-vault-mcp",
                 "search",
                 "query",
                 "-n",
@@ -282,7 +285,7 @@ class TestCmdSearch:
 class TestCmdReindex:
     """Test the reindex subcommand."""
 
-    @patch("markdown_mcp.cli._build_collection")
+    @patch("markdown_vault_mcp.cli._build_collection")
     def test_reindex_prints_stats(
         self,
         mock_build: MagicMock,
@@ -298,7 +301,7 @@ class TestCmdReindex:
         mock_collection.reindex.return_value = mock_result
         mock_build.return_value = mock_collection
 
-        with patch("sys.argv", ["markdown-mcp", "reindex"]):
+        with patch("sys.argv", ["markdown-vault-mcp", "reindex"]):
             main()
 
         captured = capsys.readouterr()

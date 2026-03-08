@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from markdown_mcp.types import FTSResult, ParsedNote
+from markdown_vault_mcp.types import FTSResult, ParsedNote
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -412,7 +412,7 @@ class FTSIndex:
                 match (AND semantics).
 
         Returns:
-            List of :class:`~markdown_mcp.types.FTSResult` objects ordered by
+            List of :class:`~markdown_vault_mcp.types.FTSResult` objects ordered by
             descending BM25 score.
         """
         # Build tag subquery filters (one per entry, ANDed).
