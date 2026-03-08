@@ -466,7 +466,7 @@ class TestMCPExcludePatterns:
 
     async def test_exclude_patterns_hides_subfolder_docs(
         self,
-        vault_path: pytest.fixture,
+        vault_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """list_documents does not return docs matching MARKDOWN_MCP_EXCLUDE."""
