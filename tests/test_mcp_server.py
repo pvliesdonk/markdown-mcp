@@ -456,6 +456,52 @@ class TestDeleteTool:
         assert result.isError is True
 
 
+class TestRenameTool:
+    """Test the rename MCP tool."""
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_rename_moves_document(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "rename", {"old_path": "simple.md", "new_path": "renamed.md"}
+            )
+        data = result.data
+        assert data["old_path"] == "simple.md"
+        assert data["new_path"] == "renamed.md"
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_rename_nonexistent_returns_error(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "rename",
+                {"old_path": "nonexistent.md", "new_path": "target.md"},
+            )
+        assert result.isError is True
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_rename_target_exists_returns_error(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "rename",
+                {"old_path": "simple.md", "new_path": "no_frontmatter.md"},
+            )
+        assert result.isError is True
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_rename_to_same_path_returns_error(self) -> None:
+        """rename to same old_path and new_path should return an error."""
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "rename",
+                {"old_path": "simple.md", "new_path": "simple.md"},
+            )
+        assert result.isError is True
+
+
 # ---------------------------------------------------------------------------
 # Exclude patterns
 # ---------------------------------------------------------------------------

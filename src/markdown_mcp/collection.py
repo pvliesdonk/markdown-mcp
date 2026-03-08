@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Literal
 import frontmatter as fm
 
 from markdown_mcp.exceptions import (
+    DocumentExistsError,
     DocumentNotFoundError,
     EditConflictError,
     ReadOnlyError,
@@ -1147,6 +1148,10 @@ class Collection:
     def rename(self, old_path: str, new_path: str) -> RenameResult:
         """Rename or move a document.
 
+        Renames the file on disk, deletes old index entries, and inserts
+        new entries under the new path.  Creates intermediate directories
+        for *new_path* as needed.
+
         Args:
             old_path: Current relative document path.
             new_path: Target relative document path.
@@ -1156,7 +1161,44 @@ class Collection:
 
         Raises:
             ReadOnlyError: If the collection is read-only.
-            NotImplementedError: Always — not yet implemented (Phase 3).
+            DocumentNotFoundError: If *old_path* does not exist.
+            DocumentExistsError: If *new_path* already exists.
+            ValueError: If either path escapes the source directory.
         """
         self._check_writable()
-        raise NotImplementedError("rename is not yet implemented")
+        self._ensure_initialized()
+
+        old_abs = self._validate_path(old_path)
+        new_abs = self._validate_path(new_path)
+
+        if not old_abs.is_file():
+            raise DocumentNotFoundError(f"Document not found: {old_path}")
+        if new_abs.is_file():
+            raise DocumentExistsError(f"Target already exists: {new_path}")
+
+        # Create intermediate directories for new path.
+        new_abs.parent.mkdir(parents=True, exist_ok=True)
+
+        # Rename file on disk.
+        old_abs.rename(new_abs)
+
+        # Delete old index entries.
+        self._fts.delete_by_path(old_path)
+        if self._vectors is not None:
+            self._vectors.delete_by_path(old_path)
+
+        # Insert new entries under the new path.
+        note = parse_note(new_abs, self._source_dir, self._chunk_strategy)
+        self._fts.upsert_note(note)
+
+        # Update vector index if active.
+        self._update_vector_index(note)
+
+        # Read content for callback.
+        new_content = new_abs.read_text(encoding="utf-8")
+
+        # Trigger callback.
+        if self._on_write is not None:
+            self._on_write(new_abs, new_content, "rename")
+
+        return RenameResult(old_path=old_path, new_path=new_path)
