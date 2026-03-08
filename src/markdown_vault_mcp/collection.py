@@ -1048,11 +1048,13 @@ class Collection:
             # Update vector index if active.
             self._update_vector_index(note)
 
-            # Trigger callback.
-            if self._on_write is not None:
-                self._on_write(abs_path, file_content, "write")
+            result = WriteResult(path=path, created=created)
 
-            return WriteResult(path=path, created=created)
+        # Trigger callback outside lock to prevent deadlock.
+        if self._on_write is not None:
+            self._on_write(abs_path, file_content, "write")
+
+        return result
 
     def edit(self, path: str, old_text: str, new_text: str) -> EditResult:
         """Patch a section of a document.
@@ -1107,11 +1109,11 @@ class Collection:
             # Update vector index if active.
             self._update_vector_index(note)
 
-            # Trigger callback.
-            if self._on_write is not None:
-                self._on_write(abs_path, new_content, "edit")
+        # Trigger callback outside lock to prevent deadlock.
+        if self._on_write is not None:
+            self._on_write(abs_path, new_content, "edit")
 
-            return EditResult(path=path, replacements=1)
+        return EditResult(path=path, replacements=1)
 
     def delete(self, path: str) -> DeleteResult:
         """Delete a document.
@@ -1148,11 +1150,11 @@ class Collection:
                 self._vectors.delete_by_path(path)
                 self._vectors.save(self._embeddings_path)
 
-            # Trigger callback.
-            if self._on_write is not None:
-                self._on_write(abs_path, "", "delete")
+        # Trigger callback outside lock to prevent deadlock.
+        if self._on_write is not None:
+            self._on_write(abs_path, "", "delete")
 
-            return DeleteResult(path=path)
+        return DeleteResult(path=path)
 
     def rename(self, old_path: str, new_path: str) -> RenameResult:
         """Rename or move a document.
@@ -1208,8 +1210,8 @@ class Collection:
             # Read content for callback.
             new_content = new_abs.read_text(encoding="utf-8")
 
-            # Trigger callback.
-            if self._on_write is not None:
-                self._on_write(new_abs, new_content, "rename")
+        # Trigger callback outside lock to prevent deadlock.
+        if self._on_write is not None:
+            self._on_write(new_abs, new_content, "rename")
 
-            return RenameResult(old_path=old_path, new_path=new_path)
+        return RenameResult(old_path=old_path, new_path=new_path)
