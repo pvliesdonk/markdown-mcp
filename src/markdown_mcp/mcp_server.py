@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Literal
@@ -77,7 +76,7 @@ async def _collection_lifespan(
     try:
         yield {}
     finally:
-        collection._fts.close()
+        collection.close()
         _collection = None
         logger.info("Collection shut down")
 
@@ -104,8 +103,8 @@ def create_server() -> FastMCP:
     """Create and configure the FastMCP server.
 
     Reads configuration from environment variables via :func:`load_config`.
-    Tools are registered based on the ``MARKDOWN_MCP_READ_ONLY`` setting:
-    write tools are only available when ``MARKDOWN_MCP_READ_ONLY=false``.
+    Currently registers read-only tools and index management tools.
+    Write tools will be added in Phase 3.
 
     Returns:
         A fully configured :class:`~fastmcp.FastMCP` instance ready to run.
@@ -167,7 +166,7 @@ def create_server() -> FastMCP:
             "idempotentHint": True,
         },
     )
-    async def read(path: str) -> dict[str, Any] | str:
+    async def read(path: str) -> dict[str, Any]:
         """Read a document's full content.
 
         Args:
@@ -175,12 +174,14 @@ def create_server() -> FastMCP:
 
         Returns:
             Dict with path, title, folder, content, frontmatter, modified_at.
-            Returns an error message string if the document is not found.
+
+        Raises:
+            ValueError: If the document is not found.
         """
         collection = _get_collection()
         result = await asyncio.to_thread(collection.read, path)
         if result is None:
-            return f"Document not found: {path}"
+            raise ValueError(f"Document not found: {path}")
         return asdict(result)
 
     @mcp.tool(
@@ -323,111 +324,8 @@ def create_server() -> FastMCP:
         count = await asyncio.to_thread(collection.build_embeddings, force=force)
         return {"chunks_embedded": count}
 
-    # --- Write tools (conditionally registered) ---
-
-    raw_read_only = os.environ.get("MARKDOWN_MCP_READ_ONLY", "true").strip().lower()
-    is_read_only = raw_read_only in ("true", "1", "yes")
-
-    if not is_read_only:
-
-        @mcp.tool(
-            annotations={
-                "readOnlyHint": False,
-                "destructiveHint": False,
-                "idempotentHint": True,
-            },
-        )
-        async def write(
-            path: str,
-            content: str,
-            frontmatter: dict[str, Any] | None = None,
-        ) -> dict[str, Any]:
-            """Create or overwrite a document.
-
-            Args:
-                path: Relative path for the document (e.g. "Journal/note.md").
-                content: Full markdown content to write.
-                frontmatter: Optional frontmatter dict to prepend as YAML.
-
-            Returns:
-                Dict with path and created (bool).
-            """
-            collection = _get_collection()
-            result = await asyncio.to_thread(
-                collection.write, path, content, frontmatter=frontmatter
-            )
-            return asdict(result)
-
-        @mcp.tool(
-            annotations={
-                "readOnlyHint": False,
-                "destructiveHint": False,
-                "idempotentHint": False,
-            },
-        )
-        async def edit(
-            path: str,
-            old_text: str,
-            new_text: str,
-        ) -> dict[str, Any]:
-            """Patch a section of a document (read-before-edit).
-
-            Replaces exactly one occurrence of old_text with new_text.
-
-            Args:
-                path: Relative path to the document.
-                old_text: Text to find (must appear exactly once).
-                new_text: Replacement text.
-
-            Returns:
-                Dict with path and replacements count.
-            """
-            collection = _get_collection()
-            result = await asyncio.to_thread(collection.edit, path, old_text, new_text)
-            return asdict(result)
-
-        @mcp.tool(
-            annotations={
-                "readOnlyHint": False,
-                "destructiveHint": True,
-                "idempotentHint": True,
-            },
-        )
-        async def delete(path: str) -> dict[str, Any]:
-            """Delete a document.
-
-            Args:
-                path: Relative path to the document.
-
-            Returns:
-                Dict with the deleted path.
-            """
-            collection = _get_collection()
-            result = await asyncio.to_thread(collection.delete, path)
-            return asdict(result)
-
-        @mcp.tool(
-            annotations={
-                "readOnlyHint": False,
-                "destructiveHint": False,
-                "idempotentHint": False,
-            },
-        )
-        async def rename(
-            old_path: str,
-            new_path: str,
-        ) -> dict[str, Any]:
-            """Rename or move a document.
-
-            Args:
-                old_path: Current relative path.
-                new_path: New relative path.
-
-            Returns:
-                Dict with old_path and new_path.
-            """
-            collection = _get_collection()
-            result = await asyncio.to_thread(collection.rename, old_path, new_path)
-            return asdict(result)
+    # Write tools will be registered here in Phase 3, gated by
+    # MARKDOWN_MCP_READ_ONLY.  The underlying Collection methods are
+    # currently stubs that raise NotImplementedError.
 
     return mcp
