@@ -9,6 +9,7 @@ from markdown_mcp.exceptions import (
     MarkdownMCPError,
     ReadOnlyError,
 )
+from markdown_mcp.git import git_write_strategy
 from markdown_mcp.types import (
     ChangeSet,
     Chunk,
@@ -50,5 +51,6 @@ __all__ = [
     "SearchResult",
     "WriteCallback",
     "WriteResult",
+    "git_write_strategy",
     "load_config",
 ]

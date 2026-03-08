@@ -1,0 +1,22 @@
+services:
+  markdown-mcp:
+    image: ghcr.io/pvliesdonk/markdown-mcp:latest
+    build: .
+    env_file: .env
+    volumes:
+      - ${MARKDOWN_MCP_SOURCE_DIR:?Set MARKDOWN_MCP_SOURCE_DIR}:/data/vault
+      - index-data:/data/index
+      - embeddings-data:/data/embeddings
+    environment:
+      MARKDOWN_MCP_SOURCE_DIR: /data/vault
+      MARKDOWN_MCP_INDEX_PATH: /data/index/index.db
+      MARKDOWN_MCP_EMBEDDINGS_PATH: /data/embeddings/embeddings
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.markdown-mcp.rule=Host(`${MARKDOWN_MCP_HOST:-markdown-mcp.local}`)"
+      - "traefik.http.services.markdown-mcp.loadbalancer.server.port=8000"
+
+volumes:
+  index-data:
+  embeddings-data:

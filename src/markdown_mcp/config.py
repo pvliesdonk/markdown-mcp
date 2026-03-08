@@ -90,6 +90,10 @@ class CollectionConfig:
     def to_collection_kwargs(self) -> dict[str, Any]:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
 
+        When ``git_token`` is set, creates a
+        :func:`~markdown_mcp.git.git_write_strategy` callback and includes
+        it as the ``on_write`` parameter.
+
         Returns:
             Dict of keyword arguments accepted by
             :class:`~markdown_mcp.collection.Collection.__init__`.
@@ -109,6 +113,10 @@ class CollectionConfig:
             "required_frontmatter": self.required_frontmatter,
             "exclude_patterns": self.exclude_patterns,
         }
+        if self.git_token is not None:
+            from markdown_mcp.git import git_write_strategy
+
+            kwargs["on_write"] = git_write_strategy(self.git_token)
         return kwargs
 
 

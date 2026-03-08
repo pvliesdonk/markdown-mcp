@@ -8,6 +8,7 @@ import pytest
 
 from markdown_mcp.collection import Collection
 from markdown_mcp.exceptions import (
+    DocumentExistsError,
     DocumentNotFoundError,
     EditConflictError,
     ReadOnlyError,
@@ -18,6 +19,7 @@ from markdown_mcp.types import (
     EditResult,
     NoteContent,
     NoteInfo,
+    RenameResult,
     WriteResult,
 )
 
@@ -764,3 +766,104 @@ class TestDelete:
 
         after = writable_with_embeddings.search("simple document", mode="semantic")
         assert not any(r.path == "simple.md" for r in after)
+
+
+class TestRename:
+    def test_rename_moves_file(self, writable: Collection, vault_path: Path) -> None:
+        """rename() moves the file on disk."""
+        result = writable.rename("simple.md", "moved.md")
+
+        assert isinstance(result, RenameResult)
+        assert result.old_path == "simple.md"
+        assert result.new_path == "moved.md"
+        assert not (vault_path / "simple.md").is_file()
+        assert (vault_path / "moved.md").is_file()
+
+    def test_rename_updates_search(self, writable: Collection) -> None:
+        """After rename, search finds the document at the new path only."""
+        writable.rename("simple.md", "moved.md")
+
+        results = writable.search("Simple Document", mode="keyword")
+        paths = [r.path for r in results]
+        assert "moved.md" in paths
+        assert "simple.md" not in paths
+
+    def test_rename_creates_intermediate_dirs(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """rename() creates intermediate directories for the new path."""
+        writable.rename("simple.md", "new_folder/moved.md")
+
+        assert (vault_path / "new_folder" / "moved.md").is_file()
+
+    def test_rename_not_found_raises(self, writable: Collection) -> None:
+        """rename() raises DocumentNotFoundError when old_path missing."""
+        with pytest.raises(DocumentNotFoundError):
+            writable.rename("nonexistent.md", "target.md")
+
+    def test_rename_target_exists_raises(self, writable: Collection) -> None:
+        """rename() raises DocumentExistsError when new_path exists."""
+        with pytest.raises(DocumentExistsError):
+            writable.rename("simple.md", "no_frontmatter.md")
+
+    def test_rename_triggers_callback(self, vault_path: Path) -> None:
+        """rename() invokes the on_write callback with new path."""
+        calls: list = []
+        col = _make_collection(
+            vault_path, read_only=False, on_write=lambda *args: calls.append(args)
+        )
+        col.build_index()
+
+        col.rename("simple.md", "moved.md")
+
+        assert len(calls) == 1
+        path, content, operation = calls[0]
+        assert path == vault_path / "moved.md"
+        assert content != ""
+        assert operation == "rename"
+
+    def test_rename_folder_updated(self, writable: Collection) -> None:
+        """rename() updates the folder derivation after move."""
+        writable.rename("simple.md", "new_folder/simple.md")
+
+        notes = writable.list(folder="new_folder")
+        paths = [n.path for n in notes]
+        assert "new_folder/simple.md" in paths
+
+    def test_rename_preserves_file_content(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """rename() produces a file whose content is byte-identical to the original."""
+        original_bytes = (vault_path / "simple.md").read_bytes()
+
+        writable.rename("simple.md", "preserved.md")
+
+        renamed_bytes = (vault_path / "preserved.md").read_bytes()
+        assert renamed_bytes == original_bytes
+
+    def test_rename_old_path_removed_from_fts(self, writable: Collection) -> None:
+        """rename() removes the old path from FTS; old path is no longer searchable."""
+        # Confirm old path is searchable before rename.
+        before = writable.search("Simple Document", mode="keyword")
+        assert any(r.path == "simple.md" for r in before)
+
+        writable.rename("simple.md", "after_rename.md")
+
+        after = writable.search("Simple Document", mode="keyword")
+        assert not any(r.path == "simple.md" for r in after)
+
+    def test_rename_updates_vector_index(
+        self, writable_with_embeddings: Collection
+    ) -> None:
+        """rename() with embeddings configured indexes the new path, drops the old."""
+        writable_with_embeddings.rename("simple.md", "renamed_semantic.md")
+
+        after = writable_with_embeddings.search("simple document", mode="semantic")
+        paths = [r.path for r in after]
+        assert "renamed_semantic.md" in paths
+        assert "simple.md" not in paths
+
+    def test_rename_to_same_path_raises(self, writable: Collection) -> None:
+        """rename() to the same path raises DocumentExistsError."""
+        with pytest.raises(DocumentExistsError):
+            writable.rename("simple.md", "simple.md")
