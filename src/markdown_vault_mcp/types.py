@@ -1,4 +1,4 @@
-"""Data types for markdown-mcp."""
+"""Data types for markdown-vault-mcp."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Thin facade tying all markdown-mcp modules together.
+"""Thin facade tying all markdown-vault-mcp modules together.
 
 :class:`Collection` is the primary public API for the library.  MCP tools,
 LangChain wrappers, and CLI commands all go through this class.

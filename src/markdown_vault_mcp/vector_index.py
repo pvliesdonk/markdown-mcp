@@ -53,7 +53,7 @@ class VectorIndex:
         if not _NUMPY_AVAILABLE:
             raise ImportError(
                 "VectorIndex requires 'numpy'. "
-                "Install it with: pip install 'markdown-mcp[embeddings]'"
+                "Install it with: pip install 'markdown-vault-mcp[embeddings]'"
             )
         self._provider = provider
         # Shape: (0, dim) — will grow with each add() call.
@@ -84,7 +84,7 @@ class VectorIndex:
         if not _NUMPY_AVAILABLE:
             raise ImportError(
                 "VectorIndex requires 'numpy'. "
-                "Install it with: pip install 'markdown-mcp[embeddings]'"
+                "Install it with: pip install 'markdown-vault-mcp[embeddings]'"
             )
 
         npy_path = path.with_suffix(".npy")
