@@ -61,16 +61,10 @@ async def _collection_lifespan(
                 exc_info=True,
             )
 
-    collection = Collection(
-        source_dir=config.source_dir,
-        read_only=config.read_only,
-        index_path=config.index_path,
-        embeddings_path=config.embeddings_path,
-        embedding_provider=embedding_provider,
-        state_path=config.state_path,
-        indexed_frontmatter_fields=config.indexed_frontmatter_fields,
-        required_frontmatter=config.required_frontmatter,
-    )
+    kwargs = config.to_collection_kwargs()
+    if embedding_provider is not None:
+        kwargs["embedding_provider"] = embedding_provider
+    collection = Collection(**kwargs)
     _collection = collection
 
     # Build index eagerly so first tool call is fast.
