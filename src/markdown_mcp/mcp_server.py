@@ -155,6 +155,10 @@ def create_server() -> FastMCP:
 
         Returns:
             List of search result dicts with path, title, content, score, etc.
+
+        Raises:
+            ValueError: If mode is "semantic" or "hybrid" and no embedding
+                provider is configured.
         """
         collection = _get_collection()
         results = await asyncio.to_thread(
