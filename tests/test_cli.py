@@ -177,8 +177,9 @@ class TestCmdIndex:
     ) -> None:
         mock_build.side_effect = ValueError("MARKDOWN_MCP_SOURCE_DIR is required")
 
-        with patch("sys.argv", ["markdown-mcp", "index"]), pytest.raises(
-            SystemExit, match="1"
+        with (
+            patch("sys.argv", ["markdown-mcp", "index"]),
+            pytest.raises(SystemExit, match="1"),
         ):
             main()
 

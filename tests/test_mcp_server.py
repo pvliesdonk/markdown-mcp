@@ -131,8 +131,13 @@ class TestToolAnnotations:
 
         # Read-only tools
         for name in (
-            "search", "read", "list_documents", "list_folders",
-            "list_tags", "stats", "embeddings_status",
+            "search",
+            "read",
+            "list_documents",
+            "list_folders",
+            "list_tags",
+            "stats",
+            "embeddings_status",
         ):
             ann = by_name[name].annotations
             assert ann is not None, f"{name} missing annotations"
@@ -190,7 +195,9 @@ class TestSearchTool:
             )
         data = _parse_tool_data(result)
         assert isinstance(data, list)
-        assert len(data) > 0, "expected at least one result for 'subfolder nested' in subfolder"
+        assert len(data) > 0, (
+            "expected at least one result for 'subfolder nested' in subfolder"
+        )
         for r in data:
             assert r["path"].startswith("subfolder/")
 
@@ -382,5 +389,3 @@ class TestWriteToolsStubs:
                 "rename", {"old_path": "simple.md", "new_path": "renamed.md"}
             )
         assert result.isError is True
-
-
