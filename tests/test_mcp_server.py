@@ -17,8 +17,6 @@ from markdown_mcp.mcp_server import create_server
 if TYPE_CHECKING:
     from pathlib import Path
 
-pytestmark = pytest.mark.asyncio
-
 
 def _parse_tool_data(result: Any) -> Any:
     """Extract data from a CallToolResult, handling FastMCP v2 serialization.
@@ -31,7 +29,7 @@ def _parse_tool_data(result: Any) -> Any:
     data = result.data
     if isinstance(data, list) and data and not isinstance(data[0], (dict, str)):
         # Opaque Root objects — parse from raw text content.
-        raw = result.content[0].text
+        raw = result.content[0].text if result.content else "[]"
         return json.loads(raw)
     return data
 
@@ -192,6 +190,7 @@ class TestSearchTool:
             )
         data = _parse_tool_data(result)
         assert isinstance(data, list)
+        assert len(data) > 0, "expected at least one result for 'subfolder nested' in subfolder"
         for r in data:
             assert r["path"].startswith("subfolder/")
 
@@ -319,6 +318,7 @@ class TestReindexTool:
         data = result.data
         assert isinstance(data, dict)
         assert data["added"] == 0
+        assert data["modified"] == 0
         assert data["deleted"] == 0
 
 

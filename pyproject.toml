@@ -72,6 +72,7 @@ indent-style = "space"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--strict-markers", "-ra"]
+asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["src/markdown_mcp"]
