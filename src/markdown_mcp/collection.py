@@ -681,7 +681,9 @@ class Collection:
                 continue
             except Exception as exc:
                 logger.warning(
-                    "reindex: skipping %s — parse error (%s)", path, exc,
+                    "reindex: skipping %s — parse error (%s)",
+                    path,
+                    exc,
                     exc_info=True,
                 )
                 continue
