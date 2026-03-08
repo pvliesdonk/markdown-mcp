@@ -1,19 +1,20 @@
 [project]
 name = "markdown-vault-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "Generic markdown vault MCP server with FTS5 + semantic search"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "Peter van Liesdonk" }]
-keywords = ["markdown", "mcp", "search", "fts5", "embeddings"]
+keywords = ["markdown", "mcp", "search", "fts5", "embeddings", "obsidian", "vault"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
+    "Topic :: Text Processing :: Markup :: Markdown",
 ]
 dependencies = [
     "python-frontmatter>=1.0",
@@ -38,6 +39,9 @@ markdown-vault-mcp = "markdown_vault_mcp.cli:main"
 
 [project.urls]
 Repository = "https://github.com/pvliesdonk/markdown-vault-mcp"
+Documentation = "https://github.com/pvliesdonk/markdown-vault-mcp/blob/main/docs/design.md"
+Issues = "https://github.com/pvliesdonk/markdown-vault-mcp/issues"
+Changelog = "https://github.com/pvliesdonk/markdown-vault-mcp/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
