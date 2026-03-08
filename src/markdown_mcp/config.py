@@ -84,13 +84,10 @@ class CollectionConfig:
     indexed_frontmatter_fields: list[str] | None = None
     required_frontmatter: list[str] | None = None
     exclude_patterns: list[str] | None = field(default=None)
+    git_token: str | None = None
 
     def to_collection_kwargs(self) -> dict[str, object]:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
-
-        Excludes :attr:`exclude_patterns` because :class:`Collection` does not
-        accept that parameter directly — pass it to
-        :func:`~markdown_mcp.scanner.scan_directory` instead.
 
         Returns:
             Dict of keyword arguments accepted by
@@ -109,6 +106,7 @@ class CollectionConfig:
             "state_path": self.state_path,
             "indexed_frontmatter_fields": self.indexed_frontmatter_fields,
             "required_frontmatter": self.required_frontmatter,
+            "exclude_patterns": self.exclude_patterns,
         }
         return kwargs
 
@@ -130,6 +128,8 @@ def load_config() -> CollectionConfig:
       fields; default none.
     - ``MARKDOWN_MCP_EXCLUDE``: comma-separated glob patterns to exclude;
       default none.
+    - ``MARKDOWN_MCP_GIT_TOKEN``: token for git write strategy; default
+      disabled.  Used in Phase 3 to configure ``on_write`` callback.
 
     The ``EMBEDDING_PROVIDER`` variable is intentionally **not** resolved here;
     call :func:`~markdown_mcp.providers.get_embedding_provider` separately in
@@ -195,6 +195,12 @@ def load_config() -> CollectionConfig:
     )
     logger.debug("load_config: exclude_patterns=%s", exclude_patterns)
 
+    raw_git_token = os.environ.get("MARKDOWN_MCP_GIT_TOKEN", "").strip()
+    git_token: str | None = raw_git_token or None
+    logger.debug(
+        "load_config: git_token=%s", "set" if git_token else "not set"
+    )
+
     return CollectionConfig(
         source_dir=source_dir,
         read_only=read_only,
@@ -204,4 +210,5 @@ def load_config() -> CollectionConfig:
         indexed_frontmatter_fields=indexed_frontmatter_fields,
         required_frontmatter=required_frontmatter,
         exclude_patterns=exclude_patterns,
+        git_token=git_token,
     )
