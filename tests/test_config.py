@@ -113,7 +113,7 @@ class TestToCollectionKwargs:
     def test_excludes_git_token(self) -> None:
         config = CollectionConfig(
             source_dir=Path("/tmp/vault"),
-            git_token="ghp_test",
+            git_token="ghp_secret",
         )
         kwargs = config.to_collection_kwargs()
         assert "git_token" not in kwargs
@@ -127,7 +127,7 @@ class TestToCollectionKwargs:
             state_path=Path("/tmp/state.json"),
             indexed_frontmatter_fields=["cluster"],
             required_frontmatter=["title"],
-            exclude_patterns=[".trash/**"],
+            exclude_patterns=[".obsidian/**"],
         )
         kwargs = config.to_collection_kwargs()
         assert kwargs == {
@@ -138,5 +138,5 @@ class TestToCollectionKwargs:
             "state_path": Path("/tmp/state.json"),
             "indexed_frontmatter_fields": ["cluster"],
             "required_frontmatter": ["title"],
-            "exclude_patterns": [".trash/**"],
+            "exclude_patterns": [".obsidian/**"],
         }

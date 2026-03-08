@@ -120,6 +120,16 @@ class TestMainDispatch:
         mock_handler.assert_called_once()
 
     @patch("markdown_mcp.cli._COMMANDS")
+    def test_valueerror_exits_with_message(self, mock_commands: MagicMock) -> None:
+        mock_handler = MagicMock(side_effect=ValueError("SOURCE_DIR not set"))
+        mock_commands.__getitem__ = MagicMock(return_value=mock_handler)
+        with (
+            patch("sys.argv", ["markdown-mcp", "index"]),
+            pytest.raises(SystemExit, match="1"),
+        ):
+            main()
+
+    @patch("markdown_mcp.cli._COMMANDS")
     def test_serve_dispatch(self, mock_commands: MagicMock) -> None:
         mock_handler = MagicMock()
         mock_commands.__getitem__ = MagicMock(return_value=mock_handler)
@@ -148,27 +158,11 @@ class TestCmdIndex:
         with patch("sys.argv", ["markdown-mcp", "index"]):
             main()
 
+        mock_collection.build_index.assert_called_once_with(force=False)
         captured = capsys.readouterr()
         assert "42 documents" in captured.out
         assert "128 chunks" in captured.out
         mock_collection.build_index.assert_called_once_with(force=False)
-
-    @patch("markdown_mcp.cli._build_collection")
-    def test_index_force_propagates(
-        self,
-        mock_build: MagicMock,
-    ) -> None:
-        mock_collection = MagicMock()
-        mock_stats = MagicMock()
-        mock_stats.documents_indexed = 0
-        mock_stats.chunks_indexed = 0
-        mock_collection.build_index.return_value = mock_stats
-        mock_build.return_value = mock_collection
-
-        with patch("sys.argv", ["markdown-mcp", "index", "--force"]):
-            main()
-
-        mock_collection.build_index.assert_called_once_with(force=True)
 
     @patch("markdown_mcp.cli._build_collection")
     def test_valueerror_exits_with_message(
@@ -182,6 +176,23 @@ class TestCmdIndex:
             pytest.raises(SystemExit, match="1"),
         ):
             main()
+
+    @patch("markdown_mcp.cli._build_collection")
+    def test_index_force_propagates(
+        self,
+        mock_build: MagicMock,
+    ) -> None:
+        mock_collection = MagicMock()
+        mock_stats = MagicMock()
+        mock_stats.documents_indexed = 10
+        mock_stats.chunks_indexed = 30
+        mock_collection.build_index.return_value = mock_stats
+        mock_build.return_value = mock_collection
+
+        with patch("sys.argv", ["markdown-mcp", "index", "--force"]):
+            main()
+
+        mock_collection.build_index.assert_called_once_with(force=True)
 
 
 class TestCmdSearch:
