@@ -10,6 +10,7 @@ import contextlib
 import fnmatch
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -1179,8 +1180,9 @@ class Collection:
         # Create intermediate directories for new path.
         new_abs.parent.mkdir(parents=True, exist_ok=True)
 
-        # Rename file on disk.
-        old_abs.rename(new_abs)
+        # Move file on disk.  shutil.move() handles cross-device renames
+        # (copy+delete fallback) unlike Path.rename().
+        shutil.move(str(old_abs), str(new_abs))
 
         # Delete old index entries.
         self._fts.delete_by_path(old_path)

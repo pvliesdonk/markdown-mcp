@@ -87,6 +87,19 @@ def git_write_strategy(token: str | None = None) -> WriteCallback:
 
         try:
             _stage_and_push(_git_root, path, operation, token)
+        except subprocess.CalledProcessError as exc:
+            # Sanitize command args to avoid leaking PAT tokens in logs.
+            sanitized_cmd = [
+                "***" if isinstance(a, str) and token and token in a else a
+                for a in (exc.cmd or [])
+            ] if token else exc.cmd
+            logger.error(
+                "Git operation failed for %s (%s): command %s returned %d",
+                path,
+                operation,
+                sanitized_cmd,
+                exc.returncode,
+            )
         except Exception:
             logger.error(
                 "Git operation failed for %s (%s)",
@@ -101,7 +114,7 @@ def git_write_strategy(token: str | None = None) -> WriteCallback:
 def _stage_and_push(
     git_root: Path,
     path: Path,
-    operation: str,
+    operation: Literal["write", "edit", "delete", "rename"],
     token: str | None,
 ) -> None:
     """Stage, commit, and push a single file change.
@@ -126,6 +139,11 @@ def _stage_and_push(
         # For rename, the old file has been moved on disk.  Stage tracked
         # deletions (-u) to capture the old path removal, then add the new
         # file explicitly.
+        # NOTE: ``git add -u`` without a pathspec stages ALL tracked
+        # modifications/deletions repo-wide.  In a vault with other
+        # uncommitted edits, this may sweep unrelated changes into the
+        # auto-commit.  A future improvement would extend the callback
+        # signature to pass both old and new paths.
         subprocess.run(
             ["git", "-C", root, "add", "-u"],
             capture_output=True,

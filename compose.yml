@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.markdown-mcp.rule=Host(`markdown-mcp.local`)"
+      - "traefik.http.routers.markdown-mcp.rule=Host(`${MARKDOWN_MCP_HOST:-markdown-mcp.local}`)"
       - "traefik.http.services.markdown-mcp.loadbalancer.server.port=8000"
 
 volumes:
