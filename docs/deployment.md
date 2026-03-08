@@ -176,27 +176,31 @@ services:
       MARKDOWN_VAULT_MCP_SOURCE_DIR: /data/vault
       MARKDOWN_VAULT_MCP_INDEX_PATH: /data/index/index.db
       MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/embeddings/embeddings
+    networks:
+      - internal
     restart: unless-stopped
     # No Traefik labels here — proxy is the public face.
 
   mcp-auth-proxy:
     image: ghcr.io/wrale/mcp-auth-proxy:latest
+    env_file: mcp-auth-proxy.env   # OIDC_CLIENT_SECRET goes here, not in compose.yml
     environment:
       # Upstream MCP server
       MCP_SERVER_URL: http://markdown-vault-mcp:8000
       # OAuth2/OIDC provider (replace with your provider's values)
       OIDC_ISSUER: https://auth.example.com
       OIDC_CLIENT_ID: your-client-id
-      OIDC_CLIENT_SECRET: your-client-secret
+      # OIDC_CLIENT_SECRET loaded from env_file (avoid putting secrets in compose.yml)
       # Proxy listen port
       PROXY_PORT: "9000"
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.vault.rule=Host(`vault.example.com`)"
-      - "traefik.http.services.vault.loadbalancer.server.port=9000"
+      - "traefik.http.routers.mcp-auth-proxy.rule=Host(`vault.example.com`)"
+      - "traefik.http.services.mcp-auth-proxy.loadbalancer.server.port=9000"
     networks:
       - traefik
+      - internal
     depends_on:
       - markdown-vault-mcp
 
@@ -207,6 +211,8 @@ volumes:
 networks:
   traefik:
     external: true
+  internal:
+    internal: true   # not routable from outside
 ```
 
 **Middleware chain:**
@@ -262,14 +268,13 @@ MARKDOWN_VAULT_MCP_READ_ONLY=false
 MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**,_templates/**
 MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_your_token_here
 EMBEDDING_PROVIDER=ollama
-OLLAMA_HOST=http://localhost:11434
+OLLAMA_HOST=http://host.docker.internal:11434  # use host.docker.internal inside Docker
 MARKDOWN_VAULT_MCP_OLLAMA_MODEL=nomic-embed-text
 ```
 
-**Current limitation:** The git strategy injects the PAT into the HTTPS remote
-URL for push. This works but means the token briefly appears in the remote URL
-string inside the process. A `GIT_ASKPASS`-based alternative is tracked in
-issue #44.
+**Note:** On Linux without Docker Desktop, you may need to add
+`extra_hosts: ["host.docker.internal:host-gateway"]` to the service in
+`compose.yml` for `host.docker.internal` to resolve.
 
 **If you prefer not to use auto-push:** omit `MARKDOWN_VAULT_MCP_GIT_TOKEN`.
 Writes still persist to disk; run `git add + commit + push` from a cron job or
@@ -282,8 +287,10 @@ git hook as usual.
 The container runs as a non-root `appuser`. If the vault is owned by a
 different UID on the host, reads will fail. Fix by either:
 
-- `chown -R 1000:1000 /path/to/vault` (match the container UID), or
-- Add `user: "host_uid:host_gid"` to the service in `compose.yml`.
+- Find the container UID/GID with `docker compose run --rm markdown-vault-mcp id`,
+  then `chown -R <UID>:<GID> /path/to/vault`, or
+- Add `user: "<your_uid>:<your_gid>"` to the service in `compose.yml` (find
+  your UID/GID with `id`).
 
 **Traefik network not found**
 
