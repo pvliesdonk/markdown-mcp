@@ -188,6 +188,7 @@ def _stage_and_push(
     subprocess.run(
         ["git", "-C", root, "commit", "-m", commit_msg],
         capture_output=True,
+        text=True,
         check=True,
     )
 
