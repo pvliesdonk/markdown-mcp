@@ -95,10 +95,14 @@ def git_write_strategy(token: str | None = None) -> WriteCallback:
             _stage_and_push(_git_root, path, operation, token)
         except subprocess.CalledProcessError as exc:
             # Sanitize command args to avoid leaking PAT tokens in logs.
-            sanitized_cmd = [
-                "***" if isinstance(a, str) and token and token in a else a
-                for a in (exc.cmd or [])
-            ] if token else exc.cmd
+            sanitized_cmd = (
+                [
+                    "***" if isinstance(a, str) and token and token in a else a
+                    for a in (exc.cmd or [])
+                ]
+                if token
+                else exc.cmd
+            )
             logger.error(
                 "Git operation failed for %s (%s): command %s returned %d",
                 path,
