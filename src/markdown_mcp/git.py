@@ -122,6 +122,20 @@ def _stage_and_push(
             capture_output=True,
             check=True,
         )
+    elif operation == "rename":
+        # For rename, the old file has been moved on disk.  Stage tracked
+        # deletions (-u) to capture the old path removal, then add the new
+        # file explicitly.
+        subprocess.run(
+            ["git", "-C", root, "add", "-u"],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", root, "add", "--", str(path)],
+            capture_output=True,
+            check=True,
+        )
     else:
         subprocess.run(
             ["git", "-C", root, "add", "--", str(path)],

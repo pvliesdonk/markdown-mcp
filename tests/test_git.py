@@ -125,6 +125,37 @@ class TestGitWriteStrategy:
         )
         assert "delete: README.md" in result.stdout
 
+    def test_commit_on_rename(self, git_repo: Path) -> None:
+        """Strategy stages both old deletion and new addition on rename."""
+        import subprocess
+
+        callback = git_write_strategy()
+
+        # First create and track a file.
+        test_file = git_repo / "note.md"
+        test_file.write_text("# Note\n")
+        callback(test_file, "# Note\n", "write")
+
+        # Simulate rename: move file on disk, then call callback with new path.
+        new_file = git_repo / "renamed.md"
+        test_file.rename(new_file)
+        callback(new_file, "# Note\n", "rename")
+
+        result = subprocess.run(
+            ["git", "-C", str(git_repo), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "rename: renamed.md" in result.stdout
+
+        # Verify the old file is not left as an unstaged deletion.
+        status = subprocess.run(
+            ["git", "-C", str(git_repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+        )
+        assert status.stdout.strip() == ""
+
     def test_no_repo_logs_warning(self, tmp_path: Path) -> None:
         """Strategy logs warning and skips when not in a git repo."""
         isolated = tmp_path / "no_git"
