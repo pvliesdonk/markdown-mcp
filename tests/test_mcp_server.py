@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from fastmcp import Client
 
-from markdown_mcp.mcp_server import create_server
+from markdown_vault_mcp.mcp_server import create_server
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -35,21 +35,21 @@ def _parse_tool_data(result: Any) -> Any:
 
 
 _CLEAR_VARS = (
-    "MARKDOWN_MCP_INDEX_PATH",
-    "MARKDOWN_MCP_EMBEDDINGS_PATH",
-    "MARKDOWN_MCP_STATE_PATH",
-    "MARKDOWN_MCP_INDEXED_FIELDS",
-    "MARKDOWN_MCP_REQUIRED_FIELDS",
-    "MARKDOWN_MCP_EXCLUDE",
-    "MARKDOWN_MCP_GIT_TOKEN",
+    "MARKDOWN_VAULT_MCP_INDEX_PATH",
+    "MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH",
+    "MARKDOWN_VAULT_MCP_STATE_PATH",
+    "MARKDOWN_VAULT_MCP_INDEXED_FIELDS",
+    "MARKDOWN_VAULT_MCP_REQUIRED_FIELDS",
+    "MARKDOWN_VAULT_MCP_EXCLUDE",
+    "MARKDOWN_VAULT_MCP_GIT_TOKEN",
 )
 
 
 @pytest.fixture
 def _mcp_env(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Set minimal env vars for create_server (read_only=true default)."""
-    monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
-    monkeypatch.delenv("MARKDOWN_MCP_READ_ONLY", raising=False)
+    monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+    monkeypatch.delenv("MARKDOWN_VAULT_MCP_READ_ONLY", raising=False)
     for var in _CLEAR_VARS:
         monkeypatch.delenv(var, raising=False)
 
@@ -57,8 +57,8 @@ def _mcp_env(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def _mcp_env_writable(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Set env vars with read_only=false."""
-    monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
-    monkeypatch.setenv("MARKDOWN_MCP_READ_ONLY", "false")
+    monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+    monkeypatch.setenv("MARKDOWN_VAULT_MCP_READ_ONLY", "false")
     for var in _CLEAR_VARS:
         monkeypatch.delenv(var, raising=False)
 
@@ -66,12 +66,12 @@ def _mcp_env_writable(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
 @pytest.fixture
 def _mcp_env_with_fields(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Set env vars with indexed frontmatter fields."""
-    monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
-    monkeypatch.delenv("MARKDOWN_MCP_READ_ONLY", raising=False)
+    monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+    monkeypatch.delenv("MARKDOWN_VAULT_MCP_READ_ONLY", raising=False)
     for var in _CLEAR_VARS:
         monkeypatch.delenv(var, raising=False)
     # Set after clearing so it's not wiped by _CLEAR_VARS.
-    monkeypatch.setenv("MARKDOWN_MCP_INDEXED_FIELDS", "cluster,tags")
+    monkeypatch.setenv("MARKDOWN_VAULT_MCP_INDEXED_FIELDS", "cluster,tags")
 
 
 # ---------------------------------------------------------------------------
@@ -508,19 +508,19 @@ class TestRenameTool:
 
 
 class TestMCPExcludePatterns:
-    """Test that MARKDOWN_MCP_EXCLUDE env var is respected by the MCP server."""
+    """Test that MARKDOWN_VAULT_MCP_EXCLUDE env var is respected by the MCP server."""
 
     async def test_exclude_patterns_hides_subfolder_docs(
         self,
         vault_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """list_documents does not return docs matching MARKDOWN_MCP_EXCLUDE."""
-        monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
-        monkeypatch.setenv("MARKDOWN_MCP_EXCLUDE", "subfolder/**")
-        monkeypatch.delenv("MARKDOWN_MCP_READ_ONLY", raising=False)
+        """list_documents does not return docs matching MARKDOWN_VAULT_MCP_EXCLUDE."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_EXCLUDE", "subfolder/**")
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_READ_ONLY", raising=False)
         for var in _CLEAR_VARS:
-            if var != "MARKDOWN_MCP_EXCLUDE":
+            if var != "MARKDOWN_VAULT_MCP_EXCLUDE":
                 monkeypatch.delenv(var, raising=False)
 
         server = create_server()

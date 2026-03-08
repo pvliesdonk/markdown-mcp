@@ -1,11 +1,11 @@
 """Generic FastMCP server for markdown collections.
 
-Exposes :class:`~markdown_mcp.collection.Collection` methods as MCP tools
+Exposes :class:`~markdown_vault_mcp.collection.Collection` methods as MCP tools
 with proper ``ToolAnnotations``.  Uses a lifespan hook to build the
 ``Collection`` once at startup and tear it down on shutdown.
 
 The server is configured entirely via environment variables (see
-:mod:`markdown_mcp.config`).  Call :func:`create_server` to build a
+:mod:`markdown_vault_mcp.config`).  Call :func:`create_server` to build a
 configured :class:`~fastmcp.FastMCP` instance.
 """
 
@@ -23,8 +23,8 @@ from fastmcp import FastMCP
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-from markdown_mcp.collection import Collection
-from markdown_mcp.config import load_config
+from markdown_vault_mcp.collection import Collection
+from markdown_vault_mcp.config import _ENV_PREFIX, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ async def _collection_lifespan(
     embedding_provider = None
     if config.embeddings_path is not None:
         try:
-            from markdown_mcp.providers import get_embedding_provider
+            from markdown_vault_mcp.providers import get_embedding_provider
 
             embedding_provider = get_embedding_provider()
             logger.info("Embedding provider: %s", type(embedding_provider).__name__)
@@ -105,14 +105,14 @@ def create_server() -> FastMCP:
     """Create and configure the FastMCP server.
 
     Reads configuration from environment variables via :func:`load_config`.
-    Tools are registered based on the ``MARKDOWN_MCP_READ_ONLY`` setting:
-    write tools are only registered when ``MARKDOWN_MCP_READ_ONLY=false``.
+    Tools are registered based on the ``MARKDOWN_VAULT_MCP_READ_ONLY`` setting:
+    write tools are only registered when ``MARKDOWN_VAULT_MCP_READ_ONLY=false``.
 
     Returns:
         A fully configured :class:`~fastmcp.FastMCP` instance ready to run.
     """
     mcp = FastMCP(
-        "markdown-mcp",
+        "markdown-vault-mcp",
         instructions=(
             "A markdown collection server with full-text and semantic search. "
             "Use 'search' to find documents, 'read' to get full content, "
@@ -332,7 +332,7 @@ def create_server() -> FastMCP:
 
     # --- Write tools (conditionally registered) ---
 
-    raw_read_only = os.environ.get("MARKDOWN_MCP_READ_ONLY", "true").strip().lower()
+    raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY", "true").strip().lower()
     is_read_only = raw_read_only in ("true", "1", "yes")
 
     if not is_read_only:

@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from markdown_mcp.providers import EmbeddingProvider
+from markdown_vault_mcp.providers import EmbeddingProvider
 
 
 class MockEmbeddingProvider(EmbeddingProvider):

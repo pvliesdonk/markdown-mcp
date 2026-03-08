@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from markdown_mcp.fts_index import FTSIndex
-from markdown_mcp.types import Chunk, FTSResult, ParsedNote
+from markdown_vault_mcp.fts_index import FTSIndex
+from markdown_vault_mcp.types import Chunk, FTSResult, ParsedNote
 
 # ---------------------------------------------------------------------------
 # Test helper

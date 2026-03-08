@@ -27,5 +27,5 @@ USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-ENTRYPOINT ["markdown-mcp"]
+ENTRYPOINT ["markdown-vault-mcp"]
 CMD ["serve"]

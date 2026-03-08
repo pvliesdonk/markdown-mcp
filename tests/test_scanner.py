@@ -1,4 +1,4 @@
-"""Tests for markdown_mcp.scanner module."""
+"""Tests for markdown_vault_mcp.scanner module."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from typing import Any
 
 import pytest
 
-from markdown_mcp.scanner import (
+from markdown_vault_mcp.scanner import (
     ChunkStrategy,
     HeadingChunker,
     WholeDocumentChunker,
     parse_note,
     scan_directory,
 )
-from markdown_mcp.types import Chunk
+from markdown_vault_mcp.types import Chunk
 
 # ---------------------------------------------------------------------------
 # Helpers

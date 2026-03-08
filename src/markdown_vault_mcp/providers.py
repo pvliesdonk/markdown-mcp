@@ -1,4 +1,4 @@
-"""Embedding providers for markdown-mcp.
+"""Embedding providers for markdown-vault-mcp.
 
 Provides an :class:`EmbeddingProvider` ABC and three concrete implementations:
 
@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 import os
 from abc import ABC, abstractmethod
+
+from markdown_vault_mcp.config import _ENV_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +54,9 @@ class OllamaProvider(EmbeddingProvider):
 
     - ``OLLAMA_HOST``: base URL of the Ollama server
       (default: ``http://localhost:11434``).
-    - ``MARKDOWN_MCP_OLLAMA_MODEL``: model name to use
+    - ``MARKDOWN_VAULT_MCP_OLLAMA_MODEL``: model name to use
       (default: ``nomic-embed-text``).
-    - ``MARKDOWN_MCP_OLLAMA_CPU_ONLY``: set to ``true`` to force CPU-only
+    - ``MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY``: set to ``true`` to force CPU-only
       inference (default: ``false``).
     """
 
@@ -69,13 +71,13 @@ class OllamaProvider(EmbeddingProvider):
         except ImportError as exc:
             raise ImportError(
                 "OllamaProvider requires 'httpx'. "
-                "Install it with: pip install 'markdown-mcp[embeddings-api]'"
+                "Install it with: pip install 'markdown-vault-mcp[embeddings-api]'"
             ) from exc
 
         self._httpx = httpx
         self._host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
-        self._model = os.environ.get("MARKDOWN_MCP_OLLAMA_MODEL", "nomic-embed-text")
-        cpu_only_raw = os.environ.get("MARKDOWN_MCP_OLLAMA_CPU_ONLY", "false").lower()
+        self._model = os.environ.get(f"{_ENV_PREFIX}_OLLAMA_MODEL", "nomic-embed-text")
+        cpu_only_raw = os.environ.get(f"{_ENV_PREFIX}_OLLAMA_CPU_ONLY", "false").lower()
         self._cpu_only = cpu_only_raw in ("1", "true", "yes")
         self._dimension: int | None = None
 
@@ -166,7 +168,7 @@ class OpenAIProvider(EmbeddingProvider):
         except ImportError as exc:
             raise ImportError(
                 "OpenAIProvider requires 'httpx'. "
-                "Install it with: pip install 'markdown-mcp[embeddings-api]'"
+                "Install it with: pip install 'markdown-vault-mcp[embeddings-api]'"
             ) from exc
 
         self._httpx = httpx
@@ -266,7 +268,7 @@ class SentenceTransformersProvider(EmbeddingProvider):
         except ImportError as exc:
             raise ImportError(
                 "SentenceTransformersProvider requires 'sentence-transformers'. "
-                "Install it with: pip install 'markdown-mcp[embeddings]'"
+                "Install it with: pip install 'markdown-vault-mcp[embeddings]'"
             ) from exc
 
         self._model = SentenceTransformer(model_name)
@@ -372,8 +374,8 @@ def get_embedding_provider() -> EmbeddingProvider:
 
     raise RuntimeError(
         "No embedding provider is available. Install one of:\n"
-        "  pip install 'markdown-mcp[embeddings-api]'  # httpx for Ollama or OpenAI\n"
-        "  pip install 'markdown-mcp[embeddings]'       # sentence-transformers (local)\n"
+        "  pip install 'markdown-vault-mcp[embeddings-api]'  # httpx for Ollama or OpenAI\n"
+        "  pip install 'markdown-vault-mcp[embeddings]'       # sentence-transformers (local)\n"
         "Or set OPENAI_API_KEY for the OpenAI provider, "
         "or start an Ollama server for the Ollama provider."
     )

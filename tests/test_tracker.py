@@ -6,8 +6,8 @@ import hashlib
 import json
 from typing import TYPE_CHECKING
 
-from markdown_mcp.tracker import ChangeTracker
-from markdown_mcp.types import Chunk, ParsedNote
+from markdown_vault_mcp.tracker import ChangeTracker
+from markdown_vault_mcp.types import Chunk, ParsedNote
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from markdown_mcp.collection import Collection
-from markdown_mcp.exceptions import (
+from markdown_vault_mcp.collection import Collection
+from markdown_vault_mcp.exceptions import (
     DocumentExistsError,
     DocumentNotFoundError,
     EditConflictError,
     ReadOnlyError,
 )
-from markdown_mcp.types import (
+from markdown_vault_mcp.types import (
     CollectionStats,
     DeleteResult,
     EditResult,

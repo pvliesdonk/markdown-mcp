@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from markdown_mcp.vector_index import VectorIndex
+from markdown_vault_mcp.vector_index import VectorIndex
 
 if TYPE_CHECKING:
     from .conftest import MockEmbeddingProvider

@@ -1,8 +1,8 @@
-"""Exception types for markdown-mcp."""
+"""Exception types for markdown-vault-mcp."""
 
 
 class MarkdownMCPError(Exception):
-    """Base exception for markdown-mcp."""
+    """Base exception for markdown-vault-mcp."""
 
 
 class DocumentNotFoundError(MarkdownMCPError):

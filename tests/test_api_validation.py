@@ -10,12 +10,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from markdown_mcp.collection import Collection
+from markdown_vault_mcp.collection import Collection
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from markdown_mcp.types import IndexStats
+    from markdown_vault_mcp.types import IndexStats
 
 
 # ---------------------------------------------------------------------------

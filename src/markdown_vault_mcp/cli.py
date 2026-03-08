@@ -1,7 +1,7 @@
-"""Command-line interface for markdown-mcp.
+"""Command-line interface for markdown-vault-mcp.
 
 Provides ``serve``, ``index``, ``search``, and ``reindex`` subcommands.
-The entry point is :func:`main`, registered as ``markdown-mcp`` in
+The entry point is :func:`main`, registered as ``markdown-vault-mcp`` in
 ``pyproject.toml``.
 """
 
@@ -15,10 +15,12 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from markdown_mcp.collection import Collection
-from markdown_mcp.config import load_config
+from markdown_vault_mcp.collection import Collection
+from markdown_vault_mcp.config import _ENV_PREFIX, load_config
 
 logger = logging.getLogger(__name__)
+
+_PROG = "markdown-vault-mcp"
 
 
 def _build_collection(args: argparse.Namespace) -> Collection:
@@ -37,7 +39,7 @@ def _build_collection(args: argparse.Namespace) -> Collection:
     # CLI --source-dir overrides env var.
     source_dir_override = getattr(args, "source_dir", None)
     if source_dir_override:
-        os.environ["MARKDOWN_MCP_SOURCE_DIR"] = source_dir_override
+        os.environ[f"{_ENV_PREFIX}_SOURCE_DIR"] = source_dir_override
 
     config = load_config()
 
@@ -48,7 +50,7 @@ def _build_collection(args: argparse.Namespace) -> Collection:
     embedding_provider = None
     if config.embeddings_path is not None:
         try:
-            from markdown_mcp.providers import get_embedding_provider
+            from markdown_vault_mcp.providers import get_embedding_provider
 
             embedding_provider = get_embedding_provider()
         except Exception:
@@ -72,10 +74,11 @@ def _build_collection(args: argparse.Namespace) -> Collection:
 def _cmd_serve(args: argparse.Namespace) -> None:
     """Run the MCP server."""
     try:
-        from markdown_mcp.mcp_server import create_server
+        from markdown_vault_mcp.mcp_server import create_server
     except ImportError:
         logger.error(
-            "FastMCP is not installed. Install with: pip install markdown-mcp[mcp]"
+            "FastMCP is not installed. Install with: "
+            "pip install markdown-vault-mcp[mcp]"
         )
         sys.exit(1)
 
@@ -128,7 +131,7 @@ def _build_parser() -> argparse.ArgumentParser:
         Configured :class:`argparse.ArgumentParser`.
     """
     parser = argparse.ArgumentParser(
-        prog="markdown-mcp",
+        prog=_PROG,
         description="Generic markdown collection MCP server",
     )
     parser.add_argument(
@@ -153,11 +156,11 @@ def _build_parser() -> argparse.ArgumentParser:
     index_parser = sub.add_parser("index", help="build the full-text search index")
     index_parser.add_argument(
         "--source-dir",
-        help="path to markdown collection (overrides MARKDOWN_MCP_SOURCE_DIR)",
+        help=f"path to markdown collection (overrides {_ENV_PREFIX}_SOURCE_DIR)",
     )
     index_parser.add_argument(
         "--index-path",
-        help="path to SQLite index file (overrides MARKDOWN_MCP_INDEX_PATH)",
+        help=f"path to SQLite index file (overrides {_ENV_PREFIX}_INDEX_PATH)",
     )
     index_parser.add_argument(
         "--force",
@@ -170,7 +173,7 @@ def _build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("query", help="search query")
     search_parser.add_argument(
         "--source-dir",
-        help="path to markdown collection (overrides MARKDOWN_MCP_SOURCE_DIR)",
+        help=f"path to markdown collection (overrides {_ENV_PREFIX}_SOURCE_DIR)",
     )
     search_parser.add_argument(
         "-n",
@@ -202,11 +205,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     reindex_parser.add_argument(
         "--source-dir",
-        help="path to markdown collection (overrides MARKDOWN_MCP_SOURCE_DIR)",
+        help=f"path to markdown collection (overrides {_ENV_PREFIX}_SOURCE_DIR)",
     )
     reindex_parser.add_argument(
         "--index-path",
-        help="path to SQLite index file (overrides MARKDOWN_MCP_INDEX_PATH)",
+        help=f"path to SQLite index file (overrides {_ENV_PREFIX}_INDEX_PATH)",
     )
 
     return parser

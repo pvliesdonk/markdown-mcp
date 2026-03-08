@@ -16,22 +16,22 @@ from typing import TYPE_CHECKING, Literal
 
 import frontmatter as fm
 
-from markdown_mcp.exceptions import (
+from markdown_vault_mcp.exceptions import (
     DocumentExistsError,
     DocumentNotFoundError,
     EditConflictError,
     ReadOnlyError,
 )
-from markdown_mcp.fts_index import FTSIndex, _derive_folder
-from markdown_mcp.scanner import (
+from markdown_vault_mcp.fts_index import FTSIndex, _derive_folder
+from markdown_vault_mcp.scanner import (
     ChunkStrategy,
     HeadingChunker,
     WholeDocumentChunker,
     parse_note,
     scan_directory,
 )
-from markdown_mcp.tracker import ChangeTracker
-from markdown_mcp.types import (
+from markdown_vault_mcp.tracker import ChangeTracker
+from markdown_vault_mcp.types import (
     CollectionStats,
     DeleteResult,
     EditResult,
@@ -47,12 +47,12 @@ from markdown_mcp.types import (
 )
 
 if TYPE_CHECKING:
-    from markdown_mcp.providers import EmbeddingProvider
-    from markdown_mcp.vector_index import VectorIndex
+    from markdown_vault_mcp.providers import EmbeddingProvider
+    from markdown_vault_mcp.vector_index import VectorIndex
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_STATE_SUBDIR = ".markdown_mcp"
+_DEFAULT_STATE_SUBDIR = ".markdown_vault_mcp"
 _DEFAULT_STATE_FILENAME = "state.json"
 
 # RRF constant — standard value recommended in the original paper.
@@ -129,16 +129,16 @@ class Collection:
         embedding_provider: Provider used to generate embeddings.  Required
             when *embeddings_path* is set.
         read_only: When ``True`` (default), write operations raise
-            :exc:`~markdown_mcp.exceptions.ReadOnlyError`.
+            :exc:`~markdown_vault_mcp.exceptions.ReadOnlyError`.
         state_path: Path to the hash-state JSON file used by
-            :class:`~markdown_mcp.tracker.ChangeTracker`.  Defaults to
-            ``{source_dir}/.markdown_mcp/state.json``.
+            :class:`~markdown_vault_mcp.tracker.ChangeTracker`.  Defaults to
+            ``{source_dir}/.markdown_vault_mcp/state.json``.
         indexed_frontmatter_fields: Frontmatter keys whose values are
             promoted to the ``document_tags`` table for structured filtering.
         required_frontmatter: If provided, documents missing any listed field
             are excluded from the index entirely.
         chunk_strategy: ``"heading"`` (default), ``"whole"``, or a custom
-            :class:`~markdown_mcp.scanner.ChunkStrategy` instance.
+            :class:`~markdown_vault_mcp.scanner.ChunkStrategy` instance.
         on_write: Optional callback invoked after every successful write
             operation.  Signature:
             ``Callable[[Path, str, Literal["write","edit","delete","rename"]], None]``.
@@ -170,7 +170,7 @@ class Collection:
         self._on_write = on_write
         self._exclude_patterns = exclude_patterns
 
-        # Default state path: {source_dir}/.markdown_mcp/state.json
+        # Default state path: {source_dir}/.markdown_vault_mcp/state.json
         if state_path is None:
             self._state_path = (
                 source_dir / _DEFAULT_STATE_SUBDIR / _DEFAULT_STATE_FILENAME
@@ -235,7 +235,7 @@ class Collection:
                 (and its sub-folders).
 
         Returns:
-            List of :class:`~markdown_mcp.types.SearchResult` ordered by
+            List of :class:`~markdown_vault_mcp.types.SearchResult` ordered by
             relevance.
 
         Raises:
@@ -271,12 +271,12 @@ class Collection:
         """Load or return the cached VectorIndex.
 
         Returns:
-            A :class:`~markdown_mcp.vector_index.VectorIndex` instance.
+            A :class:`~markdown_vault_mcp.vector_index.VectorIndex` instance.
         """
         if self._vectors is not None:
             return self._vectors
 
-        from markdown_mcp.vector_index import VectorIndex
+        from markdown_vault_mcp.vector_index import VectorIndex
 
         assert self._embeddings_path is not None
         assert self._embedding_provider is not None
@@ -525,7 +525,7 @@ class Collection:
             path: Relative document path (e.g. ``"Journal/note.md"``).
 
         Returns:
-            A :class:`~markdown_mcp.types.NoteContent` instance, or ``None``
+            A :class:`~markdown_vault_mcp.types.NoteContent` instance, or ``None``
             if the file does not exist.
         """
         self._ensure_initialized()
@@ -571,7 +571,7 @@ class Collection:
                 :func:`fnmatch.fnmatch`.  Example: ``"Journal/*.md"``.
 
         Returns:
-            List of :class:`~markdown_mcp.types.NoteInfo` objects.
+            List of :class:`~markdown_vault_mcp.types.NoteInfo` objects.
         """
         self._ensure_initialized()
 
@@ -598,7 +598,7 @@ class Collection:
             force: When ``True``, drop and rebuild the index unconditionally.
 
         Returns:
-            :class:`~markdown_mcp.types.IndexStats` describing what was indexed.
+            :class:`~markdown_vault_mcp.types.IndexStats` describing what was indexed.
         """
         # Check if index already has data and we are not forcing.
         if not force and self._initialized:
@@ -661,12 +661,12 @@ class Collection:
     def reindex(self) -> ReindexResult:
         """Incrementally update the index based on file changes.
 
-        Uses :class:`~markdown_mcp.tracker.ChangeTracker` to detect which
+        Uses :class:`~markdown_vault_mcp.tracker.ChangeTracker` to detect which
         files have been added, modified, or deleted since the last scan.
         Only changed files are re-parsed and re-indexed.
 
         Returns:
-            :class:`~markdown_mcp.types.ReindexResult` with counts of changes
+            :class:`~markdown_vault_mcp.types.ReindexResult` with counts of changes
             applied.
         """
         self._ensure_initialized()
@@ -790,7 +790,7 @@ class Collection:
         assert self._embeddings_path is not None
         assert self._embedding_provider is not None
 
-        from markdown_mcp.vector_index import VectorIndex
+        from markdown_vault_mcp.vector_index import VectorIndex
 
         if force or self._vectors is None:
             self._vectors = VectorIndex(self._embedding_provider)
@@ -908,7 +908,7 @@ class Collection:
         """Return collection-wide statistics.
 
         Returns:
-            :class:`~markdown_mcp.types.CollectionStats` snapshot.
+            :class:`~markdown_vault_mcp.types.CollectionStats` snapshot.
         """
         self._ensure_initialized()
 
@@ -1012,7 +1012,7 @@ class Collection:
             frontmatter: Optional frontmatter dict serialised as YAML header.
 
         Returns:
-            :class:`~markdown_mcp.types.WriteResult`.
+            :class:`~markdown_vault_mcp.types.WriteResult`.
 
         Raises:
             ReadOnlyError: If the collection is read-only.
@@ -1062,7 +1062,7 @@ class Collection:
             new_text: Replacement text.
 
         Returns:
-            :class:`~markdown_mcp.types.EditResult`.
+            :class:`~markdown_vault_mcp.types.EditResult`.
 
         Raises:
             ReadOnlyError: If the collection is read-only.
@@ -1116,7 +1116,7 @@ class Collection:
             path: Relative document path.
 
         Returns:
-            :class:`~markdown_mcp.types.DeleteResult`.
+            :class:`~markdown_vault_mcp.types.DeleteResult`.
 
         Raises:
             ReadOnlyError: If the collection is read-only.
@@ -1158,7 +1158,7 @@ class Collection:
             new_path: Target relative document path.
 
         Returns:
-            :class:`~markdown_mcp.types.RenameResult`.
+            :class:`~markdown_vault_mcp.types.RenameResult`.
 
         Raises:
             ReadOnlyError: If the collection is read-only.

@@ -1,4 +1,4 @@
-"""File discovery, frontmatter parsing, and chunking for markdown-mcp."""
+"""File discovery, frontmatter parsing, and chunking for markdown-vault-mcp."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import frontmatter
 
-from markdown_mcp.types import Chunk, ParsedNote
+from markdown_vault_mcp.types import Chunk, ParsedNote
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -218,7 +218,7 @@ def parse_note(
             :class:`HeadingChunker`.
 
     Returns:
-        A :class:`~markdown_mcp.types.ParsedNote` instance.
+        A :class:`~markdown_vault_mcp.types.ParsedNote` instance.
 
     Raises:
         UnicodeDecodeError: If the file cannot be decoded as UTF-8. Callers
@@ -267,7 +267,7 @@ def scan_directory(
 ) -> Iterator[ParsedNote]:
     """Discover and parse all markdown files under ``source_dir``.
 
-    Yields :class:`~markdown_mcp.types.ParsedNote` objects. Fault-tolerant: a
+    Yields :class:`~markdown_vault_mcp.types.ParsedNote` objects. Fault-tolerant: a
     single bad file (UTF-8 decode error, I/O error) is skipped with a
     ``WARNING`` log entry; the scan continues.
 

@@ -1,7 +1,7 @@
 [project]
-name = "markdown-mcp"
+name = "markdown-vault-mcp"
 version = "0.1.0"
-description = "Generic markdown collection MCP server with FTS5 + semantic search"
+description = "Generic markdown vault MCP server with FTS5 + semantic search"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -34,17 +34,17 @@ dev = [
 ]
 
 [project.scripts]
-markdown-mcp = "markdown_mcp.cli:main"
+markdown-vault-mcp = "markdown_vault_mcp.cli:main"
 
 [project.urls]
-Repository = "https://github.com/pvliesdonk/markdown-mcp"
+Repository = "https://github.com/pvliesdonk/markdown-vault-mcp"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/markdown_mcp"]
+packages = ["src/markdown_vault_mcp"]
 
 [tool.ruff]
 target-version = "py310"
@@ -60,10 +60,10 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 # Phase 1 write stubs: method signatures define the public API but bodies are
 # not yet implemented. ARG002 fires because parameters are unused.
-"src/markdown_mcp/collection.py" = ["ARG002"]
+"src/markdown_vault_mcp/collection.py" = ["ARG002"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["markdown_mcp"]
+known-first-party = ["markdown_vault_mcp"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -75,7 +75,7 @@ addopts = ["--strict-markers", "-ra"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["src/markdown_mcp"]
+source = ["src/markdown_vault_mcp"]
 branch = true
 
 [tool.coverage.report]
@@ -105,10 +105,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [
-    "markdown_mcp.fts_index",
-    "markdown_mcp.vector_index",
-    "markdown_mcp.providers",
-    "markdown_mcp.collection",
+    "markdown_vault_mcp.fts_index",
+    "markdown_vault_mcp.vector_index",
+    "markdown_vault_mcp.providers",
+    "markdown_vault_mcp.collection",
 ]
 # Phase 1 modules have structural type issues (FTSResult used as dict,
 # numpy dtype mismatches).  TODO: fix in a dedicated type-safety PR.

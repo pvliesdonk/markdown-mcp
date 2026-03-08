@@ -75,8 +75,8 @@ implementation patterns:
 
 | File | Reuse Strategy | Notes |
 |------|----------------|-------|
-| `providers.py` | **Copy + adapt** | Rename env var prefix `IFCRAFTCORPUS_` to `MARKDOWN_MCP_`. Fix hardcoded imports. |
-| `embeddings.py` | **Copy + adapt** | Rename to `vector_index.py`. The `load()` classmethod contains a hardcoded `from ifcraftcorpus.providers import get_embedding_provider` -- this **must** be changed to `from markdown_mcp.providers import get_embedding_provider` or it will raise `ImportError` at runtime. |
+| `providers.py` | **Copy + adapt** | Rename env var prefix `IFCRAFTCORPUS_` to `MARKDOWN_VAULT_MCP_`. Fix hardcoded imports. |
+| `embeddings.py` | **Copy + adapt** | Rename to `vector_index.py`. The `load()` classmethod contains a hardcoded `from ifcraftcorpus.providers import get_embedding_provider` -- this **must** be changed to `from markdown_vault_mcp.providers import get_embedding_provider` or it will raise `ImportError` at runtime. |
 | `search.py` | **Adapt** | Pattern for `Collection` facade. Replace domain methods with generic API. |
 | `index.py` | **Adapt** | Pattern for `fts_index.py`. Replace corpus-specific schema. Fix hybrid score bug (see RRF section). |
 | `parser.py` | **Replace** | Replace with generic frontmatter + heading-based chunking using `python-frontmatter`. |
@@ -762,7 +762,7 @@ Evaluate at deploy time, not before.
 
 ```toml
 [project]
-name = "markdown-mcp"
+name = "markdown-vault-mcp"
 requires-python = ">=3.10"
 dependencies = [
     "python-frontmatter>=1.0",

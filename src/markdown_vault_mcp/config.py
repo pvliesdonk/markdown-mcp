@@ -1,7 +1,7 @@
-"""Configuration loading from environment variables for markdown-mcp.
+"""Configuration loading from environment variables for markdown-vault-mcp.
 
 Reads env vars and returns a :class:`CollectionConfig` suitable for
-constructing a :class:`~markdown_mcp.collection.Collection`.
+constructing a :class:`~markdown_vault_mcp.collection.Collection`.
 """
 
 from __future__ import annotations
@@ -13,6 +13,21 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_ENV_PREFIX = "MARKDOWN_VAULT_MCP"
+
+
+def _env(name: str, default: str | None = None) -> str | None:
+    """Return the value of ``{_ENV_PREFIX}_{name}`` from the environment.
+
+    Args:
+        name: Suffix after the prefix (e.g. ``"SOURCE_DIR"``).
+        default: Fallback when the variable is unset.
+
+    Returns:
+        The environment variable value, or *default*.
+    """
+    return os.environ.get(f"{_ENV_PREFIX}_{name}", default)
 
 
 def _parse_bool(value: str) -> bool:
@@ -48,19 +63,19 @@ def _parse_list(value: str) -> list[str]:
 
 @dataclass
 class CollectionConfig:
-    """Configuration for a :class:`~markdown_mcp.collection.Collection`.
+    """Configuration for a :class:`~markdown_vault_mcp.collection.Collection`.
 
     Attributes:
         source_dir: Root directory of the markdown collection.
         read_only: When ``True`` (default), write operations raise
-            :exc:`~markdown_mcp.exceptions.ReadOnlyError`.
+            :exc:`~markdown_vault_mcp.exceptions.ReadOnlyError`.
         index_path: Path to the persistent SQLite index file.  ``None``
             (default) uses an in-memory database.
         embeddings_path: Base path for vector index sidecar files.  ``None``
             (default) means semantic search is disabled.
         state_path: Path to the hash-state JSON file used by
-            :class:`~markdown_mcp.tracker.ChangeTracker`.  ``None`` defaults
-            to ``{source_dir}/.markdown_mcp/state.json``.
+            :class:`~markdown_vault_mcp.tracker.ChangeTracker`.  ``None``
+            defaults to ``{source_dir}/.markdown_vault_mcp/state.json``.
         indexed_frontmatter_fields: Frontmatter keys whose values are
             promoted to the ``document_tags`` table for structured filtering.
             ``None`` means no fields are indexed.
@@ -91,12 +106,12 @@ class CollectionConfig:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
 
         When ``git_token`` is set, creates a
-        :func:`~markdown_mcp.git.git_write_strategy` callback and includes
-        it as the ``on_write`` parameter.
+        :func:`~markdown_vault_mcp.git.git_write_strategy` callback and
+        includes it as the ``on_write`` parameter.
 
         Returns:
             Dict of keyword arguments accepted by
-            :class:`~markdown_mcp.collection.Collection.__init__`.
+            :class:`~markdown_vault_mcp.collection.Collection.__init__`.
 
         Example::
 
@@ -114,7 +129,7 @@ class CollectionConfig:
             "exclude_patterns": self.exclude_patterns,
         }
         if self.git_token is not None:
-            from markdown_mcp.git import git_write_strategy
+            from markdown_vault_mcp.git import git_write_strategy
 
             kwargs["on_write"] = git_write_strategy(self.git_token)
         return kwargs
@@ -125,66 +140,67 @@ def load_config() -> CollectionConfig:
 
     Reads the following environment variables:
 
-    - ``MARKDOWN_MCP_SOURCE_DIR`` (required): path to markdown files.
-    - ``MARKDOWN_MCP_READ_ONLY``: disable write tools; default ``true``.
-    - ``MARKDOWN_MCP_INDEX_PATH``: SQLite index path; default in-memory.
-    - ``MARKDOWN_MCP_EMBEDDINGS_PATH``: embeddings directory; default disabled.
-    - ``MARKDOWN_MCP_STATE_PATH``: state file path; default
-      ``{source_dir}/.markdown_mcp/state.json``.
-    - ``MARKDOWN_MCP_INDEXED_FIELDS``: comma-separated frontmatter fields to
-      index; default none.
-    - ``MARKDOWN_MCP_REQUIRED_FIELDS``: comma-separated required frontmatter
-      fields; default none.
-    - ``MARKDOWN_MCP_EXCLUDE``: comma-separated glob patterns to exclude;
-      default none.
-    - ``MARKDOWN_MCP_GIT_TOKEN``: token for git write strategy; default
+    - ``MARKDOWN_VAULT_MCP_SOURCE_DIR`` (required): path to markdown files.
+    - ``MARKDOWN_VAULT_MCP_READ_ONLY``: disable write tools; default ``true``.
+    - ``MARKDOWN_VAULT_MCP_INDEX_PATH``: SQLite index path; default in-memory.
+    - ``MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH``: embeddings directory; default
+      disabled.
+    - ``MARKDOWN_VAULT_MCP_STATE_PATH``: state file path; default
+      ``{source_dir}/.markdown_vault_mcp/state.json``.
+    - ``MARKDOWN_VAULT_MCP_INDEXED_FIELDS``: comma-separated frontmatter
+      fields to index; default none.
+    - ``MARKDOWN_VAULT_MCP_REQUIRED_FIELDS``: comma-separated required
+      frontmatter fields; default none.
+    - ``MARKDOWN_VAULT_MCP_EXCLUDE``: comma-separated glob patterns to
+      exclude; default none.
+    - ``MARKDOWN_VAULT_MCP_GIT_TOKEN``: token for git write strategy; default
       disabled.  Used in Phase 3 to configure ``on_write`` callback.
 
     The ``EMBEDDING_PROVIDER`` variable is intentionally **not** resolved here;
-    call :func:`~markdown_mcp.providers.get_embedding_provider` separately in
-    the server layer.
+    call :func:`~markdown_vault_mcp.providers.get_embedding_provider`
+    separately in the server layer.
 
     Returns:
         A fully populated :class:`CollectionConfig` instance.
 
     Raises:
-        ValueError: If ``MARKDOWN_MCP_SOURCE_DIR`` is not set.
+        ValueError: If ``MARKDOWN_VAULT_MCP_SOURCE_DIR`` is not set.
 
     Example::
 
         import os
-        os.environ["MARKDOWN_MCP_SOURCE_DIR"] = "/home/user/vault"
+        os.environ["MARKDOWN_VAULT_MCP_SOURCE_DIR"] = "/home/user/vault"
         config = load_config()
         collection = Collection(**config.to_collection_kwargs())
     """
-    raw_source_dir = os.environ.get("MARKDOWN_MCP_SOURCE_DIR", "").strip()
+    raw_source_dir = (_env("SOURCE_DIR") or "").strip()
     if not raw_source_dir:
         raise ValueError(
-            "MARKDOWN_MCP_SOURCE_DIR is required but not set. "
+            "MARKDOWN_VAULT_MCP_SOURCE_DIR is required but not set. "
             "Set it to the path of your markdown collection."
         )
     source_dir = Path(raw_source_dir)
     logger.debug("load_config: source_dir=%s", source_dir)
 
-    raw_read_only = os.environ.get("MARKDOWN_MCP_READ_ONLY")
+    raw_read_only = _env("READ_ONLY")
     read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
     logger.debug("load_config: read_only=%s (raw=%r)", read_only, raw_read_only)
 
-    raw_index_path = os.environ.get("MARKDOWN_MCP_INDEX_PATH", "").strip()
+    raw_index_path = (_env("INDEX_PATH") or "").strip()
     index_path: Path | None = Path(raw_index_path) if raw_index_path else None
     logger.debug("load_config: index_path=%s", index_path)
 
-    raw_embeddings_path = os.environ.get("MARKDOWN_MCP_EMBEDDINGS_PATH", "").strip()
+    raw_embeddings_path = (_env("EMBEDDINGS_PATH") or "").strip()
     embeddings_path: Path | None = (
         Path(raw_embeddings_path) if raw_embeddings_path else None
     )
     logger.debug("load_config: embeddings_path=%s", embeddings_path)
 
-    raw_state_path = os.environ.get("MARKDOWN_MCP_STATE_PATH", "").strip()
+    raw_state_path = (_env("STATE_PATH") or "").strip()
     state_path: Path | None = Path(raw_state_path) if raw_state_path else None
     logger.debug("load_config: state_path=%s", state_path)
 
-    raw_indexed_fields = os.environ.get("MARKDOWN_MCP_INDEXED_FIELDS", "").strip()
+    raw_indexed_fields = (_env("INDEXED_FIELDS") or "").strip()
     indexed_frontmatter_fields: list[str] | None = (
         _parse_list(raw_indexed_fields) or None
     )
@@ -192,15 +208,15 @@ def load_config() -> CollectionConfig:
         "load_config: indexed_frontmatter_fields=%s", indexed_frontmatter_fields
     )
 
-    raw_required_fields = os.environ.get("MARKDOWN_MCP_REQUIRED_FIELDS", "").strip()
+    raw_required_fields = (_env("REQUIRED_FIELDS") or "").strip()
     required_frontmatter: list[str] | None = _parse_list(raw_required_fields) or None
     logger.debug("load_config: required_frontmatter=%s", required_frontmatter)
 
-    raw_exclude = os.environ.get("MARKDOWN_MCP_EXCLUDE", "").strip()
+    raw_exclude = (_env("EXCLUDE") or "").strip()
     exclude_patterns: list[str] | None = _parse_list(raw_exclude) or None
     logger.debug("load_config: exclude_patterns=%s", exclude_patterns)
 
-    raw_git_token = os.environ.get("MARKDOWN_MCP_GIT_TOKEN", "").strip()
+    raw_git_token = (_env("GIT_TOKEN") or "").strip()
     git_token: str | None = raw_git_token or None
     logger.debug("load_config: git_token=%s", "set" if git_token else "not set")
 
