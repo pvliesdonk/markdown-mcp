@@ -231,7 +231,11 @@ def main() -> None:
     )
 
     handler = _COMMANDS[args.command]
-    handler(args)
+    try:
+        handler(args)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
