@@ -47,23 +47,30 @@ async def _collection_lifespan(
     config = load_config()
     logger.info("Initialising collection from %s", config.source_dir)
 
-    kwargs = config.to_collection_kwargs()
-
     # Resolve embedding provider if embeddings_path is configured.
+    embedding_provider = None
     if config.embeddings_path is not None:
         try:
             from markdown_mcp.providers import get_embedding_provider
 
-            provider = get_embedding_provider()
-            kwargs["embedding_provider"] = provider
-            logger.info("Embedding provider: %s", type(provider).__name__)
+            embedding_provider = get_embedding_provider()
+            logger.info("Embedding provider: %s", type(embedding_provider).__name__)
         except Exception:
             logger.warning(
                 "Could not load embedding provider; semantic search disabled",
                 exc_info=True,
             )
 
-    collection = Collection(**kwargs)
+    collection = Collection(
+        source_dir=config.source_dir,
+        read_only=config.read_only,
+        index_path=config.index_path,
+        embeddings_path=config.embeddings_path,
+        embedding_provider=embedding_provider,
+        state_path=config.state_path,
+        indexed_frontmatter_fields=config.indexed_frontmatter_fields,
+        required_frontmatter=config.required_frontmatter,
+    )
     _collection = collection
 
     # Build index eagerly so first tool call is fast.
