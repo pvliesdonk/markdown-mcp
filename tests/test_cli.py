@@ -13,10 +13,10 @@ from markdown_mcp.cli import _build_parser, main
 class TestBuildParser:
     """Test argument parser construction."""
 
-    def test_no_command_returns_none(self) -> None:
+    def test_no_command_exits(self) -> None:
         parser = _build_parser()
-        args = parser.parse_args([])
-        assert args.command is None
+        with pytest.raises(SystemExit):
+            parser.parse_args([])
 
     def test_serve_defaults(self) -> None:
         parser = _build_parser()
@@ -33,6 +33,12 @@ class TestBuildParser:
         parser = _build_parser()
         args = parser.parse_args(["index"])
         assert args.command == "index"
+        assert args.force is False
+
+    def test_index_force_flag(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["index", "--force"])
+        assert args.force is True
 
     def test_search_defaults(self) -> None:
         parser = _build_parser()
@@ -80,7 +86,7 @@ class TestMainDispatch:
     """Test main() dispatches to the correct subcommand handler."""
 
     def test_no_command_exits(self) -> None:
-        with patch("sys.argv", ["markdown-mcp"]), pytest.raises(SystemExit, match="1"):
+        with patch("sys.argv", ["markdown-mcp"]), pytest.raises(SystemExit, match="2"):
             main()
 
     @patch("markdown_mcp.cli._COMMANDS")
@@ -158,20 +164,30 @@ class TestCmdSearch:
         mock_build: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        mock_result = MagicMock()
+        from markdown_mcp.types import SearchResult
+
+        result = SearchResult(
+            path="a.md",
+            title="Note A",
+            folder="",
+            heading=None,
+            content="hello",
+            score=1.0,
+            search_type="keyword",
+            frontmatter={},
+        )
         mock_collection = MagicMock()
-        mock_collection.search.return_value = [mock_result]
+        mock_collection.search.return_value = [result]
         mock_build.return_value = mock_collection
 
-        with (
-            patch("sys.argv", ["markdown-mcp", "search", "test", "--json"]),
-            patch("markdown_mcp.cli.asdict", return_value={"path": "a.md"}),
-        ):
+        with patch("sys.argv", ["markdown-mcp", "search", "test", "--json"]):
             main()
 
         captured = capsys.readouterr()
         data = json.loads(captured.out)
-        assert data == [{"path": "a.md"}]
+        assert len(data) == 1
+        assert data[0]["path"] == "a.md"
+        assert data[0]["score"] == 1.0
 
     @patch("markdown_mcp.cli._build_collection")
     def test_search_passes_options(self, mock_build: MagicMock) -> None:

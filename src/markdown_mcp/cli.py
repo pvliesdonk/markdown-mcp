@@ -57,17 +57,16 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     server.run(transport=args.transport)
 
 
-def _cmd_index(args: argparse.Namespace) -> None:  # noqa: ARG001
+def _cmd_index(args: argparse.Namespace) -> None:
     """Build the full-text search index."""
     collection = _build_collection()
-    stats = collection.build_index()
+    stats = collection.build_index(force=args.force)
     print(f"Indexed {stats.documents_indexed} documents, {stats.chunks_indexed} chunks")
 
 
 def _cmd_search(args: argparse.Namespace) -> None:
     """Search the collection."""
     collection = _build_collection()
-    collection.build_index()
 
     results = collection.search(
         args.query,
@@ -80,7 +79,7 @@ def _cmd_search(args: argparse.Namespace) -> None:
         print(json.dumps([asdict(r) for r in results], indent=2))
     else:
         for r in results:
-            score = f" ({r.score:.4f})" if r.score is not None else ""
+            score = f" ({r.score:.4f})"
             print(f"  {r.path}{score}")
             if r.title:
                 print(f"    {r.title}")
@@ -89,7 +88,6 @@ def _cmd_search(args: argparse.Namespace) -> None:
 def _cmd_reindex(args: argparse.Namespace) -> None:  # noqa: ARG001
     """Incrementally reindex the collection."""
     collection = _build_collection()
-    collection.build_index()
     result = collection.reindex()
     print(
         f"Reindex: {result.added} added, {result.modified} modified, "
@@ -114,7 +112,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="enable debug logging",
     )
 
-    sub = parser.add_subparsers(dest="command")
+    sub = parser.add_subparsers(dest="command", required=True)
 
     # serve
     serve_parser = sub.add_parser("serve", help="run the MCP server")
@@ -126,7 +124,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # index
-    sub.add_parser("index", help="build the full-text search index")
+    index_parser = sub.add_parser("index", help="build the full-text search index")
+    index_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="drop and rebuild the index from scratch",
+    )
 
     # search
     search_parser = sub.add_parser("search", help="search the collection")
@@ -178,10 +181,6 @@ def main() -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
     )
-
-    if args.command is None:
-        parser.print_help()
-        sys.exit(1)
 
     handler = _COMMANDS[args.command]
     handler(args)
