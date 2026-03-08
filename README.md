@@ -108,7 +108,7 @@ All configuration is via environment variables with the `MARKDOWN_VAULT_MCP_` pr
 | `MARKDOWN_VAULT_MCP_READ_ONLY` | `true` | No | Set to `false` to enable write operations |
 | `MARKDOWN_VAULT_MCP_INDEX_PATH` | in-memory | No | Path to the SQLite FTS5 index file (set for persistence across restarts) |
 | `MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH` | disabled | No | Path to the numpy embeddings file (required to enable semantic search) |
-| `MARKDOWN_VAULT_MCP_STATE_PATH` | — | No | Path to the change-tracking state file |
+| `MARKDOWN_VAULT_MCP_STATE_PATH` | `{SOURCE_DIR}/.markdown_vault_mcp/state.json` | No | Path to the change-tracking state file |
 | `MARKDOWN_VAULT_MCP_INDEXED_FIELDS` | — | No | Comma-separated frontmatter fields to index in FTS5 |
 | `MARKDOWN_VAULT_MCP_REQUIRED_FIELDS` | — | No | Comma-separated frontmatter fields required on every document |
 | `MARKDOWN_VAULT_MCP_EXCLUDE` | — | No | Comma-separated glob patterns to exclude (e.g. `.obsidian/**,.trash/**`) |
@@ -129,7 +129,7 @@ All configuration is via environment variables with the `MARKDOWN_VAULT_MCP_` pr
 | `edit` | Replace a unique text span in a document |
 | `delete` | Delete a document and its index entries |
 | `rename` | Rename/move a document, updating all index entries |
-| `list_documents` | List all indexed document paths (with optional folder filter) |
+| `list_documents` | List all indexed document paths (with optional folder and glob pattern filter) |
 | `list_folders` | List all folder paths in the vault |
 | `list_tags` | List all unique frontmatter tag values |
 | `reindex` | Force a full reindex of the vault |
