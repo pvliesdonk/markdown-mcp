@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ class CollectionConfig:
     state_path: Path | None = None
     indexed_frontmatter_fields: list[str] | None = None
     required_frontmatter: list[str] | None = None
-    exclude_patterns: list[str] | None = field(default=None)
+    exclude_patterns: list[str] | None = None
     git_token: str | None = None
 
     def to_collection_kwargs(self) -> dict[str, object]:
@@ -157,8 +157,8 @@ def load_config() -> CollectionConfig:
     source_dir = Path(raw_source_dir)
     logger.debug("load_config: source_dir=%s", source_dir)
 
-    raw_read_only = os.environ.get("MARKDOWN_MCP_READ_ONLY", "true")
-    read_only = _parse_bool(raw_read_only)
+    raw_read_only = os.environ.get("MARKDOWN_MCP_READ_ONLY")
+    read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
     logger.debug("load_config: read_only=%s (raw=%r)", read_only, raw_read_only)
 
     raw_index_path = os.environ.get("MARKDOWN_MCP_INDEX_PATH", "").strip()
@@ -177,29 +177,23 @@ def load_config() -> CollectionConfig:
 
     raw_indexed_fields = os.environ.get("MARKDOWN_MCP_INDEXED_FIELDS", "").strip()
     indexed_frontmatter_fields: list[str] | None = (
-        _parse_list(raw_indexed_fields) or None if raw_indexed_fields else None
+        _parse_list(raw_indexed_fields) or None
     )
     logger.debug(
         "load_config: indexed_frontmatter_fields=%s", indexed_frontmatter_fields
     )
 
     raw_required_fields = os.environ.get("MARKDOWN_MCP_REQUIRED_FIELDS", "").strip()
-    required_frontmatter: list[str] | None = (
-        _parse_list(raw_required_fields) or None if raw_required_fields else None
-    )
+    required_frontmatter: list[str] | None = _parse_list(raw_required_fields) or None
     logger.debug("load_config: required_frontmatter=%s", required_frontmatter)
 
     raw_exclude = os.environ.get("MARKDOWN_MCP_EXCLUDE", "").strip()
-    exclude_patterns: list[str] | None = (
-        _parse_list(raw_exclude) or None if raw_exclude else None
-    )
+    exclude_patterns: list[str] | None = _parse_list(raw_exclude) or None
     logger.debug("load_config: exclude_patterns=%s", exclude_patterns)
 
     raw_git_token = os.environ.get("MARKDOWN_MCP_GIT_TOKEN", "").strip()
     git_token: str | None = raw_git_token or None
-    logger.debug(
-        "load_config: git_token=%s", "set" if git_token else "not set"
-    )
+    logger.debug("load_config: git_token=%s", "set" if git_token else "not set")
 
     return CollectionConfig(
         source_dir=source_dir,

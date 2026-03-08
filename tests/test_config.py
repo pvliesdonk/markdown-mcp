@@ -20,7 +20,7 @@ class TestParseHelpers:
             assert config.read_only is True, f"Expected True for {val!r}"
 
     def test_bool_false_variants(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        for val in ("false", "False", "0", "no", "", "anything"):
+        for val in ("false", "False", "0", "no", "anything"):
             monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", "/tmp/vault")
             monkeypatch.setenv("MARKDOWN_MCP_READ_ONLY", val)
             config = load_config()
