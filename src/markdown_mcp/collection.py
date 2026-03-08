@@ -182,6 +182,14 @@ class Collection:
         self._initialized = False
 
     # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Release resources held by the collection (close the SQLite connection)."""
+        self._fts.close()
+
+    # ------------------------------------------------------------------
     # Lazy initialisation
     # ------------------------------------------------------------------
 
@@ -511,7 +519,9 @@ class Collection:
         """
         self._ensure_initialized()
 
-        abs_path = self._source_dir / path
+        abs_path = (self._source_dir / path).resolve()
+        if not abs_path.is_relative_to(self._source_dir.resolve()):
+            return None
         if not abs_path.is_file():
             return None
 
