@@ -40,26 +40,33 @@ def _build_collection(args: argparse.Namespace) -> Collection:
         os.environ["MARKDOWN_MCP_SOURCE_DIR"] = source_dir_override
 
     config = load_config()
-    kwargs = config.to_collection_kwargs()
 
     # CLI --index-path overrides env var.
     index_path_override = getattr(args, "index_path", None)
-    if index_path_override:
-        kwargs["index_path"] = Path(index_path_override)
+    index_path = Path(index_path_override) if index_path_override else config.index_path
 
+    embedding_provider = None
     if config.embeddings_path is not None:
         try:
             from markdown_mcp.providers import get_embedding_provider
 
-            provider = get_embedding_provider()
-            kwargs["embedding_provider"] = provider
+            embedding_provider = get_embedding_provider()
         except Exception:
             logger.warning(
                 "Could not load embedding provider; semantic search disabled",
                 exc_info=True,
             )
 
-    return Collection(**kwargs)
+    return Collection(
+        source_dir=config.source_dir,
+        read_only=config.read_only,
+        index_path=index_path,
+        embeddings_path=config.embeddings_path,
+        embedding_provider=embedding_provider,
+        state_path=config.state_path,
+        indexed_frontmatter_fields=config.indexed_frontmatter_fields,
+        required_frontmatter=config.required_frontmatter,
+    )
 
 
 def _cmd_serve(args: argparse.Namespace) -> None:
@@ -190,7 +197,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # reindex
-    reindex_parser = sub.add_parser("reindex", help="incrementally reindex the collection")
+    reindex_parser = sub.add_parser(
+        "reindex", help="incrementally reindex the collection"
+    )
     reindex_parser.add_argument(
         "--source-dir",
         help="path to markdown collection (overrides MARKDOWN_MCP_SOURCE_DIR)",

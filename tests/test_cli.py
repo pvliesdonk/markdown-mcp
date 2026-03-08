@@ -81,9 +81,7 @@ class TestBuildParser:
 
     def test_search_source_dir(self) -> None:
         parser = _build_parser()
-        args = parser.parse_args(
-            ["search", "query", "--source-dir", "/data/vault"]
-        )
+        args = parser.parse_args(["search", "query", "--source-dir", "/data/vault"])
         assert args.source_dir == "/data/vault"
 
     def test_reindex_command(self) -> None:
