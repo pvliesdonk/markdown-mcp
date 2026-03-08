@@ -36,19 +36,32 @@ def _parse_tool_data(result: Any) -> Any:
     return data
 
 
+_CLEAR_VARS = (
+    "MARKDOWN_MCP_INDEX_PATH",
+    "MARKDOWN_MCP_EMBEDDINGS_PATH",
+    "MARKDOWN_MCP_STATE_PATH",
+    "MARKDOWN_MCP_INDEXED_FIELDS",
+    "MARKDOWN_MCP_REQUIRED_FIELDS",
+    "MARKDOWN_MCP_EXCLUDE",
+    "MARKDOWN_MCP_GIT_TOKEN",
+)
+
+
 @pytest.fixture
 def _mcp_env(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set minimal env vars for create_server."""
+    """Set minimal env vars for create_server (read_only=true default)."""
     monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
-    for var in (
-        "MARKDOWN_MCP_INDEX_PATH",
-        "MARKDOWN_MCP_EMBEDDINGS_PATH",
-        "MARKDOWN_MCP_STATE_PATH",
-        "MARKDOWN_MCP_INDEXED_FIELDS",
-        "MARKDOWN_MCP_REQUIRED_FIELDS",
-        "MARKDOWN_MCP_EXCLUDE",
-        "MARKDOWN_MCP_READ_ONLY",
-    ):
+    monkeypatch.delenv("MARKDOWN_MCP_READ_ONLY", raising=False)
+    for var in _CLEAR_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture
+def _mcp_env_writable(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set env vars with read_only=false."""
+    monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
+    monkeypatch.setenv("MARKDOWN_MCP_READ_ONLY", "false")
+    for var in _CLEAR_VARS:
         monkeypatch.delenv(var, raising=False)
 
 
@@ -56,16 +69,11 @@ def _mcp_env(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def _mcp_env_with_fields(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Set env vars with indexed frontmatter fields."""
     monkeypatch.setenv("MARKDOWN_MCP_SOURCE_DIR", str(vault_path))
-    monkeypatch.setenv("MARKDOWN_MCP_READ_ONLY", "false")
-    monkeypatch.setenv("MARKDOWN_MCP_INDEXED_FIELDS", "cluster,tags")
-    for var in (
-        "MARKDOWN_MCP_INDEX_PATH",
-        "MARKDOWN_MCP_EMBEDDINGS_PATH",
-        "MARKDOWN_MCP_STATE_PATH",
-        "MARKDOWN_MCP_REQUIRED_FIELDS",
-        "MARKDOWN_MCP_EXCLUDE",
-    ):
+    monkeypatch.delenv("MARKDOWN_MCP_READ_ONLY", raising=False)
+    for var in _CLEAR_VARS:
         monkeypatch.delenv(var, raising=False)
+    # Set after clearing so it's not wiped by _CLEAR_VARS.
+    monkeypatch.setenv("MARKDOWN_MCP_INDEXED_FIELDS", "cluster,tags")
 
 
 # ---------------------------------------------------------------------------
@@ -77,12 +85,13 @@ class TestToolListing:
     """Verify correct tools are registered based on read_only setting."""
 
     @pytest.mark.usefixtures("_mcp_env")
-    async def test_read_only_tools_registered(self) -> None:
+    async def test_write_tools_absent_when_readonly(self) -> None:
         server = create_server()
         async with Client(server) as client:
             tools = await client.list_tools()
             names = {t.name for t in tools}
 
+        # Read-only tools present
         assert "search" in names
         assert "read" in names
         assert "list_documents" in names
@@ -92,11 +101,64 @@ class TestToolListing:
         assert "embeddings_status" in names
         assert "reindex" in names
         assert "build_embeddings" in names
-        # Write tools deferred to Phase 3
+        # Write tools absent when read_only=true (default)
         assert "write" not in names
         assert "edit" not in names
         assert "delete" not in names
         assert "rename" not in names
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_write_tools_present_when_writable(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            tools = await client.list_tools()
+            names = {t.name for t in tools}
+
+        # Write tools present when read_only=false
+        assert "write" in names
+        assert "edit" in names
+        assert "delete" in names
+        assert "rename" in names
+
+
+class TestToolAnnotations:
+    """Verify ToolAnnotations are set correctly per tool."""
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_annotations(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            tools = await client.list_tools()
+            by_name = {t.name: t for t in tools}
+
+        # Read-only tools
+        for name in (
+            "search", "read", "list_documents", "list_folders",
+            "list_tags", "stats", "embeddings_status",
+        ):
+            ann = by_name[name].annotations
+            assert ann is not None, f"{name} missing annotations"
+            assert ann.readOnlyHint is True, f"{name} readOnlyHint"
+            assert ann.destructiveHint is False, f"{name} destructiveHint"
+
+        # Index management tools — not readOnly
+        for name in ("reindex", "build_embeddings"):
+            ann = by_name[name].annotations
+            assert ann is not None
+            assert ann.readOnlyHint is False, f"{name} readOnlyHint"
+
+        # Write tools — not readOnly
+        for name in ("write", "edit", "rename"):
+            ann = by_name[name].annotations
+            assert ann is not None
+            assert ann.readOnlyHint is False, f"{name} readOnlyHint"
+            assert ann.destructiveHint is False, f"{name} destructiveHint"
+
+        # Delete is destructive
+        ann = by_name["delete"].annotations
+        assert ann is not None
+        assert ann.readOnlyHint is False
+        assert ann.destructiveHint is True
 
 
 # ---------------------------------------------------------------------------
@@ -258,5 +320,67 @@ class TestReindexTool:
         assert isinstance(data, dict)
         assert data["added"] == 0
         assert data["deleted"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+
+class TestErrorHandling:
+    """Test structured error responses for invalid operations."""
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_semantic_search_without_embeddings_returns_error(self) -> None:
+        """search with mode='semantic' when no embeddings configured returns error."""
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "search", {"query": "test", "mode": "semantic"}
+            )
+        assert result.isError is True
+
+
+# ---------------------------------------------------------------------------
+# Write tools — registration and Phase 3 stubs
+# ---------------------------------------------------------------------------
+
+
+class TestWriteToolsStubs:
+    """Verify write tools raise NotImplementedError (Phase 3 stubs)."""
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_write_tool_raises_not_implemented(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "write", {"path": "test.md", "content": "# Test"}
+            )
+        assert result.isError is True
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_edit_tool_raises_not_implemented(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "edit", {"path": "simple.md", "old_text": "a", "new_text": "b"}
+            )
+        assert result.isError is True
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_delete_tool_raises_not_implemented(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp("delete", {"path": "simple.md"})
+        assert result.isError is True
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_rename_tool_raises_not_implemented(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "rename", {"old_path": "simple.md", "new_path": "renamed.md"}
+            )
+        assert result.isError is True
 
 
