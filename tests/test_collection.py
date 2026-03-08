@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 from typing import TYPE_CHECKING
 
 import pytest
@@ -867,3 +868,71 @@ class TestRename:
         """rename() to the same path raises DocumentExistsError."""
         with pytest.raises(DocumentExistsError):
             writable.rename("simple.md", "simple.md")
+
+
+# ---------------------------------------------------------------------------
+# Concurrent write safety
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentWrites:
+    def test_concurrent_writes(self, writable: Collection, vault_path: Path) -> None:
+        """10 simultaneous write() calls to distinct paths all succeed.
+
+        Uses :class:`concurrent.futures.ThreadPoolExecutor` to exercise the
+        ``_write_lock`` on a single Collection instance.
+        """
+        paths = [f"concurrent_write_{i}.md" for i in range(10)]
+
+        def do_write(p: str) -> None:
+            writable.write(p, f"# Note {p}\n\nContent for {p}.\n")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(do_write, p) for p in paths]
+            for fut in concurrent.futures.as_completed(futures):
+                fut.result()  # re-raise any exception from the thread
+
+        # All 10 files must exist on disk.
+        for p in paths:
+            assert (vault_path / p).is_file(), f"Expected {p} to exist on disk"
+
+        # All 10 files must be discoverable via search.
+        results = writable.search("Content for", mode="keyword", limit=20)
+        result_paths = {r.path for r in results}
+        for p in paths:
+            assert p in result_paths, f"Expected {p} to be searchable"
+
+    def test_concurrent_write_and_edit(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """Simultaneous edit() calls on distinct unique strings do not corrupt data.
+
+        Writes a file with 10 uniquely-labelled sections, then submits 10
+        concurrent edits each replacing a different label.  Verifies all
+        replacements land without data loss.
+        """
+        # Build a file where each line contains a unique token.
+        lines = [f"Section-Token-{i}: original text\n" for i in range(10)]
+        writable.write("concurrent_edit.md", "".join(lines))
+
+        def do_edit(i: int) -> None:
+            writable.edit(
+                "concurrent_edit.md",
+                f"Section-Token-{i}: original text",
+                f"Section-Token-{i}: replaced text",
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(do_edit, i) for i in range(10)]
+            for fut in concurrent.futures.as_completed(futures):
+                fut.result()
+
+        # All replacements must appear in the final file; none lost.
+        final = (vault_path / "concurrent_edit.md").read_text(encoding="utf-8")
+        for i in range(10):
+            assert f"Section-Token-{i}: replaced text" in final, (
+                f"Token {i} replacement missing from final file"
+            )
+            assert f"Section-Token-{i}: original text" not in final, (
+                f"Token {i} original text still present after replacement"
+            )

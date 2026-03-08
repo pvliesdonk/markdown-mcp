@@ -11,6 +11,7 @@ import fnmatch
 import json
 import logging
 import shutil
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -191,6 +192,9 @@ class Collection:
 
         # Lazy initialisation flag.
         self._initialized = False
+
+        # Serialise concurrent write operations on this instance.
+        self._write_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -1019,35 +1023,38 @@ class Collection:
             ValueError: If *path* escapes the source directory.
         """
         self._check_writable()
-        self._ensure_initialized()
+        with self._write_lock:
+            self._ensure_initialized()
 
-        abs_path = self._validate_path(path)
-        created = not abs_path.is_file()
+            abs_path = self._validate_path(path)
+            created = not abs_path.is_file()
 
-        # Create intermediate directories.
-        abs_path.parent.mkdir(parents=True, exist_ok=True)
+            # Create intermediate directories.
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Build file content with optional frontmatter.
-        if frontmatter is not None:
-            post = fm.Post(content, **frontmatter)
-            file_content = fm.dumps(post)
-        else:
-            file_content = content
+            # Build file content with optional frontmatter.
+            if frontmatter is not None:
+                post = fm.Post(content, **frontmatter)
+                file_content = fm.dumps(post)
+            else:
+                file_content = content
 
-        abs_path.write_text(file_content, encoding="utf-8")
+            abs_path.write_text(file_content, encoding="utf-8")
 
-        # Update FTS index.
-        note = parse_note(abs_path, self._source_dir, self._chunk_strategy)
-        self._fts.upsert_note(note)
+            # Update FTS index.
+            note = parse_note(abs_path, self._source_dir, self._chunk_strategy)
+            self._fts.upsert_note(note)
 
-        # Update vector index if active.
-        self._update_vector_index(note)
+            # Update vector index if active.
+            self._update_vector_index(note)
 
-        # Trigger callback.
+            result = WriteResult(path=path, created=created)
+
+        # Trigger callback outside lock to prevent deadlock.
         if self._on_write is not None:
             self._on_write(abs_path, file_content, "write")
 
-        return WriteResult(path=path, created=created)
+        return result
 
     def edit(self, path: str, old_text: str, new_text: str) -> EditResult:
         """Patch a section of a document.
@@ -1071,36 +1078,38 @@ class Collection:
                 more than once.
         """
         self._check_writable()
-        self._ensure_initialized()
 
         if not old_text:
             raise ValueError("old_text must not be empty")
 
-        abs_path = self._validate_path(path)
-        if not abs_path.is_file():
-            raise DocumentNotFoundError(f"Document not found: {path}")
+        with self._write_lock:
+            self._ensure_initialized()
 
-        file_content = abs_path.read_text(encoding="utf-8")
-        count = file_content.count(old_text)
+            abs_path = self._validate_path(path)
+            if not abs_path.is_file():
+                raise DocumentNotFoundError(f"Document not found: {path}")
 
-        if count == 0:
-            raise EditConflictError(f"old_text not found in {path}")
-        if count > 1:
-            raise EditConflictError(
-                f"old_text appears {count} times in {path}; must appear exactly once"
-            )
+            file_content = abs_path.read_text(encoding="utf-8")
+            count = file_content.count(old_text)
 
-        new_content = file_content.replace(old_text, new_text, 1)
-        abs_path.write_text(new_content, encoding="utf-8")
+            if count == 0:
+                raise EditConflictError(f"old_text not found in {path}")
+            if count > 1:
+                raise EditConflictError(
+                    f"old_text appears {count} times in {path}; must appear exactly once"
+                )
 
-        # Update FTS index.
-        note = parse_note(abs_path, self._source_dir, self._chunk_strategy)
-        self._fts.upsert_note(note)
+            new_content = file_content.replace(old_text, new_text, 1)
+            abs_path.write_text(new_content, encoding="utf-8")
 
-        # Update vector index if active.
-        self._update_vector_index(note)
+            # Update FTS index.
+            note = parse_note(abs_path, self._source_dir, self._chunk_strategy)
+            self._fts.upsert_note(note)
 
-        # Trigger callback.
+            # Update vector index if active.
+            self._update_vector_index(note)
+
+        # Trigger callback outside lock to prevent deadlock.
         if self._on_write is not None:
             self._on_write(abs_path, new_content, "edit")
 
@@ -1123,24 +1132,25 @@ class Collection:
             DocumentNotFoundError: If the file does not exist.
         """
         self._check_writable()
-        self._ensure_initialized()
+        with self._write_lock:
+            self._ensure_initialized()
 
-        abs_path = self._validate_path(path)
-        if not abs_path.is_file():
-            raise DocumentNotFoundError(f"Document not found: {path}")
+            abs_path = self._validate_path(path)
+            if not abs_path.is_file():
+                raise DocumentNotFoundError(f"Document not found: {path}")
 
-        # Remove file from disk.
-        abs_path.unlink()
+            # Remove file from disk.
+            abs_path.unlink()
 
-        # Delete FTS index entries.
-        self._fts.delete_by_path(path)
+            # Delete FTS index entries.
+            self._fts.delete_by_path(path)
 
-        # Delete vector index entries if active.
-        if self._vectors is not None and self._embeddings_path is not None:
-            self._vectors.delete_by_path(path)
-            self._vectors.save(self._embeddings_path)
+            # Delete vector index entries if active.
+            if self._vectors is not None and self._embeddings_path is not None:
+                self._vectors.delete_by_path(path)
+                self._vectors.save(self._embeddings_path)
 
-        # Trigger callback.
+        # Trigger callback outside lock to prevent deadlock.
         if self._on_write is not None:
             self._on_write(abs_path, "", "delete")
 
@@ -1167,39 +1177,40 @@ class Collection:
             ValueError: If either path escapes the source directory.
         """
         self._check_writable()
-        self._ensure_initialized()
+        with self._write_lock:
+            self._ensure_initialized()
 
-        old_abs = self._validate_path(old_path)
-        new_abs = self._validate_path(new_path)
+            old_abs = self._validate_path(old_path)
+            new_abs = self._validate_path(new_path)
 
-        if not old_abs.is_file():
-            raise DocumentNotFoundError(f"Document not found: {old_path}")
-        if new_abs.is_file():
-            raise DocumentExistsError(f"Target already exists: {new_path}")
+            if not old_abs.is_file():
+                raise DocumentNotFoundError(f"Document not found: {old_path}")
+            if new_abs.is_file():
+                raise DocumentExistsError(f"Target already exists: {new_path}")
 
-        # Create intermediate directories for new path.
-        new_abs.parent.mkdir(parents=True, exist_ok=True)
+            # Create intermediate directories for new path.
+            new_abs.parent.mkdir(parents=True, exist_ok=True)
 
-        # Move file on disk.  shutil.move() handles cross-device renames
-        # (copy+delete fallback) unlike Path.rename().
-        shutil.move(str(old_abs), str(new_abs))
+            # Move file on disk.  shutil.move() handles cross-device renames
+            # (copy+delete fallback) unlike Path.rename().
+            shutil.move(str(old_abs), str(new_abs))
 
-        # Delete old index entries.
-        self._fts.delete_by_path(old_path)
-        if self._vectors is not None:
-            self._vectors.delete_by_path(old_path)
+            # Delete old index entries.
+            self._fts.delete_by_path(old_path)
+            if self._vectors is not None:
+                self._vectors.delete_by_path(old_path)
 
-        # Insert new entries under the new path.
-        note = parse_note(new_abs, self._source_dir, self._chunk_strategy)
-        self._fts.upsert_note(note)
+            # Insert new entries under the new path.
+            note = parse_note(new_abs, self._source_dir, self._chunk_strategy)
+            self._fts.upsert_note(note)
 
-        # Update vector index if active.
-        self._update_vector_index(note)
+            # Update vector index if active.
+            self._update_vector_index(note)
 
-        # Read content for callback.
-        new_content = new_abs.read_text(encoding="utf-8")
+            # Read content for callback.
+            new_content = new_abs.read_text(encoding="utf-8")
 
-        # Trigger callback.
+        # Trigger callback outside lock to prevent deadlock.
         if self._on_write is not None:
             self._on_write(new_abs, new_content, "rename")
 
