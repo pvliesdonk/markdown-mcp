@@ -14,7 +14,7 @@ First stable release.
 - **Write operations**: create, edit, delete, rename with automatic FTS + vector index updates
 - **Git integration**: auto-commit and push on writes via `GIT_ASKPASS` (token never in argv)
 - **Thread-safe writes** with `threading.Lock` serialization
-- **MCP server** with 10 tools: `search`, `read`, `write`, `edit`, `delete`, `rename`, `list_documents`, `list_folders`, `list_tags`, `reindex`
+- **MCP server** with 13 tools: `search`, `read`, `write`, `edit`, `delete`, `rename`, `list_documents`, `list_folders`, `list_tags`, `reindex`, `stats`, `build_embeddings`, `embeddings_status`
 - **Docker support** with multi-arch images (amd64, arm64) on GHCR
 - **Configuration** via `MARKDOWN_VAULT_MCP_*` environment variables
 

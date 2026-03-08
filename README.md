@@ -13,7 +13,7 @@ Point it at a directory of Markdown files (an Obsidian vault, a docs folder, a Z
 - **Incremental reindexing** — hash-based change detection, only re-processes modified files
 - **Write operations** — create, edit, delete, rename documents with automatic index updates
 - **Git integration** — optional auto-commit and push on every write via `GIT_ASKPASS`
-- **MCP tools** — `search`, `read`, `write`, `edit`, `delete`, `rename`, `list_documents`, `list_folders`, `list_tags`, `reindex`
+- **MCP tools** — 13 tools including search, read, write, edit, delete, rename, and admin operations
 
 ## Installation
 
@@ -50,9 +50,10 @@ docker pull ghcr.io/pvliesdonk/markdown-vault-mcp:latest
 ### As a library
 
 ```python
+from pathlib import Path
 from markdown_vault_mcp import Collection
 
-collection = Collection(source_dir="/path/to/vault")
+collection = Collection(source_dir=Path("/path/to/vault"))
 results = collection.search("query text", limit=10)
 ```
 
@@ -81,10 +82,10 @@ markdown-vault-mcp serve
    docker compose up -d
    ```
 
-4. Verify it's running:
+4. Check the logs:
 
    ```bash
-   curl http://localhost:8000/health
+   docker compose logs -f markdown-vault-mcp
    ```
 
 ### Example env files
@@ -105,17 +106,18 @@ All configuration is via environment variables with the `MARKDOWN_VAULT_MCP_` pr
 |----------|---------|----------|-------------|
 | `MARKDOWN_VAULT_MCP_SOURCE_DIR` | — | Yes | Path to the markdown vault directory |
 | `MARKDOWN_VAULT_MCP_READ_ONLY` | `true` | No | Set to `false` to enable write operations |
-| `MARKDOWN_VAULT_MCP_INDEX_PATH` | `<source_dir>/.markdown_vault_mcp/index.db` | No | Path to the SQLite FTS5 index file |
-| `MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH` | `<source_dir>/.markdown_vault_mcp/embeddings` | No | Path to the numpy embeddings file |
-| `MARKDOWN_VAULT_MCP_STATE_PATH` | `<source_dir>/.markdown_vault_mcp/state.json` | No | Path to the change-tracking state file |
+| `MARKDOWN_VAULT_MCP_INDEX_PATH` | in-memory | No | Path to the SQLite FTS5 index file (set for persistence across restarts) |
+| `MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH` | disabled | No | Path to the numpy embeddings file (required to enable semantic search) |
+| `MARKDOWN_VAULT_MCP_STATE_PATH` | — | No | Path to the change-tracking state file |
 | `MARKDOWN_VAULT_MCP_INDEXED_FIELDS` | — | No | Comma-separated frontmatter fields to index in FTS5 |
 | `MARKDOWN_VAULT_MCP_REQUIRED_FIELDS` | — | No | Comma-separated frontmatter fields required on every document |
 | `MARKDOWN_VAULT_MCP_EXCLUDE` | — | No | Comma-separated glob patterns to exclude (e.g. `.obsidian/**,.trash/**`) |
 | `MARKDOWN_VAULT_MCP_GIT_TOKEN` | — | No | GitHub PAT for auto-commit and push on writes (via `GIT_ASKPASS`) |
 | `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | `nomic-embed-text` | No | Ollama embedding model name |
 | `MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY` | `false` | No | Force Ollama to use CPU only |
-
-Embedding provider is configured via `EMBEDDING_PROVIDER` (not prefixed): `ollama`, `openai`, or `sentence-transformers`.
+| `EMBEDDING_PROVIDER` | auto-detect | No | Embedding provider: `ollama`, `openai`, or `sentence-transformers` (not prefixed) |
+| `OLLAMA_HOST` | `http://localhost:11434` | No | Ollama server URL (not prefixed) |
+| `OPENAI_API_KEY` | — | No | OpenAI API key for OpenAI embedding provider (not prefixed) |
 
 ## MCP Tools
 
@@ -131,6 +133,9 @@ Embedding provider is configured via `EMBEDDING_PROVIDER` (not prefixed): `ollam
 | `list_folders` | List all folder paths in the vault |
 | `list_tags` | List all unique frontmatter tag values |
 | `reindex` | Force a full reindex of the vault |
+| `stats` | Get collection statistics (document count, chunk count, etc.) |
+| `build_embeddings` | Build or rebuild vector embeddings for semantic search |
+| `embeddings_status` | Check embedding provider and index status |
 
 Write tools (`write`, `edit`, `delete`, `rename`) are only available when `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
 
