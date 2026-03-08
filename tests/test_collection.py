@@ -557,7 +557,12 @@ class TestWrite:
     def test_write_path_traversal_rejected(self, writable: Collection) -> None:
         """write() rejects paths that escape the source directory."""
         with pytest.raises(ValueError, match="traversal"):
-            writable.write("../../etc/passwd", "malicious")
+            writable.write("../../etc/passwd.md", "malicious")
+
+    def test_write_non_md_extension_rejected(self, writable: Collection) -> None:
+        """write() rejects paths that do not end with .md."""
+        with pytest.raises(ValueError, match=r"\.md"):
+            writable.write("notes.yaml", "content")
 
     def test_write_updates_vector_index(
         self, writable_with_embeddings: Collection
@@ -623,6 +628,11 @@ class TestEdit:
         content = (vault_path / "simple.md").read_text()
         assert "Updated Document" in content
         assert "Simple Document" not in content
+
+    def test_edit_empty_old_text_raises(self, writable: Collection) -> None:
+        """edit() raises ValueError when old_text is empty."""
+        with pytest.raises(ValueError, match="old_text must not be empty"):
+            writable.edit("simple.md", "", "new")
 
     def test_edit_not_found_raises(self, writable: Collection) -> None:
         """edit() raises DocumentNotFoundError for missing files."""

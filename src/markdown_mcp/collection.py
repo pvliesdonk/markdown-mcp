@@ -13,6 +13,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+import frontmatter as fm
+
 from markdown_mcp.exceptions import (
     DocumentNotFoundError,
     EditConflictError,
@@ -954,8 +956,11 @@ class Collection:
             The resolved absolute path.
 
         Raises:
-            ValueError: If the path escapes the source directory.
+            ValueError: If the path escapes the source directory or does
+                not end with ``.md``.
         """
+        if not path.endswith(".md"):
+            raise ValueError(f"Path must end with '.md': {path}")
         abs_path = (self._source_dir / path).resolve()
         if not abs_path.is_relative_to(self._source_dir.resolve()):
             raise ValueError(f"Path traversal detected: {path}")
@@ -1022,8 +1027,6 @@ class Collection:
 
         # Build file content with optional frontmatter.
         if frontmatter is not None:
-            import frontmatter as fm
-
             post = fm.Post(content, **frontmatter)
             file_content = fm.dumps(post)
         else:
@@ -1067,6 +1070,9 @@ class Collection:
         """
         self._check_writable()
         self._ensure_initialized()
+
+        if not old_text:
+            raise ValueError("old_text must not be empty")
 
         abs_path = self._validate_path(path)
         if not abs_path.is_file():
@@ -1128,10 +1134,9 @@ class Collection:
         self._fts.delete_by_path(path)
 
         # Delete vector index entries if active.
-        if self._vectors is not None:
+        if self._vectors is not None and self._embeddings_path is not None:
             self._vectors.delete_by_path(path)
-            if self._embeddings_path is not None:
-                self._vectors.save(self._embeddings_path)
+            self._vectors.save(self._embeddings_path)
 
         # Trigger callback.
         if self._on_write is not None:
