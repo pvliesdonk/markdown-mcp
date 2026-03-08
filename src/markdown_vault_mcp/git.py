@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+import shlex
+import stat
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import urlparse, urlunparse
 
 if TYPE_CHECKING:
     from markdown_vault_mcp.types import WriteCallback
@@ -56,6 +59,8 @@ def git_write_strategy(token: str | None = None) -> WriteCallback:
 
     Args:
         token: Personal access token for HTTPS push authentication.
+            Injected via a temporary ``GIT_ASKPASS`` helper script so the
+            token is never present in any process's command-line arguments.
             If ``None``, relies on SSH keys or pre-configured credentials.
 
     Note:
@@ -94,21 +99,19 @@ def git_write_strategy(token: str | None = None) -> WriteCallback:
         try:
             _stage_and_push(_git_root, path, operation, token)
         except subprocess.CalledProcessError as exc:
-            # Sanitize command args to avoid leaking PAT tokens in logs.
-            sanitized_cmd = (
-                [
-                    "***" if isinstance(a, str) and token and token in a else a
-                    for a in (exc.cmd or [])
-                ]
-                if token
-                else exc.cmd
-            )
+            # Sanitize stderr to avoid leaking PAT tokens in logs.
+            # The token is never in exc.cmd (GIT_ASKPASS keeps it out of args),
+            # but it could surface in error messages from the remote.
+            sanitized_stderr = exc.stderr or ""
+            if token and token in sanitized_stderr:
+                sanitized_stderr = sanitized_stderr.replace(token, "***")
             logger.error(
-                "Git operation failed for %s (%s): command %s returned %d",
+                "Git operation failed for %s (%s): command %s returned %d\n%s",
                 path,
                 operation,
-                sanitized_cmd,
+                exc.cmd,
                 exc.returncode,
+                sanitized_stderr,
             )
         except Exception:
             logger.error(
@@ -143,6 +146,7 @@ def _stage_and_push(
         subprocess.run(
             ["git", "-C", root, "add", "-u", "--", str(path)],
             capture_output=True,
+            text=True,
             check=True,
         )
     elif operation == "rename":
@@ -161,17 +165,20 @@ def _stage_and_push(
         subprocess.run(
             ["git", "-C", root, "add", "-u"],
             capture_output=True,
+            text=True,
             check=True,
         )
         subprocess.run(
             ["git", "-C", root, "add", "--", str(path)],
             capture_output=True,
+            text=True,
             check=True,
         )
     else:
         subprocess.run(
             ["git", "-C", root, "add", "--", str(path)],
             capture_output=True,
+            text=True,
             check=True,
         )
 
@@ -185,6 +192,7 @@ def _stage_and_push(
     subprocess.run(
         ["git", "-C", root, "commit", "-m", commit_msg],
         capture_output=True,
+        text=True,
         check=True,
     )
 
@@ -194,56 +202,52 @@ def _stage_and_push(
 
 
 def _push(git_root: Path, token: str | None) -> None:
-    """Push to the default remote, using token auth if provided.
+    """Push to the default remote, using GIT_ASKPASS for token auth.
+
+    When a token is supplied a temporary helper script is written to a
+    private temporary file (mode 0o700).  Git reads credentials from this
+    script via ``GIT_ASKPASS`` so the token is never present in any
+    process's command-line arguments and is therefore not visible in
+    ``/proc/<pid>/cmdline``.  The script is deleted in a ``finally`` block
+    regardless of push outcome.
 
     Args:
         git_root: Git repository root.
-        token: Optional PAT for HTTPS push.
+        token: Optional PAT for HTTPS push.  If ``None``, relies on SSH
+            keys or pre-configured git credentials.
     """
     root = str(git_root)
 
+    # Always push to "origin".  If the remote is named differently,
+    # configure a git remote alias or adjust this constant.
     if not token:
         subprocess.run(
-            ["git", "-C", root, "push"],
+            ["git", "-C", root, "push", "origin"],
             capture_output=True,
+            text=True,
             check=True,
         )
         return
 
-    # For HTTPS remotes with a PAT, inject credentials into the push URL.
-    result = subprocess.run(
-        ["git", "-C", root, "remote", "get-url", "origin"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        logger.warning("Could not determine remote URL; pushing without token")
-        subprocess.run(
-            ["git", "-C", root, "push"],
-            capture_output=True,
-            check=True,
-        )
-        return
+    fd, script_path_str = tempfile.mkstemp(suffix=".sh", prefix="git_askpass_")
+    script_path = Path(script_path_str)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(f"#!/bin/sh\necho {shlex.quote(token)}\n")
+        script_path.chmod(stat.S_IRWXU)  # 0o700 — owner-only rwx
 
-    remote_url = result.stdout.strip()
-    if remote_url.startswith("https://"):
-        parsed = urlparse(remote_url)
-        netloc = f"x-access-token:{token}@{parsed.hostname}"
-        if parsed.port:
-            netloc += f":{parsed.port}"
-        authed_url = urlunparse(parsed._replace(netloc=netloc))
-        # Push to the authenticated URL without modifying the remote config.
-        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        env = {
+            **os.environ,
+            "GIT_ASKPASS": script_path_str,
+            "GIT_TERMINAL_PROMPT": "0",
+        }
         subprocess.run(
-            ["git", "-C", root, "push", authed_url],
+            ["git", "-C", root, "push", "origin"],
             capture_output=True,
+            text=True,
             check=True,
             env=env,
         )
-    else:
-        # SSH or other protocol — push normally.
-        subprocess.run(
-            ["git", "-C", root, "push"],
-            capture_output=True,
-            check=True,
-        )
+    finally:
+        with contextlib.suppress(OSError):
+            script_path.unlink()

@@ -217,6 +217,135 @@ class TestGitWriteStrategy:
         # Should commit successfully (push will fail — no remote).
         callback(test_file, "# Note\n", "write")
 
+    def test_push_via_askpass_to_bare_remote(self, tmp_path: Path) -> None:
+        """Push plumbing works with GIT_ASKPASS against a local bare remote.
+
+        Note: uses file:// protocol, so git does not actually invoke
+        GIT_ASKPASS for authentication.  This verifies the push codepath
+        (stage → commit → push) succeeds end-to-end.  HTTPS authentication
+        via GIT_ASKPASS is verified structurally by
+        ``test_token_not_in_command_args``.
+        """
+        import subprocess
+
+        # Create a bare remote repo.
+        bare = tmp_path / "bare.git"
+        bare.mkdir()
+        subprocess.run(
+            ["git", "init", "--bare", str(bare)],
+            check=True,
+            capture_output=True,
+        )
+
+        # Create a working repo with the bare as remote.
+        work = tmp_path / "work"
+        work.mkdir()
+        subprocess.run(
+            ["git", "init", str(work)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "remote", "add", "origin", str(bare)],
+            check=True,
+            capture_output=True,
+        )
+        # Use push.default=current so first push to bare succeeds without
+        # a pre-configured upstream tracking branch.
+        subprocess.run(
+            ["git", "-C", str(work), "config", "push.default", "current"],
+            check=True,
+            capture_output=True,
+        )
+
+        # Write a file and invoke the callback with a (dummy) token.
+        callback = git_write_strategy(token="dummy_token")
+        md_file = work / "test.md"
+        md_file.write_text("# Test\n")
+        callback(md_file, "# Test\n", "write")
+
+        # Verify the push reached the bare remote.
+        result = subprocess.run(
+            ["git", "-C", str(bare), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "write: test.md" in result.stdout
+
+    def test_token_not_in_command_args(self, tmp_path: Path) -> None:
+        """Token must not appear in any git command-line arguments."""
+        import subprocess
+        from unittest.mock import patch
+
+        # Capture every subprocess.run call and record the cmd args.
+        recorded_cmds: list[list[str]] = []
+        original_run = subprocess.run
+
+        def recording_run(cmd: list[str], **kwargs):  # type: ignore[no-untyped-def]
+            recorded_cmds.append(list(cmd))
+            return original_run(cmd, **kwargs)
+
+        # Use git_repo-equivalent setup inline so we can patch subprocess.
+        bare = tmp_path / "bare.git"
+        bare.mkdir()
+        subprocess.run(
+            ["git", "init", "--bare", str(bare)],
+            check=True,
+            capture_output=True,
+        )
+        work = tmp_path / "work"
+        work.mkdir()
+        subprocess.run(
+            ["git", "init", str(work)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "remote", "add", "origin", str(bare)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "config", "push.default", "current"],
+            check=True,
+            capture_output=True,
+        )
+
+        secret_token = "super_secret_pat_xyz"
+        callback = git_write_strategy(token=secret_token)
+        md_file = work / "check.md"
+        md_file.write_text("# Check\n")
+
+        with patch("markdown_vault_mcp.git.subprocess.run", side_effect=recording_run):
+            callback(md_file, "# Check\n", "write")
+
+        # Verify the token never appeared in any command argument.
+        for cmd in recorded_cmds:
+            for arg in cmd:
+                assert secret_token not in arg, (
+                    f"Token found in command argument: {cmd!r}"
+                )
+
 
 class TestConfigIntegration:
     def test_git_token_wires_up_strategy(
