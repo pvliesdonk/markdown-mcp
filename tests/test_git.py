@@ -218,7 +218,14 @@ class TestGitWriteStrategy:
         callback(test_file, "# Note\n", "write")
 
     def test_push_via_askpass_to_bare_remote(self, tmp_path: Path) -> None:
-        """Push succeeds via GIT_ASKPASS to a local bare remote."""
+        """Push plumbing works with GIT_ASKPASS against a local bare remote.
+
+        Note: uses file:// protocol, so git does not actually invoke
+        GIT_ASKPASS for authentication.  This verifies the push codepath
+        (stage → commit → push) succeeds end-to-end.  HTTPS authentication
+        via GIT_ASKPASS is verified structurally by
+        ``test_token_not_in_command_args``.
+        """
         import subprocess
 
         # Create a bare remote repo.

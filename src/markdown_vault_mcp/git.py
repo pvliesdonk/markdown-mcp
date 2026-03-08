@@ -142,6 +142,7 @@ def _stage_and_push(
         subprocess.run(
             ["git", "-C", root, "add", "-u", "--", str(path)],
             capture_output=True,
+            text=True,
             check=True,
         )
     elif operation == "rename":
@@ -160,17 +161,20 @@ def _stage_and_push(
         subprocess.run(
             ["git", "-C", root, "add", "-u"],
             capture_output=True,
+            text=True,
             check=True,
         )
         subprocess.run(
             ["git", "-C", root, "add", "--", str(path)],
             capture_output=True,
+            text=True,
             check=True,
         )
     else:
         subprocess.run(
             ["git", "-C", root, "add", "--", str(path)],
             capture_output=True,
+            text=True,
             check=True,
         )
 
@@ -217,6 +221,7 @@ def _push(git_root: Path, token: str | None) -> None:
         subprocess.run(
             ["git", "-C", root, "push", "origin"],
             capture_output=True,
+            text=True,
             check=True,
         )
         return
@@ -224,8 +229,10 @@ def _push(git_root: Path, token: str | None) -> None:
     fd, script_path_str = tempfile.mkstemp(suffix=".sh", prefix="git_askpass_")
     script_path = Path(script_path_str)
     try:
+        import shlex
+
         with os.fdopen(fd, "w") as f:
-            f.write(f"#!/bin/sh\necho '{token}'\n")
+            f.write(f"#!/bin/sh\necho {shlex.quote(token)}\n")
         script_path.chmod(stat.S_IRWXU)  # 0o700 — owner-only rwx
 
         env = {
