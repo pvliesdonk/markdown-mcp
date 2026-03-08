@@ -58,6 +58,12 @@ def git_write_strategy(token: str | None = None) -> WriteCallback:
         token: Personal access token for HTTPS push authentication.
             If ``None``, relies on SSH keys or pre-configured credentials.
 
+    Note:
+        The git repository root is discovered on the **first** callback
+        invocation and cached for the lifetime of the callback.  If the
+        first file is outside any git repository, all subsequent calls
+        are also no-ops.  Create a new strategy instance to reset.
+
     Returns:
         A :data:`~markdown_mcp.types.WriteCallback` suitable for the
         ``on_write`` parameter of
@@ -142,8 +148,12 @@ def _stage_and_push(
         # NOTE: ``git add -u`` without a pathspec stages ALL tracked
         # modifications/deletions repo-wide.  In a vault with other
         # uncommitted edits, this may sweep unrelated changes into the
-        # auto-commit.  A future improvement would extend the callback
-        # signature to pass both old and new paths.
+        # auto-commit.  Additionally, if the old file was never committed
+        # to git (e.g. written directly by Obsidian and not via this
+        # callback), ``git add -u`` will not record its deletion at all —
+        # the commit will only add the new path.
+        # A future improvement would extend the callback signature to
+        # pass both old and new paths, enabling scoped staging.
         subprocess.run(
             ["git", "-C", root, "add", "-u"],
             capture_output=True,

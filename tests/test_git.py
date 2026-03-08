@@ -156,6 +156,37 @@ class TestGitWriteStrategy:
         )
         assert status.stdout.strip() == ""
 
+    def test_commit_on_rename_of_untracked_file(self, git_repo: Path) -> None:
+        """Rename of a never-committed file: only new path is committed."""
+        import subprocess
+
+        callback = git_write_strategy()
+
+        # Create file on disk without going through the callback.
+        untracked = git_repo / "untracked.md"
+        untracked.write_text("# Untracked\n")
+
+        # Simulate rename: move file, call callback with new path.
+        new_file = git_repo / "renamed_untracked.md"
+        untracked.rename(new_file)
+        callback(new_file, "# Untracked\n", "rename")
+
+        # Commit should succeed; new file is added.
+        result = subprocess.run(
+            ["git", "-C", str(git_repo), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "rename: renamed_untracked.md" in result.stdout
+
+        # Working tree is clean.
+        status = subprocess.run(
+            ["git", "-C", str(git_repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+        )
+        assert status.stdout.strip() == ""
+
     def test_no_repo_logs_warning(self, tmp_path: Path) -> None:
         """Strategy logs warning and skips when not in a git repo."""
         isolated = tmp_path / "no_git"
