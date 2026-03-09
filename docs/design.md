@@ -775,6 +775,7 @@ mcp = ["fastmcp>=2.5,<3"]
 embeddings-api = ["httpx>=0.25", "numpy>=1.20"]
 embeddings = ["sentence-transformers>=2.0", "numpy>=1.20"]
 all = ["fastmcp>=2.5,<3", "httpx>=0.25", "numpy>=1.20"]
+all-local = ["fastmcp>=2.5,<3", "httpx>=0.25", "numpy>=1.20", "sentence-transformers>=2.0"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.1", "mypy>=1.0"]
 
 [project.scripts]

@@ -42,6 +42,8 @@ pip install -e ".[all,dev]"
 
 ### Docker
 
+The Docker image uses the `[all]` extra (MCP + API embeddings) and does **not** include `sentence-transformers` or PyTorch, keeping it lightweight. Use Ollama or OpenAI for embeddings.
+
 ```bash
 docker pull ghcr.io/pvliesdonk/markdown-vault-mcp:latest
 ```
