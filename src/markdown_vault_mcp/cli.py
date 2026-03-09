@@ -84,6 +84,8 @@ def _cmd_serve(args: argparse.Namespace) -> None:
 
     server = create_server()
     transport = args.transport
+    if transport != "http" and (args.host != "0.0.0.0" or args.port != 8000):
+        logger.warning("--host and --port are only used with --transport http")
     if transport == "http":
         server.run(transport="http", host=args.host, port=args.port)
     else:
