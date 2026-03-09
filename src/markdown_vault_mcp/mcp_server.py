@@ -151,13 +151,9 @@ def create_server() -> FastMCP:
     raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY")
     is_read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
 
-    server_name = os.environ.get(
-        f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp"
-    )
+    server_name = os.environ.get(f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp")
     default_instructions = _build_default_instructions(read_only=is_read_only)
-    instructions = os.environ.get(
-        f"{_ENV_PREFIX}_INSTRUCTIONS", default_instructions
-    )
+    instructions = os.environ.get(f"{_ENV_PREFIX}_INSTRUCTIONS", default_instructions)
 
     mcp = FastMCP(
         server_name,

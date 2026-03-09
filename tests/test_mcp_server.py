@@ -92,9 +92,7 @@ class TestServerIdentity:
         assert "not available" in server.instructions
 
     @pytest.mark.usefixtures("_mcp_env")
-    def test_defaults_read_write(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_defaults_read_write(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_READ_ONLY", "false")
         server = create_server()
         assert "READ-WRITE" in server.instructions
