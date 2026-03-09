@@ -177,18 +177,31 @@ def create_server() -> FastMCP:
         folder: str | None = None,
         filters: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Search the collection by query.
+        """Find documents matching a query using full-text or semantic search.
+
+        Prefer mode="hybrid" when semantic search is available (check 'stats'
+        for semantic_search_available). Use mode="keyword" for exact term
+        matches; mode="semantic" for meaning-based similarity.
 
         Args:
-            query: Search query string.
-            limit: Maximum number of results (default 10).
-            mode: Search mode — "keyword" (FTS5/BM25), "semantic" (vector),
-                or "hybrid" (reciprocal rank fusion of both).
-            folder: Restrict results to this folder.
-            filters: Frontmatter tag filters as key-value pairs (ANDed).
+            query: Natural language or keyword query string.
+            limit: Maximum results to return (default 10).
+            mode: "keyword" uses FTS5/BM25 for exact terms. "semantic" uses
+                vector similarity (requires embeddings). "hybrid" fuses both
+                via reciprocal rank fusion — best quality when available.
+            folder: Restrict to documents under this folder path (e.g.
+                "Journal"). Must match a value from 'list_folders'.
+            filters: Filter by indexed frontmatter field values, e.g.
+                {"cluster": "craft", "tags": "pacing"}. Only fields listed
+                in indexed_frontmatter_fields (see 'stats') can be filtered.
+                Multiple filters are ANDed. For list fields (e.g. tags),
+                this checks membership — {"tags": "pacing"} matches any
+                document where "pacing" appears in the tags list.
 
         Returns:
-            List of search result dicts with path, title, content, score, etc.
+            List of result dicts ranked by relevance (higher score is better).
+            Each contains: path, title, folder, content (matched chunk),
+            score, frontmatter.
 
         Raises:
             ValueError: If mode is "semantic" or "hybrid" and no embedding
@@ -213,16 +226,23 @@ def create_server() -> FastMCP:
         },
     )
     async def read(path: str) -> dict[str, Any]:
-        """Read a document's full content.
+        """Read the full content and frontmatter of a single document by path.
+
+        Use this after 'search' or 'list_documents' to retrieve full text.
+        Do not guess paths — look them up first.
 
         Args:
             path: Relative path to the document (e.g. "Journal/note.md").
+                Case-sensitive. Must match a path from 'search' or
+                'list_documents'.
 
         Returns:
-            Dict with path, title, folder, content, frontmatter, modified_at.
+            Dict with path, title, folder, content (full markdown body),
+            frontmatter (dict of YAML fields), modified_at (ISO 8601).
 
         Raises:
-            ValueError: If the document is not found.
+            ValueError: If no document exists at the given path. Use
+                'search' or 'list_documents' to find the correct path.
         """
         collection = _get_collection()
         result = await asyncio.to_thread(collection.read, path)
@@ -241,16 +261,20 @@ def create_server() -> FastMCP:
         folder: str | None = None,
         pattern: str | None = None,
     ) -> list[dict[str, Any]]:
-        """List documents in the collection, optionally filtered.
+        """List all documents in the collection, optionally filtered by folder or glob.
+
+        Use this to enumerate documents when you need a complete listing, not
+        ranked search results. For finding documents by content, use 'search'.
+        Does NOT include body content — call 'read' for full text.
 
         Args:
-            folder: Restrict to documents in this folder.
-            pattern: Unix glob pattern matched against relative paths
-                (e.g. "Journal/*.md").
+            folder: Return only documents in this folder (e.g. "Journal").
+            pattern: Unix glob matched against relative paths (e.g.
+                "Journal/*.md", "**/*meeting*.md").
 
         Returns:
             List of document info dicts with path, title, folder, frontmatter,
-            modified_at.
+            modified_at. Body content is not included.
         """
         collection = _get_collection()
         results = await asyncio.to_thread(
@@ -266,10 +290,16 @@ def create_server() -> FastMCP:
         },
     )
     async def list_folders() -> list[str]:
-        """List all folders in the collection.
+        """List all folder paths that contain documents.
+
+        Call this to discover valid folder names before filtering 'search' or
+        'list_documents' by folder. The root folder (top-level documents) is
+        represented as an empty string "".
 
         Returns:
-            Sorted list of folder paths. Root is represented as empty string.
+            Sorted list of folder paths, e.g. ["", "Journal", "Projects"].
+            Pass any of these as the 'folder' argument to 'search' or
+            'list_documents'.
         """
         collection = _get_collection()
         return await asyncio.to_thread(collection.list_folders)
@@ -282,14 +312,20 @@ def create_server() -> FastMCP:
         },
     )
     async def list_tags(field: str = "tags") -> list[str]:
-        """List distinct tag values for a frontmatter field.
+        """List all distinct values for a frontmatter field across the collection.
+
+        Use this to discover valid filter values before calling 'search' with
+        the 'filters' argument. Only fields listed in indexed_frontmatter_fields
+        (see 'stats') are indexed — querying other fields returns an empty list.
 
         Args:
-            field: Frontmatter field name (default "tags"). Must be in
-                indexed_frontmatter_fields or returns empty list.
+            field: Frontmatter field name to enumerate (default "tags"). Must
+                match a field in indexed_frontmatter_fields (check 'stats').
 
         Returns:
-            Sorted list of distinct values for the field.
+            Sorted list of distinct string values, e.g.
+            ["craft", "pacing", "worldbuilding"]. Use these as values in the
+            'filters' dict when calling 'search'.
         """
         collection = _get_collection()
         return await asyncio.to_thread(collection.list_tags, field)
@@ -302,11 +338,18 @@ def create_server() -> FastMCP:
         },
     )
     async def stats() -> dict[str, Any]:
-        """Get collection statistics.
+        """Get an overview of the collection's size, capabilities, and configuration.
+
+        Call this at the start of a session to understand what the collection
+        contains and what search modes are available. The
+        'semantic_search_available' field tells you whether mode="semantic" or
+        mode="hybrid" can be used in 'search'.
 
         Returns:
             Dict with document_count, chunk_count, folder_count,
-            semantic_search_available, indexed_frontmatter_fields.
+            semantic_search_available (bool), indexed_frontmatter_fields
+            (list of field names usable as 'filters' in 'search' and as
+            'field' in 'list_tags').
         """
         collection = _get_collection()
         result = await asyncio.to_thread(collection.stats)
@@ -320,10 +363,18 @@ def create_server() -> FastMCP:
         },
     )
     async def embeddings_status() -> dict[str, Any]:
-        """Check embedding provider and index status.
+        """Check the embedding provider configuration and vector index status.
+
+        Use this to diagnose why semantic search is unavailable. Compare
+        chunk_count here against chunk_count from 'stats': if stats has more
+        chunks, call 'build_embeddings' to initialise the vector index for
+        the first time (or 'reindex' to incrementally re-embed changed docs
+        when semantic search is already active).
 
         Returns:
-            Dict with provider info, document/chunk counts, and staleness.
+            Dict with available (bool), provider (str — provider class name,
+            e.g. "OllamaProvider"), chunk_count (int — embedded chunks in the
+            vector index), and path (str — vector index file path).
         """
         collection = _get_collection()
         return await asyncio.to_thread(collection.embeddings_status)
@@ -338,13 +389,19 @@ def create_server() -> FastMCP:
         },
     )
     async def reindex() -> dict[str, Any]:
-        """Incrementally reindex the collection.
+        """Incrementally update the full-text search index to reflect file changes.
 
-        Detects added, modified, and deleted files since the last index
-        and applies only the changes.
+        Call this when documents have been added, edited, or deleted on disk
+        outside this server. Only processes changed files — unchanged documents
+        are skipped.
+
+        Note: if semantic search is already active (vector index loaded), this
+        also re-embeds changed documents automatically. Call
+        'build_embeddings' only to initialise semantic search for the
+        first time, or use force=True to rebuild all embeddings.
 
         Returns:
-            Dict with added, modified, deleted, unchanged counts.
+            Dict with counts: added, modified, deleted, unchanged.
         """
         collection = _get_collection()
         result = await asyncio.to_thread(collection.reindex)
@@ -358,13 +415,21 @@ def create_server() -> FastMCP:
         },
     )
     async def build_embeddings(force: bool = False) -> dict[str, Any]:
-        """Build or rebuild vector embeddings for semantic search.
+        """Build vector embeddings to enable semantic and hybrid search.
+
+        This can be slow for large collections — it calls the embedding
+        provider for every unembedded text chunk. Call once to enable semantic
+        search for the first time (when the vector index does not yet exist).
+        After that, 'reindex' handles incremental re-embedding automatically.
+        Check 'embeddings_status' to see if this is needed.
 
         Args:
-            force: When True, rebuild all embeddings from scratch.
+            force: When True, discards existing embeddings and rebuilds from
+                scratch. Use only if the embedding model has changed.
+                False (default) only embeds chunks not yet embedded.
 
         Returns:
-            Dict with the number of chunks embedded.
+            Dict with chunks_embedded: number of chunks newly embedded.
         """
         collection = _get_collection()
         count = await asyncio.to_thread(collection.build_embeddings, force=force)
@@ -386,15 +451,23 @@ def create_server() -> FastMCP:
             content: str,
             frontmatter: dict[str, Any] | None = None,
         ) -> dict[str, Any]:
-            """Create or overwrite a document.
+            """Create a new document or completely overwrite an existing one.
+
+            WARNING: If the path already exists, its entire content is replaced.
+            To make targeted changes to an existing document, use 'edit' instead.
+            Call 'read' first if you are unsure whether the document exists.
 
             Args:
-                path: Relative path for the document (e.g. "Journal/note.md").
-                content: Full markdown content to write.
-                frontmatter: Optional frontmatter dict to prepend as YAML.
+                path: Relative path (e.g. "Journal/note.md"). Parent
+                    directories are created automatically.
+                content: Full markdown body (excluding frontmatter). Do not
+                    include YAML delimiters — pass frontmatter separately.
+                frontmatter: Optional dict of YAML frontmatter fields,
+                    e.g. {"title": "My Note", "tags": ["draft", "idea"]}.
 
             Returns:
-                Dict with path and created (bool).
+                Dict with path (str) and created (bool — true if new file,
+                false if overwrite).
             """
             collection = _get_collection()
             result = await asyncio.to_thread(
@@ -414,17 +487,23 @@ def create_server() -> FastMCP:
             old_text: str,
             new_text: str,
         ) -> dict[str, Any]:
-            """Patch a section of a document (read-before-edit).
+            """Make a targeted text replacement in an existing document.
 
-            Replaces exactly one occurrence of old_text with new_text.
+            Always call 'read' first to get the exact current text, then pass
+            a portion of it as old_text. The match is exact and must appear
+            only once — if not found the call fails (text changed or wrong);
+            if found multiple times the call fails (use a longer, unique
+            excerpt). Frontmatter can be edited: old_text may span the YAML
+            block.
 
             Args:
                 path: Relative path to the document.
-                old_text: Text to find (must appear exactly once).
-                new_text: Replacement text.
+                old_text: Exact text to replace. Must appear exactly once in
+                    the document (including frontmatter). Get this via 'read'.
+                new_text: Replacement text. May be longer or shorter.
 
             Returns:
-                Dict with path and replacements count.
+                Dict with path (str) and replacements (int, always 1).
             """
             collection = _get_collection()
             result = await asyncio.to_thread(collection.edit, path, old_text, new_text)
@@ -438,13 +517,17 @@ def create_server() -> FastMCP:
             },
         )
         async def delete(path: str) -> dict[str, Any]:
-            """Delete a document.
+            """Permanently delete a document and remove it from all search indices.
+
+            IRREVERSIBLE unless git history exists. Confirm the path with the
+            user before calling. Use 'list_documents' or 'search' to verify
+            the path.
 
             Args:
-                path: Relative path to the document.
+                path: Relative path to the document to delete.
 
             Returns:
-                Dict with the deleted path.
+                Dict with path (str) of the deleted document.
             """
             collection = _get_collection()
             result = await asyncio.to_thread(collection.delete, path)
@@ -461,14 +544,19 @@ def create_server() -> FastMCP:
             old_path: str,
             new_path: str,
         ) -> dict[str, Any]:
-            """Rename or move a document.
+            """Rename a document or move it to a different folder.
+
+            Both the file and its search index entries are updated atomically.
+            No need to call 'reindex' after renaming. Parent directories for
+            new_path are created automatically.
 
             Args:
-                old_path: Current relative path.
-                new_path: New relative path.
+                old_path: Current relative path (e.g. "drafts/idea.md").
+                new_path: Target relative path (e.g. "projects/idea.md").
+                    Can cross folders. Fails if new_path already exists.
 
             Returns:
-                Dict with old_path and new_path.
+                Dict with old_path (str) and new_path (str).
             """
             collection = _get_collection()
             result = await asyncio.to_thread(collection.rename, old_path, new_path)
