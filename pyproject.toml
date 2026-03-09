@@ -123,9 +123,11 @@ ignore_errors = true
 version_toml = ["pyproject.toml:project.version"]
 commit_parser = "angular"
 tag_format = "v{version}"
+branches = [{name = "main"}]
 
 [tool.semantic_release.changelog]
 changelog_file = "CHANGELOG.md"
 
 [tool.semantic_release.commit_parser_options]
+minor_tags = ["feat"]
 patch_tags = ["fix", "perf"]
