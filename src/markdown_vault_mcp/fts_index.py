@@ -21,11 +21,12 @@ def _json_default(obj: Any) -> str:
     """Handle non-JSON-native types from YAML frontmatter.
 
     YAML parsers auto-detect date-like strings (e.g. ``2024-01-15``) as
-    ``datetime.date`` or ``datetime.datetime`` objects.  This handler
+    ``datetime.date`` or ``datetime.datetime`` objects, and bare time
+    strings (e.g. ``15:30:00``) as ``datetime.time``.  This handler
     converts them to ISO-format strings so ``json.dumps()`` can
     serialise frontmatter without crashing.
     """
-    if isinstance(obj, (datetime.date, datetime.datetime)):
+    if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 

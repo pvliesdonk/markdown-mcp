@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import datetime
+import json
+
 import pytest
 
-from markdown_vault_mcp.fts_index import FTSIndex
+from markdown_vault_mcp.fts_index import FTSIndex, _json_default
 from markdown_vault_mcp.types import Chunk, FTSResult, ParsedNote
 
 # ---------------------------------------------------------------------------
@@ -327,34 +330,49 @@ class TestUpsert:
 
 
 class TestFrontmatterSerialization:
-    def test_date_in_frontmatter_is_serialized(self) -> None:
-        """Frontmatter containing datetime.date values should be indexed."""
-        import datetime
-
+    def test_date_in_frontmatter_stored_as_iso_string(self) -> None:
+        """datetime.date in frontmatter is stored as ISO string."""
         idx = FTSIndex(":memory:")
         note = make_note(
             "dated.md",
             frontmatter={"created": datetime.date(2024, 1, 15), "title": "Dated"},
         )
         idx.upsert_note(note)
-        results = idx.search("Test content")
-        assert len(results) == 1
-        assert results[0].path == "dated.md"
+        row = idx.get_note("dated.md")
+        assert row is not None
+        fm = json.loads(row["frontmatter_json"])
+        assert fm["created"] == "2024-01-15"
 
-    def test_datetime_in_frontmatter_is_serialized(self) -> None:
-        """Frontmatter containing datetime.datetime values should be indexed."""
-        import datetime
-
+    def test_datetime_in_frontmatter_stored_as_iso_string(self) -> None:
+        """datetime.datetime in frontmatter is stored as ISO string."""
         idx = FTSIndex(":memory:")
         note = make_note(
             "timestamped.md",
-            frontmatter={
-                "updated": datetime.datetime(2024, 6, 15, 12, 30, 0),
-            },
+            frontmatter={"updated": datetime.datetime(2024, 6, 15, 12, 30, 0)},
         )
         idx.upsert_note(note)
-        results = idx.search("Test content")
-        assert len(results) == 1
+        row = idx.get_note("timestamped.md")
+        assert row is not None
+        fm = json.loads(row["frontmatter_json"])
+        assert fm["updated"] == "2024-06-15T12:30:00"
+
+    def test_time_in_frontmatter_stored_as_iso_string(self) -> None:
+        """datetime.time in frontmatter is stored as ISO string."""
+        idx = FTSIndex(":memory:")
+        note = make_note(
+            "timed.md",
+            frontmatter={"starts_at": datetime.time(15, 30, 0)},
+        )
+        idx.upsert_note(note)
+        row = idx.get_note("timed.md")
+        assert row is not None
+        fm = json.loads(row["frontmatter_json"])
+        assert fm["starts_at"] == "15:30:00"
+
+    def test_json_default_raises_for_unsupported_types(self) -> None:
+        """_json_default raises TypeError for non-date types."""
+        with pytest.raises(TypeError, match="set"):
+            _json_default({1, 2, 3})
 
 
 class TestDelete:
