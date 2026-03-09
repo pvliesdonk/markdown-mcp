@@ -413,9 +413,10 @@ def create_server() -> FastMCP:
         """Build vector embeddings to enable semantic and hybrid search.
 
         This can be slow for large collections — it calls the embedding
-        provider for every unembedded text chunk. Run after 'reindex' when
-        new documents have been added, or once to enable semantic search
-        for the first time. Check 'embeddings_status' to see if this is needed.
+        provider for every unembedded text chunk. Call once to enable semantic
+        search for the first time (when the vector index does not yet exist).
+        After that, 'reindex' handles incremental re-embedding automatically.
+        Check 'embeddings_status' to see if this is needed.
 
         Args:
             force: When True, discards existing embeddings and rebuilds from
