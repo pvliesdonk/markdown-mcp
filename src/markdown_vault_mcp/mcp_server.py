@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 from markdown_vault_mcp.collection import Collection
-from markdown_vault_mcp.config import _ENV_PREFIX, load_config
+from markdown_vault_mcp.config import _ENV_PREFIX, _parse_bool, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -148,8 +148,8 @@ def create_server() -> FastMCP:
     Returns:
         A fully configured :class:`~fastmcp.FastMCP` instance ready to run.
     """
-    raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY", "true").strip().lower()
-    is_read_only = raw_read_only in ("true", "1", "yes")
+    raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY")
+    is_read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
 
     server_name = os.environ.get(
         f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp"

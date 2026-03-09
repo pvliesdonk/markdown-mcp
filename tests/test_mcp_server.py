@@ -100,6 +100,8 @@ class TestServerIdentity:
         assert "READ-WRITE" in server.instructions
         assert "'write'" in server.instructions
         assert "'edit'" in server.instructions
+        assert "'rename'" in server.instructions
+        assert "'delete'" in server.instructions
 
     @pytest.mark.usefixtures("_mcp_env")
     def test_default_instructions_content(self) -> None:
