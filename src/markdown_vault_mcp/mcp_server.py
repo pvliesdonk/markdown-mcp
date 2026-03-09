@@ -390,8 +390,10 @@ def create_server() -> FastMCP:
         outside this server. Only processes changed files — unchanged documents
         are skipped.
 
-        Note: this updates the FTS keyword index only. After reindexing, call
-        'build_embeddings' if you want semantic search to reflect new content.
+        Note: if semantic search is already active (vector index loaded), this
+        also re-embeds changed documents automatically. Call
+        'build_embeddings' only to initialise semantic search for the
+        first time, or use force=True to rebuild all embeddings.
 
         Returns:
             Dict with counts: added, modified, deleted, unchanged.
