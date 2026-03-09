@@ -83,7 +83,11 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     server = create_server()
-    server.run(transport=args.transport)
+    transport = args.transport
+    if transport == "http":
+        server.run(transport="http", host=args.host, port=args.port)
+    else:
+        server.run(transport=transport)
 
 
 def _cmd_index(args: argparse.Namespace) -> None:
@@ -147,9 +151,20 @@ def _build_parser() -> argparse.ArgumentParser:
     serve_parser = sub.add_parser("serve", help="run the MCP server")
     serve_parser.add_argument(
         "--transport",
-        choices=["stdio", "sse"],
+        choices=["stdio", "sse", "http"],
         default="stdio",
-        help="MCP transport (default: stdio)",
+        help="MCP transport: stdio (default), sse, or http (streamable-http)",
+    )
+    serve_parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="host to bind to for http transport (default: 0.0.0.0)",
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="port for http transport (default: 8000)",
     )
 
     # index
