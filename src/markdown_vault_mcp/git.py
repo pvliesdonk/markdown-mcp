@@ -16,10 +16,7 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
-
-if TYPE_CHECKING:
-    from markdown_vault_mcp.types import WriteCallback
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -228,14 +225,19 @@ class GitWriteStrategy:
 def git_write_strategy(
     token: str | None = None,
     push_delay_s: float = 0,
-) -> WriteCallback:
-    """Create an ``on_write`` callback that auto-commits and pushes.
+) -> GitWriteStrategy:
+    """Create a :class:`GitWriteStrategy` callback.
 
-    This is a convenience wrapper around :class:`GitWriteStrategy`.
-    With the default ``push_delay_s=0``, pushes happen only on
-    :meth:`~GitWriteStrategy.close` — matching the legacy immediate-push
-    behavior when no close is called (push is attempted per-commit in
-    that case as a fallback).
+    Convenience wrapper around :class:`GitWriteStrategy`.  With the
+    default ``push_delay_s=0``, commits happen per-write but push only
+    fires when :meth:`~GitWriteStrategy.close` or
+    :meth:`~GitWriteStrategy.flush` is called.
+
+    When used via :class:`~markdown_vault_mcp.collection.Collection`,
+    ``Collection.close()`` automatically calls the strategy's
+    ``close()``, so pushes flush on shutdown.  Callers using this
+    as a bare ``WriteCallback`` must retain a reference and call
+    ``close()`` explicitly.
 
     .. deprecated::
         Prefer :class:`GitWriteStrategy` directly for access to
@@ -246,10 +248,10 @@ def git_write_strategy(
         push_delay_s: Push delay in seconds (default 0 = push on close only).
 
     Returns:
-        A :data:`~markdown_vault_mcp.types.WriteCallback`.
+        A :class:`GitWriteStrategy` instance (also satisfies
+        :data:`~markdown_vault_mcp.types.WriteCallback`).
     """
-    strategy = GitWriteStrategy(token=token, push_delay_s=push_delay_s)
-    return strategy
+    return GitWriteStrategy(token=token, push_delay_s=push_delay_s)
 
 
 def _stage_and_commit(
