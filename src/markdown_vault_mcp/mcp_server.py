@@ -125,12 +125,8 @@ def create_server() -> FastMCP:
     Returns:
         A fully configured :class:`~fastmcp.FastMCP` instance ready to run.
     """
-    server_name = os.environ.get(
-        f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp"
-    )
-    instructions = os.environ.get(
-        f"{_ENV_PREFIX}_INSTRUCTIONS", _DEFAULT_INSTRUCTIONS
-    )
+    server_name = os.environ.get(f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp")
+    instructions = os.environ.get(f"{_ENV_PREFIX}_INSTRUCTIONS", _DEFAULT_INSTRUCTIONS)
 
     mcp = FastMCP(
         server_name,

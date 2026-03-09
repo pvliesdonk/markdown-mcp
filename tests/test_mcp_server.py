@@ -91,17 +91,13 @@ class TestServerIdentity:
         assert "full-text and semantic search" in server.instructions
 
     @pytest.mark.usefixtures("_mcp_env")
-    def test_custom_server_name(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_custom_server_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_SERVER_NAME", "my-vault")
         server = create_server()
         assert server.name == "my-vault"
 
     @pytest.mark.usefixtures("_mcp_env")
-    def test_custom_instructions(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_custom_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
             "MARKDOWN_VAULT_MCP_INSTRUCTIONS",
             "Personal notes vault. Read-only.",
