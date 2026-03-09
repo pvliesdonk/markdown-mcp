@@ -24,8 +24,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Create non-root user with configurable UID/GID for bind-mount compatibility.
 ARG APP_UID=1000
 ARG APP_GID=1000
-RUN groupadd --gid $APP_GID appuser \
-    && useradd --uid $APP_UID --gid $APP_GID -d /app appuser \
+RUN if [ "$APP_UID" -eq 0 ] || [ "$APP_GID" -eq 0 ]; then \
+        echo "ERROR: APP_UID and APP_GID must be non-zero" >&2; exit 1; \
+    fi \
+    && groupadd --gid $APP_GID --non-unique appuser \
+    && useradd --uid $APP_UID --gid $APP_GID --no-log-init -d /app appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
