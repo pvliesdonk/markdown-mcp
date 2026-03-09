@@ -663,7 +663,7 @@ format: `{"Journal/note.md": "sha256hex", ...}` as JSON.
 
 ### `mcp_server.py` -- Generic MCP Server
 
-Uses **FastMCP 2.5+** with lifespan hooks for Collection init/teardown.
+Uses **FastMCP 3.0+** with lifespan hooks for Collection init/teardown.
 
 **Tool surface** mirrors LLM file tool semantics (Claude Code Read/Write/Edit
 pattern). Each tool is annotated with MCP `ToolAnnotations`:
@@ -772,11 +772,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = ["fastmcp>=2.5,<3"]
+mcp = ["fastmcp>=3.0,<4"]
 embeddings-api = ["httpx>=0.25", "numpy>=1.20"]
 embeddings = ["sentence-transformers>=2.0", "numpy>=1.20"]
-all = ["fastmcp>=2.5,<3", "httpx>=0.25", "numpy>=1.20"]
-all-local = ["fastmcp>=2.5,<3", "httpx>=0.25", "numpy>=1.20", "sentence-transformers>=2.0"]
+all = ["fastmcp>=3.0,<4", "httpx>=0.25", "numpy>=1.20"]
+all-local = ["fastmcp>=3.0,<4", "httpx>=0.25", "numpy>=1.20", "sentence-transformers>=2.0"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.1", "mypy>=1.0"]
 
 [project.scripts]
@@ -909,7 +909,7 @@ credentials. Options: SSH key mount or PAT via env var.
 | VRAM contention (Ollama on RTX 4060 8GB) | `cpu_only` mode, batch embeddings |
 | Vault scale (numpy in-memory) | Fine for thousands of documents. If tens of thousands, evaluate Qdrant. |
 | Concurrent writes (Obsidian + MCP) | Use git as sync layer. MCP server should not write directly to live Obsidian vault without git in between. |
-| FastMCP breaking changes | Pin `>=2.5,<3`. Monitor for 3.0 migration. |
+| FastMCP breaking changes | Pin `>=3.0,<4`. Monitor for 4.0 migration. |
 | `Collection` API doesn't fit ifcraftcorpus | Validate in Phase 1 before building MCP server. |
 
 ## Appendix: Decision Log
@@ -927,7 +927,7 @@ Decisions made during design review (2026-03-07):
 | 7 | Frontmatter filtering | `document_tags` table (indexed) + raw JSON blob | Performant multi-value filtering without `json_extract()` |
 | 8 | Configuration | Phase 1: API. Phase 2: env vars. Phase 3: evaluate YAML | Avoid premature config complexity |
 | 9 | Chunking | `heading` + `whole` with `ChunkStrategy` protocol | Extensible without over-engineering; `sliding` deferred |
-| 10 | FastMCP | Pin `>=2.5,<3`; lifespan hooks; follow conventions | Proper init/teardown; forward-compatible |
+| 10 | FastMCP | Pin `>=3.0,<4`; lifespan hooks; follow conventions | Proper init/teardown; forward-compatible |
 | 11 | Write support | Separate frontmatter param; generic `on_write` callback | Git strategy as built-in; extensible for future strategies |
 | 12 | Docker/CI | Bring early (Phase 2); adapt from ifcraftcorpus | Proven infrastructure, minimal changes needed |
 | 13.1 | Error handling | Library raises; MCP catches and returns structured | Clean separation of concerns |
