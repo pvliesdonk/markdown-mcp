@@ -21,8 +21,12 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --extra all
 
-# Create non-root user.
-RUN useradd --system -d /app appuser && chown -R appuser:appuser /app
+# Create non-root user with configurable UID/GID for bind-mount compatibility.
+ARG APP_UID=1000
+ARG APP_GID=1000
+RUN groupadd --gid $APP_GID appuser \
+    && useradd --uid $APP_UID --gid $APP_GID -d /app appuser \
+    && chown -R appuser:appuser /app
 USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH"

@@ -284,13 +284,28 @@ git hook as usual.
 
 **Permission denied on vault directory**
 
-The container runs as a non-root `appuser`. If the vault is owned by a
-different UID on the host, reads will fail. Fix by either:
+The container runs as a non-root `appuser` (UID 1000 / GID 1000 by default).
+If the vault is owned by a different UID on the host, reads will fail.
 
-- Find the container UID/GID with `docker compose run --rm markdown-vault-mcp id`,
-  then `chown -R <UID>:<GID> /path/to/vault`, or
-- Add `user: "<your_uid>:<your_gid>"` to the service in `compose.yml` (find
-  your UID/GID with `id`).
+**Option 1: Build with matching UID/GID** (recommended — baked into the image):
+
+```bash
+docker compose build --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
+```
+
+**Option 2: Runtime override** — add `user:` to `compose.yml`:
+
+```yaml
+services:
+  markdown-vault-mcp:
+    user: "1001:1001"   # or "${APP_UID}:${APP_GID}" with .env
+```
+
+**Option 3: Fix host permissions** to match the default container user:
+
+```bash
+chown -R 1000:1000 /path/to/vault
+```
 
 **Traefik network not found**
 
