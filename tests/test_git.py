@@ -271,6 +271,28 @@ class TestGitWriteStrategy:
         # Should not raise, just log a warning.
         callback(test_file, "# Note\n", "write")
 
+    def test_no_op_write_skips_commit(self, git_repo: Path) -> None:
+        """Writing identical content should not produce an error commit."""
+        import subprocess
+
+        callback = git_write_strategy()
+
+        # Create and commit the file.
+        test_file = git_repo / "note.md"
+        test_file.write_text("# Note\n")
+        callback(test_file, "# Note\n", "write")
+
+        # Write identical content again — should not error.
+        callback(test_file, "# Note\n", "write")
+
+        # Only one write commit should exist (not two).
+        result = subprocess.run(
+            ["git", "-C", str(git_repo), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.stdout.count("write: note.md") == 1
+
     def test_push_failure_does_not_propagate(self, git_repo: Path) -> None:
         """Push failure is logged but does not raise."""
         callback = git_write_strategy()
@@ -362,7 +384,7 @@ class TestGitWriteStrategyClass:
 
         work, bare = git_repo_with_remote
 
-        strategy = GitWriteStrategy(token=None, push_delay_s=0.5)
+        strategy = GitWriteStrategy(token=None, push_delay_s=0.3)
         md_file = work / "test.md"
         md_file.write_text("# Test\n")
         strategy(md_file, "# Test\n", "write")
@@ -375,15 +397,18 @@ class TestGitWriteStrategyClass:
         )
         assert "write: test.md" not in result.stdout
 
-        # Wait for timer to fire.
-        time.sleep(1.0)
-
-        result = subprocess.run(
-            ["git", "-C", str(bare), "log", "--oneline"],
-            capture_output=True,
-            text=True,
-        )
-        assert "write: test.md" in result.stdout
+        # Poll until push lands (max 3s).
+        for _ in range(30):
+            time.sleep(0.1)
+            result = subprocess.run(
+                ["git", "-C", str(bare), "log", "--oneline"],
+                capture_output=True,
+                text=True,
+            )
+            if "write: test.md" in result.stdout:
+                break
+        else:
+            pytest.fail("Deferred push did not fire within 3 seconds")
 
         strategy.close()
 
@@ -395,7 +420,7 @@ class TestGitWriteStrategyClass:
 
         work, bare = git_repo_with_remote
 
-        strategy = GitWriteStrategy(token=None, push_delay_s=0.5)
+        strategy = GitWriteStrategy(token=None, push_delay_s=0.3)
 
         for i in range(5):
             md_file = work / f"note_{i}.md"
@@ -410,15 +435,20 @@ class TestGitWriteStrategyClass:
         )
         assert "note_4.md" not in result.stdout
 
-        # Wait for timer.
-        time.sleep(1.0)
+        # Poll until push lands (max 3s).
+        for _ in range(30):
+            time.sleep(0.1)
+            result = subprocess.run(
+                ["git", "-C", str(bare), "log", "--oneline"],
+                capture_output=True,
+                text=True,
+            )
+            if "note_4.md" in result.stdout:
+                break
+        else:
+            pytest.fail("Deferred push did not fire within 3 seconds")
 
         # All 5 commits pushed in a single push.
-        result = subprocess.run(
-            ["git", "-C", str(bare), "log", "--oneline"],
-            capture_output=True,
-            text=True,
-        )
         for i in range(5):
             assert f"write: note_{i}.md" in result.stdout
 
@@ -608,6 +638,17 @@ class TestConfigIntegration:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S", "45")
         config = load_config()
         assert config.git_push_delay_s == 45.0
+
+    def test_load_config_invalid_push_delay_uses_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() falls back to default on invalid GIT_PUSH_DELAY_S."""
+        from markdown_vault_mcp.config import load_config
+
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(tmp_path))
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S", "not_a_number")
+        config = load_config()
+        assert config.git_push_delay_s == 30.0
 
 
 class TestCollectionCloseWiresStrategy:

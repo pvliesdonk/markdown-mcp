@@ -103,8 +103,10 @@ class GitWriteStrategy:
             return
 
         if not self._checked:
-            self._checked = True
-            self._git_root = _find_git_root(path)
+            with self._lock:
+                if not self._checked:
+                    self._git_root = _find_git_root(path)
+                    self._checked = True
             if self._git_root is None:
                 logger.warning(
                     "No git repository found for %s; git operations disabled",
@@ -195,12 +197,29 @@ class GitWriteStrategy:
                 capture_output=True,
                 text=True,
             )
-            if result.returncode == 0 and result.stdout.strip():
-                logger.info("Git: found unpushed commits on startup, pushing now")
-                _push(self._git_root, self._token)
-        except Exception:
-            # No upstream or no remote — not an error at this point.
+        except FileNotFoundError:
+            logger.debug("Git: git not found, skipping unpushed check")
+            return
+
+        if result.returncode != 0:
+            # No upstream or no remote — not an error at startup.
             logger.debug("Git: no upstream to check for unpushed commits")
+            return
+
+        if result.stdout.strip():
+            logger.info("Git: found unpushed commits on startup, pushing now")
+            try:
+                _push(self._git_root, self._token)
+            except subprocess.CalledProcessError as exc:
+                sanitized_stderr = exc.stderr or ""
+                if self._token and self._token in sanitized_stderr:
+                    sanitized_stderr = sanitized_stderr.replace(self._token, "***")
+                logger.error(
+                    "Git startup push failed: command %s returned %d\n%s",
+                    exc.cmd,
+                    exc.returncode,
+                    sanitized_stderr,
+                )
 
     def flush(self) -> None:
         """Block until any pending push completes.
@@ -212,8 +231,9 @@ class GitWriteStrategy:
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
+            pending = self._push_pending
 
-        if self._push_pending and self._git_root is not None:
+        if pending and self._git_root is not None:
             self._do_push_safe()
 
     def close(self) -> None:
@@ -242,6 +262,11 @@ def git_write_strategy(
     .. deprecated::
         Prefer :class:`GitWriteStrategy` directly for access to
         :meth:`~GitWriteStrategy.flush` and :meth:`~GitWriteStrategy.close`.
+
+    .. note::
+        The default ``push_delay_s=0`` here differs from
+        :class:`GitWriteStrategy`'s default of ``30.0``.  This preserves
+        backward compatibility (push on close/flush only).
 
     Args:
         token: PAT for HTTPS push.
@@ -315,6 +340,18 @@ def _stage_and_commit(
         rel_path = path.relative_to(git_root)
     except ValueError:
         rel_path = path
+
+    # Skip commit if staging produced no diff (e.g. writing identical content).
+    check_result = subprocess.run(
+        ["git", "-C", root, "diff", "--cached", "--quiet"],
+        capture_output=True,
+    )
+    if check_result.returncode == 0:
+        logger.debug(
+            "Git: nothing staged for %s (%s), skipping commit", rel_path, operation
+        )
+        return
+
     commit_msg = f"{operation}: {rel_path}"
 
     subprocess.run(

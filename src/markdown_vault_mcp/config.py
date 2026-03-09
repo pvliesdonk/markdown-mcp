@@ -227,7 +227,17 @@ def load_config() -> CollectionConfig:
     logger.debug("load_config: git_token=%s", "set" if git_token else "not set")
 
     raw_push_delay = (_env("GIT_PUSH_DELAY_S") or "").strip()
-    git_push_delay_s = float(raw_push_delay) if raw_push_delay else 30.0
+    if raw_push_delay:
+        try:
+            git_push_delay_s = float(raw_push_delay)
+        except ValueError:
+            logger.warning(
+                "load_config: invalid GIT_PUSH_DELAY_S=%r, using default 30.0",
+                raw_push_delay,
+            )
+            git_push_delay_s = 30.0
+    else:
+        git_push_delay_s = 30.0
     logger.debug("load_config: git_push_delay_s=%s", git_push_delay_s)
 
     return CollectionConfig(
