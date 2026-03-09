@@ -9,6 +9,7 @@ import re
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import frontmatter
+import yaml
 
 from markdown_vault_mcp.types import Chunk, ParsedNote
 
@@ -323,8 +324,13 @@ def scan_directory(
         except OSError as exc:
             logger.warning("Skipping %s: I/O error (%s)", abs_path, exc)
             continue
-        except Exception as exc:
+        except yaml.YAMLError as exc:
             logger.warning("Skipping %s: parse error (%s)", abs_path, exc)
+            continue
+        except Exception as exc:
+            logger.warning(
+                "Skipping %s: unexpected error (%s)", abs_path, exc, exc_info=True
+            )
             continue
 
         # Apply required_frontmatter filter.
