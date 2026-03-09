@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from markdown_vault_mcp.cli import _build_parser, main
+from markdown_vault_mcp.cli import _build_parser, _cmd_serve, main
 
 
 class TestBuildParser:
@@ -28,6 +28,22 @@ class TestBuildParser:
         parser = _build_parser()
         args = parser.parse_args(["serve", "--transport", "sse"])
         assert args.transport == "sse"
+
+    def test_serve_http_transport(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["serve", "--transport", "http"])
+        assert args.transport == "http"
+        assert args.host == "0.0.0.0"
+        assert args.port == 8000
+
+    def test_serve_http_custom_host_port(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(
+            ["serve", "--transport", "http", "--host", "127.0.0.1", "--port", "9000"]
+        )
+        assert args.transport == "http"
+        assert args.host == "127.0.0.1"
+        assert args.port == 9000
 
     def test_index_command(self) -> None:
         parser = _build_parser()
@@ -140,6 +156,32 @@ class TestMainDispatch:
             main()
         mock_commands.__getitem__.assert_called_once_with("serve")
         mock_handler.assert_called_once()
+
+
+class TestCmdServe:
+    """Test the serve subcommand dispatch."""
+
+    @patch("markdown_vault_mcp.mcp_server.create_server")
+    def test_serve_http_calls_run_with_host_port(self, mock_create: MagicMock) -> None:
+        """_cmd_serve passes host/port to server.run for http transport."""
+        mock_server = MagicMock()
+        mock_create.return_value = mock_server
+        args = _build_parser().parse_args(
+            ["serve", "--transport", "http", "--host", "127.0.0.1", "--port", "9000"]
+        )
+        _cmd_serve(args)
+        mock_server.run.assert_called_once_with(
+            transport="http", host="127.0.0.1", port=9000
+        )
+
+    @patch("markdown_vault_mcp.mcp_server.create_server")
+    def test_serve_stdio_does_not_pass_host_port(self, mock_create: MagicMock) -> None:
+        """_cmd_serve does not pass host/port for stdio transport."""
+        mock_server = MagicMock()
+        mock_create.return_value = mock_server
+        args = _build_parser().parse_args(["serve"])
+        _cmd_serve(args)
+        mock_server.run.assert_called_once_with(transport="stdio")
 
 
 class TestCmdIndex:

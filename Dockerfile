@@ -34,5 +34,7 @@ USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH"
 
+EXPOSE 8000
+
 ENTRYPOINT ["markdown-vault-mcp"]
-CMD ["serve"]
+CMD ["serve", "--transport", "http"]
