@@ -85,10 +85,29 @@ class TestServerIdentity:
     """Verify SERVER_NAME and INSTRUCTIONS env vars are respected."""
 
     @pytest.mark.usefixtures("_mcp_env")
-    def test_defaults(self) -> None:
+    def test_defaults_read_only(self) -> None:
         server = create_server()
         assert server.name == "markdown-vault-mcp"
-        assert "full-text and semantic search" in server.instructions
+        assert "READ-ONLY" in server.instructions
+        assert "not available" in server.instructions
+
+    @pytest.mark.usefixtures("_mcp_env")
+    def test_defaults_read_write(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_READ_ONLY", "false")
+        server = create_server()
+        assert "READ-WRITE" in server.instructions
+        assert "'write'" in server.instructions
+        assert "'edit'" in server.instructions
+        assert "'rename'" in server.instructions
+        assert "'delete'" in server.instructions
+
+    @pytest.mark.usefixtures("_mcp_env")
+    def test_default_instructions_content(self) -> None:
+        server = create_server()
+        assert "relative" in server.instructions
+        assert "'search'" in server.instructions
+        assert "'stats'" in server.instructions
+        assert "MARKDOWN_VAULT_MCP_INSTRUCTIONS" in server.instructions
 
     @pytest.mark.usefixtures("_mcp_env")
     def test_custom_server_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,7 +116,9 @@ class TestServerIdentity:
         assert server.name == "my-vault"
 
     @pytest.mark.usefixtures("_mcp_env")
-    def test_custom_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_custom_instructions_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv(
             "MARKDOWN_VAULT_MCP_INSTRUCTIONS",
             "Personal notes vault. Read-only.",
