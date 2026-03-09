@@ -644,8 +644,15 @@ class Collection:
         )
 
         total_chunks = 0
+        errored = 0
         for note in notes:
-            total_chunks += self._fts.upsert_note(note)
+            try:
+                total_chunks += self._fts.upsert_note(note)
+            except Exception:
+                errored += 1
+                logger.warning(
+                    "build_index: failed to index %s", note.path, exc_info=True
+                )
 
         # Count how many files were skipped due to required_frontmatter.
         # scan_directory logs skipped counts itself; we compute it by comparing
@@ -657,14 +664,23 @@ class Collection:
         self._tracker.update_state(notes)
 
         self._initialized = True
-        logger.info(
-            "build_index: indexed %d documents, %d chunks (%d skipped)",
-            len(notes),
-            total_chunks,
-            skipped,
-        )
+        if errored:
+            logger.warning(
+                "build_index: indexed %d documents, %d chunks (%d skipped, %d errors)",
+                len(notes) - errored,
+                total_chunks,
+                skipped,
+                errored,
+            )
+        else:
+            logger.info(
+                "build_index: indexed %d documents, %d chunks (%d skipped)",
+                len(notes),
+                total_chunks,
+                skipped,
+            )
         return IndexStats(
-            documents_indexed=len(notes),
+            documents_indexed=len(notes) - errored,
             chunks_indexed=total_chunks,
             skipped=max(skipped, 0),
         )
@@ -732,7 +748,11 @@ class Collection:
                     )
                     continue
 
-            self._fts.upsert_note(note)
+            try:
+                self._fts.upsert_note(note)
+            except Exception:
+                logger.warning("reindex: failed to index %s", path, exc_info=True)
+                continue
             if path in added_set:
                 indexed_added += 1
             else:

@@ -326,6 +326,37 @@ class TestUpsert:
         assert results[0].path == "replace.md"
 
 
+class TestFrontmatterSerialization:
+    def test_date_in_frontmatter_is_serialized(self) -> None:
+        """Frontmatter containing datetime.date values should be indexed."""
+        import datetime
+
+        idx = FTSIndex(":memory:")
+        note = make_note(
+            "dated.md",
+            frontmatter={"created": datetime.date(2024, 1, 15), "title": "Dated"},
+        )
+        idx.upsert_note(note)
+        results = idx.search("Test content")
+        assert len(results) == 1
+        assert results[0].path == "dated.md"
+
+    def test_datetime_in_frontmatter_is_serialized(self) -> None:
+        """Frontmatter containing datetime.datetime values should be indexed."""
+        import datetime
+
+        idx = FTSIndex(":memory:")
+        note = make_note(
+            "timestamped.md",
+            frontmatter={
+                "updated": datetime.datetime(2024, 6, 15, 12, 30, 0),
+            },
+        )
+        idx.upsert_note(note)
+        results = idx.search("Test content")
+        assert len(results) == 1
+
+
 class TestDelete:
     def test_delete_by_path_removes_search_results(self) -> None:
         """delete_by_path makes the note unsearchable."""
