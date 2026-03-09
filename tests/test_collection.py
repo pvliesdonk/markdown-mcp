@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -135,6 +136,54 @@ class TestBuildIndex:
         result = col.reindex()
 
         assert result.added >= 1
+
+    def test_build_index_continues_on_upsert_error(self, vault_path: Path) -> None:
+        """build_index() skips documents that fail to index and continues."""
+        col = _make_collection(vault_path)
+        call_count = 0
+        original_upsert = col._fts.upsert_note
+
+        def upsert_that_fails_once(note):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise TypeError("simulated serialization error")
+            return original_upsert(note)
+
+        with patch.object(col._fts, "upsert_note", side_effect=upsert_that_fails_once):
+            stats = col.build_index()
+
+        # One document errored, remaining 8 indexed successfully.
+        assert stats.documents_indexed == 8
+        assert stats.chunks_indexed == 8
+
+    def test_reindex_continues_on_upsert_error(
+        self, tmp_path: Path, vault_path: Path
+    ) -> None:
+        """reindex() skips documents that fail to upsert and continues."""
+        state_path = tmp_path / "state.json"
+        col = _make_collection(vault_path, state_path=state_path)
+        col.build_index()
+
+        # Add two new files.
+        (vault_path / "new_a.md").write_text("# A\n\nContent A.\n")
+        (vault_path / "new_b.md").write_text("# B\n\nContent B.\n")
+
+        call_count = 0
+        original_upsert = col._fts.upsert_note
+
+        def upsert_that_fails_once(note):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise TypeError("simulated serialization error")
+            return original_upsert(note)
+
+        with patch.object(col._fts, "upsert_note", side_effect=upsert_that_fails_once):
+            result = col.reindex()
+
+        # One of the two added files failed, the other succeeded.
+        assert result.added == 1
 
 
 # ---------------------------------------------------------------------------
