@@ -101,11 +101,34 @@ def _get_collection() -> Collection:
 # ---------------------------------------------------------------------------
 
 
-_DEFAULT_INSTRUCTIONS = (
-    "A markdown collection server with full-text and semantic search. "
-    "Use 'search' to find documents, 'read' to get full content, "
-    "'list_documents' to browse, and metadata tools for collection info."
-)
+def _build_default_instructions(*, read_only: bool) -> str:
+    """Build the default instructions string based on read-only state.
+
+    Args:
+        read_only: Whether write tools are disabled on this instance.
+
+    Returns:
+        Instructions string suitable for the ``instructions`` parameter
+        of :class:`~fastmcp.FastMCP`.
+    """
+    write_line = (
+        "This instance is READ-ONLY — write tools are not available."
+        if read_only
+        else (
+            "This instance is READ-WRITE — use 'write' to create, 'edit' for "
+            "targeted changes (read first), 'rename' to move, 'delete' to remove."
+        )
+    )
+    return (
+        "A searchable markdown document collection. "
+        "Paths are always relative (e.g. 'Journal/note.md'). "
+        f"{write_line} "
+        "Use 'search' (mode='hybrid' preferred when available) to find documents, "
+        "'read' for full content, 'list_documents' to enumerate, 'stats' to check "
+        "capabilities. "
+        "Operators: set MARKDOWN_VAULT_MCP_INSTRUCTIONS to describe this "
+        "collection's domain and frontmatter vocabulary."
+    )
 
 
 def create_server() -> FastMCP:
@@ -120,13 +143,21 @@ def create_server() -> FastMCP:
     - ``MARKDOWN_VAULT_MCP_SERVER_NAME``: MCP server name shown to clients
       (default ``"markdown-vault-mcp"``).
     - ``MARKDOWN_VAULT_MCP_INSTRUCTIONS``: system-level instructions injected
-      into LLM context (default: generic collection description).
+      into LLM context (default: dynamic description reflecting read-only state).
 
     Returns:
         A fully configured :class:`~fastmcp.FastMCP` instance ready to run.
     """
-    server_name = os.environ.get(f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp")
-    instructions = os.environ.get(f"{_ENV_PREFIX}_INSTRUCTIONS", _DEFAULT_INSTRUCTIONS)
+    raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY", "true").strip().lower()
+    is_read_only = raw_read_only in ("true", "1", "yes")
+
+    server_name = os.environ.get(
+        f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp"
+    )
+    default_instructions = _build_default_instructions(read_only=is_read_only)
+    instructions = os.environ.get(
+        f"{_ENV_PREFIX}_INSTRUCTIONS", default_instructions
+    )
 
     mcp = FastMCP(
         server_name,
@@ -344,9 +375,6 @@ def create_server() -> FastMCP:
         return {"chunks_embedded": count}
 
     # --- Write tools (conditionally registered) ---
-
-    raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY", "true").strip().lower()
-    is_read_only = raw_read_only in ("true", "1", "yes")
 
     if not is_read_only:
 
