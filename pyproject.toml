@@ -118,3 +118,15 @@ module = [
 # Phase 1 modules have structural type issues (FTSResult used as dict,
 # numpy dtype mismatches).  TODO: fix in a dedicated type-safety PR.
 ignore_errors = true
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+commit_parser = "angular"
+tag_format = "v{version}"
+
+[tool.semantic_release.changelog]
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.commit_parser_options]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
