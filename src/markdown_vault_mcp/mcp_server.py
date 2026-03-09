@@ -363,15 +363,18 @@ def create_server() -> FastMCP:
         },
     )
     async def embeddings_status() -> dict[str, Any]:
-        """Check the embedding provider configuration and vector index freshness.
+        """Check the embedding provider configuration and vector index status.
 
-        Use this to diagnose why semantic search is unavailable or returning
-        poor results. If embeddings are stale (new documents indexed since last
-        embed run), call 'build_embeddings' to update the vector index.
+        Use this to diagnose why semantic search is unavailable. Compare
+        chunk_count here against chunk_count from 'stats': if stats has more
+        chunks, call 'build_embeddings' to initialise the vector index for
+        the first time (or 'reindex' to incrementally re-embed changed docs
+        when semantic search is already active).
 
         Returns:
-            Dict with provider info (name, model), document/chunk counts,
-            and a staleness indicator (whether unembedded chunks exist).
+            Dict with available (bool), provider (str — provider class name,
+            e.g. "OllamaProvider"), chunk_count (int — embedded chunks in the
+            vector index), and path (str — vector index file path).
         """
         collection = _get_collection()
         return await asyncio.to_thread(collection.embeddings_status)
