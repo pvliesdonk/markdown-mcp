@@ -42,6 +42,8 @@ _CLEAR_VARS = (
     "MARKDOWN_VAULT_MCP_REQUIRED_FIELDS",
     "MARKDOWN_VAULT_MCP_EXCLUDE",
     "MARKDOWN_VAULT_MCP_GIT_TOKEN",
+    "MARKDOWN_VAULT_MCP_SERVER_NAME",
+    "MARKDOWN_VAULT_MCP_INSTRUCTIONS",
 )
 
 
@@ -72,6 +74,36 @@ def _mcp_env_with_fields(vault_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
         monkeypatch.delenv(var, raising=False)
     # Set after clearing so it's not wiped by _CLEAR_VARS.
     monkeypatch.setenv("MARKDOWN_VAULT_MCP_INDEXED_FIELDS", "cluster,tags")
+
+
+# ---------------------------------------------------------------------------
+# Server identity
+# ---------------------------------------------------------------------------
+
+
+class TestServerIdentity:
+    """Verify SERVER_NAME and INSTRUCTIONS env vars are respected."""
+
+    @pytest.mark.usefixtures("_mcp_env")
+    def test_defaults(self) -> None:
+        server = create_server()
+        assert server.name == "markdown-vault-mcp"
+        assert "full-text and semantic search" in server.instructions
+
+    @pytest.mark.usefixtures("_mcp_env")
+    def test_custom_server_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SERVER_NAME", "my-vault")
+        server = create_server()
+        assert server.name == "my-vault"
+
+    @pytest.mark.usefixtures("_mcp_env")
+    def test_custom_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "MARKDOWN_VAULT_MCP_INSTRUCTIONS",
+            "Personal notes vault. Read-only.",
+        )
+        server = create_server()
+        assert server.instructions == "Personal notes vault. Read-only."
 
 
 # ---------------------------------------------------------------------------

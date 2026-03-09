@@ -104,6 +104,8 @@ All configuration is via environment variables with the `MARKDOWN_VAULT_MCP_` pr
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
+| `MARKDOWN_VAULT_MCP_SERVER_NAME` | `markdown-vault-mcp` | No | MCP server name shown to clients (useful for multi-instance setups) |
+| `MARKDOWN_VAULT_MCP_INSTRUCTIONS` | generic description | No | System-level instructions injected into LLM context |
 | `MARKDOWN_VAULT_MCP_SOURCE_DIR` | — | Yes | Path to the markdown vault directory |
 | `MARKDOWN_VAULT_MCP_READ_ONLY` | `true` | No | Set to `false` to enable write operations |
 | `MARKDOWN_VAULT_MCP_INDEX_PATH` | in-memory | No | Path to the SQLite FTS5 index file (set for persistence across restarts) |
