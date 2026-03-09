@@ -194,7 +194,9 @@ def create_server() -> FastMCP:
             filters: Filter by indexed frontmatter field values, e.g.
                 {"cluster": "craft", "tags": "pacing"}. Only fields listed
                 in indexed_frontmatter_fields (see 'stats') can be filtered.
-                Multiple filters are ANDed.
+                Multiple filters are ANDed. For list fields (e.g. tags),
+                this checks membership — {"tags": "pacing"} matches any
+                document where "pacing" appears in the tags list.
 
         Returns:
             List of result dicts ranked by relevance (higher score is better).
