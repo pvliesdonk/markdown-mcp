@@ -118,6 +118,7 @@ All configuration is via environment variables with the `MARKDOWN_VAULT_MCP_` pr
 | `MARKDOWN_VAULT_MCP_REQUIRED_FIELDS` | — | No | Comma-separated frontmatter fields required on every document |
 | `MARKDOWN_VAULT_MCP_EXCLUDE` | — | No | Comma-separated glob patterns to exclude (e.g. `.obsidian/**,.trash/**`) |
 | `MARKDOWN_VAULT_MCP_GIT_TOKEN` | — | No | GitHub PAT for auto-commit and push on writes (via `GIT_ASKPASS`) |
+| `MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S` | `30` | No | Seconds of idle before pushing (0 = push only on shutdown) |
 | `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | `nomic-embed-text` | No | Ollama embedding model name |
 | `MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY` | `false` | No | Force Ollama to use CPU only |
 | `EMBEDDING_PROVIDER` | auto-detect | No | Embedding provider: `ollama`, `openai`, or `sentence-transformers` (not prefixed) |

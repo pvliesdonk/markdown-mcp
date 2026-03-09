@@ -101,13 +101,14 @@ class CollectionConfig:
     required_frontmatter: list[str] | None = None
     exclude_patterns: list[str] | None = None
     git_token: str | None = None
+    git_push_delay_s: float = 30.0
 
     def to_collection_kwargs(self) -> dict[str, Any]:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
 
         When ``git_token`` is set, creates a
-        :func:`~markdown_vault_mcp.git.git_write_strategy` callback and
-        includes it as the ``on_write`` parameter.
+        :class:`~markdown_vault_mcp.git.GitWriteStrategy` and includes
+        it as the ``on_write`` parameter.
 
         Returns:
             Dict of keyword arguments accepted by
@@ -129,9 +130,12 @@ class CollectionConfig:
             "exclude_patterns": self.exclude_patterns,
         }
         if self.git_token is not None:
-            from markdown_vault_mcp.git import git_write_strategy
+            from markdown_vault_mcp.git import GitWriteStrategy
 
-            kwargs["on_write"] = git_write_strategy(self.git_token)
+            kwargs["on_write"] = GitWriteStrategy(
+                token=self.git_token,
+                push_delay_s=self.git_push_delay_s,
+            )
         return kwargs
 
 
@@ -154,7 +158,9 @@ def load_config() -> CollectionConfig:
     - ``MARKDOWN_VAULT_MCP_EXCLUDE``: comma-separated glob patterns to
       exclude; default none.
     - ``MARKDOWN_VAULT_MCP_GIT_TOKEN``: token for git write strategy; default
-      disabled.  Used in Phase 3 to configure ``on_write`` callback.
+      disabled.
+    - ``MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S``: seconds of idle before pushing
+      (default ``30``).  Set to ``0`` to push only on shutdown.
 
     The ``EMBEDDING_PROVIDER`` variable is intentionally **not** resolved here;
     call :func:`~markdown_vault_mcp.providers.get_embedding_provider`
@@ -220,6 +226,20 @@ def load_config() -> CollectionConfig:
     git_token: str | None = raw_git_token or None
     logger.debug("load_config: git_token=%s", "set" if git_token else "not set")
 
+    raw_push_delay = (_env("GIT_PUSH_DELAY_S") or "").strip()
+    if raw_push_delay:
+        try:
+            git_push_delay_s = float(raw_push_delay)
+        except ValueError:
+            logger.warning(
+                "load_config: invalid GIT_PUSH_DELAY_S=%r, using default 30.0",
+                raw_push_delay,
+            )
+            git_push_delay_s = 30.0
+    else:
+        git_push_delay_s = 30.0
+    logger.debug("load_config: git_push_delay_s=%s", git_push_delay_s)
+
     return CollectionConfig(
         source_dir=source_dir,
         read_only=read_only,
@@ -230,4 +250,5 @@ def load_config() -> CollectionConfig:
         required_frontmatter=required_frontmatter,
         exclude_patterns=exclude_patterns,
         git_token=git_token,
+        git_push_delay_s=git_push_delay_s,
     )

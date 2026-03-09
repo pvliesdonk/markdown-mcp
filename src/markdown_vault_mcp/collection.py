@@ -201,7 +201,14 @@ class Collection:
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """Release resources held by the collection (close the SQLite connection)."""
+        """Release resources held by the collection.
+
+        Closes the SQLite connection and, if the ``on_write`` callback
+        has a ``close()`` method (e.g. :class:`~markdown_vault_mcp.git.GitWriteStrategy`),
+        calls it to flush pending git operations.
+        """
+        if self._on_write is not None and hasattr(self._on_write, "close"):
+            self._on_write.close()  # type: ignore[union-attr]
         self._fts.close()
 
     # ------------------------------------------------------------------

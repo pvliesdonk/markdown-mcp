@@ -722,6 +722,7 @@ For MCP server deployment:
 | `MARKDOWN_VAULT_MCP_REQUIRED_FIELDS` | Comma-separated required frontmatter fields | none |
 | `MARKDOWN_VAULT_MCP_EXCLUDE` | Comma-separated glob patterns to exclude | none |
 | `MARKDOWN_VAULT_MCP_GIT_TOKEN` | PAT for git push on write | disabled |
+| `MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S` | Seconds of idle before git push (0 = push on shutdown only) | `30` |
 | `EMBEDDING_PROVIDER` | `ollama`, `openai`, `sentence-transformers` | auto-detect |
 | `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
 | `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | Ollama embedding model | `nomic-embed-text` |
@@ -802,12 +803,21 @@ ifcraftcorpus).
 
 ### Write + Git Integration
 
-Two strategies supported via the `on_write` callback:
+Three strategies supported via the `on_write` callback:
 
 1. **No push (default)**: write to disk only. External process (cron, hook)
    handles `git add + commit + push`.
-2. **Git strategy**: auto-commit + push using `MARKDOWN_VAULT_MCP_GIT_TOKEN` or
-   `GITHUB_TOKEN`. Entire vault runs in-container.
+2. **Git strategy with deferred push**: `GitWriteStrategy` commits per-write
+   and defers push to a background timer (`MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S`,
+   default 30s). After the idle period elapses with no writes, all accumulated
+   local commits are pushed in a single `git push`. On shutdown,
+   `Collection.close()` flushes any pending push.
+3. **Git strategy with push on shutdown**: set `GIT_PUSH_DELAY_S=0` — commits
+   per-write, push only on `Collection.close()` (MCP lifespan teardown).
+
+Startup recovery: `GitWriteStrategy` checks for unpushed local commits
+(`git log @{upstream}..HEAD`) on first invocation and pushes them before
+accepting new writes.
 
 For private repos (like `pvliesdonk/obsidian.md`), the git strategy needs
 credentials. Options: SSH key mount or PAT via env var.

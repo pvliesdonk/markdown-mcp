@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -9,7 +10,11 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from markdown_vault_mcp.git import _find_git_root, git_write_strategy
+from markdown_vault_mcp.git import (
+    GitWriteStrategy,
+    _find_git_root,
+    git_write_strategy,
+)
 
 
 @pytest.fixture
@@ -47,6 +52,73 @@ def git_repo(tmp_path: Path) -> Path:
         check=True,
     )
     return repo
+
+
+@pytest.fixture
+def git_repo_with_remote(tmp_path: Path) -> tuple[Path, Path]:
+    """Create a working repo with a bare remote for push testing."""
+    import subprocess
+
+    bare = tmp_path / "bare.git"
+    bare.mkdir()
+    subprocess.run(
+        ["git", "init", "--bare", str(bare)],
+        check=True,
+        capture_output=True,
+    )
+
+    work = tmp_path / "work"
+    work.mkdir()
+    subprocess.run(
+        ["git", "init", str(work)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(work), "config", "user.email", "test@test.com"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(work), "config", "user.name", "Test"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(work), "remote", "add", "origin", str(bare)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(work), "config", "push.default", "current"],
+        check=True,
+        capture_output=True,
+    )
+    # Initial commit + push so upstream tracking exists.
+    (work / "README.md").write_text("# Test\n")
+    subprocess.run(
+        ["git", "-C", str(work), "add", "."],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(work), "commit", "-m", "init"],
+        check=True,
+        capture_output=True,
+    )
+    # Detect the default branch name (main or master).
+    branch_result = subprocess.run(
+        ["git", "-C", str(work), "branch", "--show-current"],
+        capture_output=True,
+        text=True,
+    )
+    branch = branch_result.stdout.strip() or "main"
+    subprocess.run(
+        ["git", "-C", str(work), "push", "-u", "origin", branch],
+        check=True,
+        capture_output=True,
+    )
+    return work, bare
 
 
 class TestFindGitRoot:
@@ -199,6 +271,28 @@ class TestGitWriteStrategy:
         # Should not raise, just log a warning.
         callback(test_file, "# Note\n", "write")
 
+    def test_no_op_write_skips_commit(self, git_repo: Path) -> None:
+        """Writing identical content should not produce an error commit."""
+        import subprocess
+
+        callback = git_write_strategy()
+
+        # Create and commit the file.
+        test_file = git_repo / "note.md"
+        test_file.write_text("# Note\n")
+        callback(test_file, "# Note\n", "write")
+
+        # Write identical content again — should not error.
+        callback(test_file, "# Note\n", "write")
+
+        # Only one write commit should exist (not two).
+        result = subprocess.run(
+            ["git", "-C", str(git_repo), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.stdout.count("write: note.md") == 1
+
     def test_push_failure_does_not_propagate(self, git_repo: Path) -> None:
         """Push failure is logged but does not raise."""
         callback = git_write_strategy()
@@ -217,64 +311,163 @@ class TestGitWriteStrategy:
         # Should commit successfully (push will fail — no remote).
         callback(test_file, "# Note\n", "write")
 
-    def test_push_via_askpass_to_bare_remote(self, tmp_path: Path) -> None:
-        """Push plumbing works with GIT_ASKPASS against a local bare remote.
 
-        Note: uses file:// protocol, so git does not actually invoke
-        GIT_ASKPASS for authentication.  This verifies the push codepath
-        (stage → commit → push) succeeds end-to-end.  HTTPS authentication
-        via GIT_ASKPASS is verified structurally by
-        ``test_token_not_in_command_args``.
-        """
+class TestGitWriteStrategyClass:
+    """Tests for the GitWriteStrategy class directly."""
+
+    def test_flush_pushes_to_remote(
+        self, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """flush() pushes accumulated commits to the bare remote."""
         import subprocess
 
-        # Create a bare remote repo.
-        bare = tmp_path / "bare.git"
-        bare.mkdir()
-        subprocess.run(
-            ["git", "init", "--bare", str(bare)],
-            check=True,
-            capture_output=True,
-        )
+        work, bare = git_repo_with_remote
 
-        # Create a working repo with the bare as remote.
-        work = tmp_path / "work"
-        work.mkdir()
-        subprocess.run(
-            ["git", "init", str(work)],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(work), "config", "user.email", "test@test.com"],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(work), "config", "user.name", "Test"],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(work), "remote", "add", "origin", str(bare)],
-            check=True,
-            capture_output=True,
-        )
-        # Use push.default=current so first push to bare succeeds without
-        # a pre-configured upstream tracking branch.
-        subprocess.run(
-            ["git", "-C", str(work), "config", "push.default", "current"],
-            check=True,
-            capture_output=True,
-        )
-
-        # Write a file and invoke the callback with a (dummy) token.
-        callback = git_write_strategy(token="dummy_token")
+        strategy = GitWriteStrategy(token=None, push_delay_s=0)
         md_file = work / "test.md"
         md_file.write_text("# Test\n")
-        callback(md_file, "# Test\n", "write")
+        strategy(md_file, "# Test\n", "write")
 
-        # Verify the push reached the bare remote.
+        # Not pushed yet (push_delay_s=0 means push only on close/flush).
+        result = subprocess.run(
+            ["git", "-C", str(bare), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "write: test.md" not in result.stdout
+
+        # Flush triggers push.
+        strategy.flush()
+
+        result = subprocess.run(
+            ["git", "-C", str(bare), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "write: test.md" in result.stdout
+
+    def test_close_flushes(self, git_repo_with_remote: tuple[Path, Path]) -> None:
+        """close() flushes pending push and marks strategy as closed."""
+        import subprocess
+
+        work, bare = git_repo_with_remote
+
+        strategy = GitWriteStrategy(token=None, push_delay_s=0)
+        md_file = work / "test.md"
+        md_file.write_text("# Test\n")
+        strategy(md_file, "# Test\n", "write")
+
+        strategy.close()
+
+        result = subprocess.run(
+            ["git", "-C", str(bare), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "write: test.md" in result.stdout
+
+        # Further writes are ignored after close.
+        md_file.write_text("# Updated\n")
+        strategy(md_file, "# Updated\n", "edit")
+        result2 = subprocess.run(
+            ["git", "-C", str(work), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "edit: test.md" not in result2.stdout
+
+    def test_deferred_push_fires_after_delay(
+        self, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """Timer-based push fires after push_delay_s of idle."""
+        import subprocess
+
+        work, bare = git_repo_with_remote
+
+        strategy = GitWriteStrategy(token=None, push_delay_s=0.3)
+        md_file = work / "test.md"
+        md_file.write_text("# Test\n")
+        strategy(md_file, "# Test\n", "write")
+
+        # Not pushed immediately.
+        result = subprocess.run(
+            ["git", "-C", str(bare), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "write: test.md" not in result.stdout
+
+        # Poll until push lands (max 3s).
+        for _ in range(30):
+            time.sleep(0.1)
+            result = subprocess.run(
+                ["git", "-C", str(bare), "log", "--oneline"],
+                capture_output=True,
+                text=True,
+            )
+            if "write: test.md" in result.stdout:
+                break
+        else:
+            pytest.fail("Deferred push did not fire within 3 seconds")
+
+        strategy.close()
+
+    def test_multiple_writes_single_push(
+        self, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """Multiple rapid writes result in a single deferred push."""
+        import subprocess
+
+        work, bare = git_repo_with_remote
+
+        strategy = GitWriteStrategy(token=None, push_delay_s=0.3)
+
+        for i in range(5):
+            md_file = work / f"note_{i}.md"
+            md_file.write_text(f"# Note {i}\n")
+            strategy(md_file, f"# Note {i}\n", "write")
+
+        # Not pushed yet.
+        result = subprocess.run(
+            ["git", "-C", str(bare), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "note_4.md" not in result.stdout
+
+        # Poll until push lands (max 3s).
+        for _ in range(30):
+            time.sleep(0.1)
+            result = subprocess.run(
+                ["git", "-C", str(bare), "log", "--oneline"],
+                capture_output=True,
+                text=True,
+            )
+            if "note_4.md" in result.stdout:
+                break
+        else:
+            pytest.fail("Deferred push did not fire within 3 seconds")
+
+        # All 5 commits pushed in a single push.
+        for i in range(5):
+            assert f"write: note_{i}.md" in result.stdout
+
+        strategy.close()
+
+    def test_push_with_token_to_bare_remote(
+        self, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """Push with token uses GIT_ASKPASS against a local bare remote."""
+        import subprocess
+
+        work, bare = git_repo_with_remote
+
+        strategy = GitWriteStrategy(token="dummy_token", push_delay_s=0)
+        md_file = work / "test.md"
+        md_file.write_text("# Test\n")
+        strategy(md_file, "# Test\n", "write")
+        strategy.flush()
+
         result = subprocess.run(
             ["git", "-C", str(bare), "log", "--oneline"],
             capture_output=True,
@@ -287,7 +480,6 @@ class TestGitWriteStrategy:
         import subprocess
         from unittest.mock import patch
 
-        # Capture every subprocess.run call and record the cmd args.
         recorded_cmds: list[list[str]] = []
         original_run = subprocess.run
 
@@ -295,7 +487,7 @@ class TestGitWriteStrategy:
             recorded_cmds.append(list(cmd))
             return original_run(cmd, **kwargs)
 
-        # Use git_repo-equivalent setup inline so we can patch subprocess.
+        # Set up repo with remote inline so we can patch subprocess.
         bare = tmp_path / "bare.git"
         bare.mkdir()
         subprocess.run(
@@ -332,19 +524,65 @@ class TestGitWriteStrategy:
         )
 
         secret_token = "super_secret_pat_xyz"
-        callback = git_write_strategy(token=secret_token)
+        strategy = GitWriteStrategy(token=secret_token, push_delay_s=0)
         md_file = work / "check.md"
         md_file.write_text("# Check\n")
 
         with patch("markdown_vault_mcp.git.subprocess.run", side_effect=recording_run):
-            callback(md_file, "# Check\n", "write")
+            strategy(md_file, "# Check\n", "write")
+            strategy.flush()
 
-        # Verify the token never appeared in any command argument.
         for cmd in recorded_cmds:
             for arg in cmd:
                 assert secret_token not in arg, (
                     f"Token found in command argument: {cmd!r}"
                 )
+
+    def test_startup_recovery_pushes_unpushed(
+        self, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """On first invocation, unpushed local commits are pushed."""
+        import subprocess
+
+        work, bare = git_repo_with_remote
+
+        # Create a local commit without pushing.
+        md_file = work / "local_only.md"
+        md_file.write_text("# Local\n")
+        subprocess.run(
+            ["git", "-C", str(work), "add", "--", str(md_file)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "commit", "-m", "local only"],
+            check=True,
+            capture_output=True,
+        )
+
+        # Verify not on remote.
+        result = subprocess.run(
+            ["git", "-C", str(bare), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "local only" not in result.stdout
+
+        # Create strategy and trigger first invocation.
+        strategy = GitWriteStrategy(token=None, push_delay_s=0)
+        md_file2 = work / "trigger.md"
+        md_file2.write_text("# Trigger\n")
+        strategy(md_file2, "# Trigger\n", "write")
+        strategy.flush()
+
+        # Both the old unpushed commit and the new one should be on remote.
+        result = subprocess.run(
+            ["git", "-C", str(bare), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+        )
+        assert "local only" in result.stdout
+        assert "write: trigger.md" in result.stdout
 
 
 class TestConfigIntegration:
@@ -362,7 +600,7 @@ class TestConfigIntegration:
         )
         kwargs = config.to_collection_kwargs()
         assert "on_write" in kwargs
-        assert kwargs["on_write"] is not None
+        assert isinstance(kwargs["on_write"], GitWriteStrategy)
 
     def test_no_git_token_no_callback(self, tmp_path: Path) -> None:
         """to_collection_kwargs() omits on_write when git_token is None."""
@@ -374,3 +612,67 @@ class TestConfigIntegration:
         )
         kwargs = config.to_collection_kwargs()
         assert "on_write" not in kwargs
+
+    def test_push_delay_passed_to_strategy(self, tmp_path: Path) -> None:
+        """to_collection_kwargs() passes git_push_delay_s to strategy."""
+        from markdown_vault_mcp.config import CollectionConfig
+
+        config = CollectionConfig(
+            source_dir=tmp_path,
+            read_only=False,
+            git_token="ghp_test",
+            git_push_delay_s=60.0,
+        )
+        kwargs = config.to_collection_kwargs()
+        strategy = kwargs["on_write"]
+        assert isinstance(strategy, GitWriteStrategy)
+        assert strategy._push_delay_s == 60.0
+
+    def test_load_config_reads_push_delay(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() reads GIT_PUSH_DELAY_S from environment."""
+        from markdown_vault_mcp.config import load_config
+
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(tmp_path))
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S", "45")
+        config = load_config()
+        assert config.git_push_delay_s == 45.0
+
+    def test_load_config_invalid_push_delay_uses_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() falls back to default on invalid GIT_PUSH_DELAY_S."""
+        from markdown_vault_mcp.config import load_config
+
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(tmp_path))
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S", "not_a_number")
+        config = load_config()
+        assert config.git_push_delay_s == 30.0
+
+
+class TestCollectionCloseWiresStrategy:
+    def test_collection_close_calls_strategy_close(self, tmp_path: Path) -> None:
+        """Collection.close() calls on_write.close() if available."""
+        from markdown_vault_mcp.collection import Collection
+
+        closed = []
+
+        class MockStrategy:
+            def __call__(self, path, content, operation):  # type: ignore[no-untyped-def]
+                pass
+
+            def close(self) -> None:
+                closed.append(True)
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "test.md").write_text("# Test\n")
+        col = Collection(
+            source_dir=vault,
+            read_only=False,
+            on_write=MockStrategy(),  # type: ignore[arg-type]
+        )
+        col.close()
+
+        assert closed == [True]
