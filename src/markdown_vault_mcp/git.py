@@ -102,11 +102,14 @@ class GitWriteStrategy:
         if self._closed:
             return
 
+        did_init = False
         if not self._checked:
             with self._lock:
                 if not self._checked:
                     self._git_root = _find_git_root(path)
                     self._checked = True
+                    did_init = True
+        if did_init:
             if self._git_root is None:
                 logger.warning(
                     "No git repository found for %s; git operations disabled",
@@ -170,7 +173,13 @@ class GitWriteStrategy:
             logger.error("Git push failed", exc_info=True)
 
     def _do_push(self) -> None:
-        """Execute git push and clear pending flag."""
+        """Execute git push and clear pending flag.
+
+        Note: ``_push_pending`` is cleared *before* calling ``_push()``.
+        If the push fails, commits are not automatically retried — they
+        will be pushed on the next write (which resets ``_push_pending``)
+        or on the next startup via ``_push_if_unpushed()``.
+        """
         with self._lock:
             if not self._push_pending or self._git_root is None:
                 return
