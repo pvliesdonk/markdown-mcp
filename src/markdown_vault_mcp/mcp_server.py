@@ -101,6 +101,13 @@ def _get_collection() -> Collection:
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_INSTRUCTIONS = (
+    "A markdown collection server with full-text and semantic search. "
+    "Use 'search' to find documents, 'read' to get full content, "
+    "'list_documents' to browse, and metadata tools for collection info."
+)
+
+
 def create_server() -> FastMCP:
     """Create and configure the FastMCP server.
 
@@ -108,16 +115,26 @@ def create_server() -> FastMCP:
     Tools are registered based on the ``MARKDOWN_VAULT_MCP_READ_ONLY`` setting:
     write tools are only registered when ``MARKDOWN_VAULT_MCP_READ_ONLY=false``.
 
+    Server identity is configurable via:
+
+    - ``MARKDOWN_VAULT_MCP_SERVER_NAME``: MCP server name shown to clients
+      (default ``"markdown-vault-mcp"``).
+    - ``MARKDOWN_VAULT_MCP_INSTRUCTIONS``: system-level instructions injected
+      into LLM context (default: generic collection description).
+
     Returns:
         A fully configured :class:`~fastmcp.FastMCP` instance ready to run.
     """
+    server_name = os.environ.get(
+        f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp"
+    )
+    instructions = os.environ.get(
+        f"{_ENV_PREFIX}_INSTRUCTIONS", _DEFAULT_INSTRUCTIONS
+    )
+
     mcp = FastMCP(
-        "markdown-vault-mcp",
-        instructions=(
-            "A markdown collection server with full-text and semantic search. "
-            "Use 'search' to find documents, 'read' to get full content, "
-            "'list_documents' to browse, and metadata tools for collection info."
-        ),
+        server_name,
+        instructions=instructions,
         lifespan=_collection_lifespan,
     )
 
