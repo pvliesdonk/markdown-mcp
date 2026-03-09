@@ -802,12 +802,21 @@ ifcraftcorpus).
 
 ### Write + Git Integration
 
-Two strategies supported via the `on_write` callback:
+Three strategies supported via the `on_write` callback:
 
 1. **No push (default)**: write to disk only. External process (cron, hook)
    handles `git add + commit + push`.
-2. **Git strategy**: auto-commit + push using `MARKDOWN_VAULT_MCP_GIT_TOKEN` or
-   `GITHUB_TOKEN`. Entire vault runs in-container.
+2. **Git strategy with deferred push**: `GitWriteStrategy` commits per-write
+   and defers push to a background timer (`MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S`,
+   default 30s). After the idle period elapses with no writes, all accumulated
+   local commits are pushed in a single `git push`. On shutdown,
+   `Collection.close()` flushes any pending push.
+3. **Git strategy with immediate push**: set `GIT_PUSH_DELAY_S=0` — push
+   only on `Collection.close()`, or use legacy `git_write_strategy()`.
+
+Startup recovery: `GitWriteStrategy` checks for unpushed local commits
+(`git log @{upstream}..HEAD`) on first invocation and pushes them before
+accepting new writes.
 
 For private repos (like `pvliesdonk/obsidian.md`), the git strategy needs
 credentials. Options: SSH key mount or PAT via env var.

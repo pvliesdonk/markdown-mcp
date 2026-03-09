@@ -9,7 +9,7 @@ from markdown_vault_mcp.exceptions import (
     MarkdownMCPError,
     ReadOnlyError,
 )
-from markdown_vault_mcp.git import git_write_strategy
+from markdown_vault_mcp.git import GitWriteStrategy, git_write_strategy
 from markdown_vault_mcp.types import (
     ChangeSet,
     Chunk,
@@ -40,6 +40,7 @@ __all__ = [
     "EditConflictError",
     "EditResult",
     "FTSResult",
+    "GitWriteStrategy",
     "IndexStats",
     "MarkdownMCPError",
     "NoteContent",
