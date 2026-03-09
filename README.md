@@ -28,7 +28,8 @@ With optional dependencies:
 ```bash
 pip install markdown-vault-mcp[mcp]           # FastMCP server
 pip install markdown-vault-mcp[embeddings-api] # Ollama/OpenAI embeddings via HTTP
-pip install markdown-vault-mcp[all]            # Everything
+pip install markdown-vault-mcp[all]            # MCP + API embeddings (lightweight)
+pip install markdown-vault-mcp[all-local]      # + sentence-transformers (large, GPU)
 ```
 
 ### From source

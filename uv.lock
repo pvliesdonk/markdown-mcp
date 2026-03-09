@@ -1048,7 +1048,7 @@ wheels = [
 
 [[package]]
 name = "markdown-vault-mcp"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "python-frontmatter" },
@@ -1056,6 +1056,12 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "fastmcp" },
+    { name = "httpx" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+all-local = [
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1087,11 +1093,14 @@ mcp = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", marker = "extra == 'all'", specifier = ">=2.5,<3" },
+    { name = "fastmcp", marker = "extra == 'all-local'", specifier = ">=2.5,<3" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.5,<3" },
     { name = "httpx", marker = "extra == 'all'", specifier = ">=0.25" },
+    { name = "httpx", marker = "extra == 'all-local'", specifier = ">=0.25" },
     { name = "httpx", marker = "extra == 'embeddings-api'", specifier = ">=0.25" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "numpy", marker = "extra == 'all'", specifier = ">=1.20" },
+    { name = "numpy", marker = "extra == 'all-local'", specifier = ">=1.20" },
     { name = "numpy", marker = "extra == 'embeddings'", specifier = ">=1.20" },
     { name = "numpy", marker = "extra == 'embeddings-api'", specifier = ">=1.20" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0" },
@@ -1100,10 +1109,10 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "python-frontmatter", specifier = ">=1.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1" },
-    { name = "sentence-transformers", marker = "extra == 'all'", specifier = ">=2.0" },
+    { name = "sentence-transformers", marker = "extra == 'all-local'", specifier = ">=2.0" },
     { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=2.0" },
 ]
-provides-extras = ["mcp", "embeddings-api", "embeddings", "all", "dev"]
+provides-extras = ["mcp", "embeddings-api", "embeddings", "all", "all-local", "dev"]
 
 [[package]]
 name = "markupsafe"
