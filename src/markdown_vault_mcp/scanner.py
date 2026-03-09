@@ -324,9 +324,7 @@ def scan_directory(
             logger.warning("Skipping %s: I/O error (%s)", abs_path, exc)
             continue
         except Exception as exc:
-            logger.warning(
-                "Skipping %s: parse error (%s)", abs_path, exc, exc_info=True
-            )
+            logger.warning("Skipping %s: parse error (%s)", abs_path, exc)
             continue
 
         # Apply required_frontmatter filter.
