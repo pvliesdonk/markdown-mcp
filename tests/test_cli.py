@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from markdown_vault_mcp.cli import _build_parser, _cmd_serve, main
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestBuildParser:
@@ -322,6 +326,160 @@ class TestCmdSearch:
         mock_collection.search.assert_called_once_with(
             "query", limit=5, mode="semantic", folder="Journal"
         )
+
+
+class TestCmdServeEdgeCases:
+    """Edge-case branches in _cmd_serve."""
+
+    def test_import_error_exits_with_1(self) -> None:
+        """_cmd_serve calls sys.exit(1) when FastMCP import fails."""
+        import sys
+
+        args = _build_parser().parse_args(["serve"])
+
+        with (
+            patch.dict(sys.modules, {"markdown_vault_mcp.mcp_server": None}),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            _cmd_serve(args)
+
+        assert exc_info.value.code == 1
+
+    def test_non_http_transport_with_custom_host_port_logs_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """--host/--port with non-http transport logs a warning."""
+        import logging
+
+        mock_server = MagicMock()
+
+        args = _build_parser().parse_args(
+            ["serve", "--transport", "stdio", "--host", "127.0.0.1", "--port", "9999"]
+        )
+
+        with (
+            patch(
+                "markdown_vault_mcp.mcp_server.create_server", return_value=mock_server
+            ),
+            caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.cli"),
+        ):
+            _cmd_serve(args)
+
+        assert any(
+            "--host" in r.message or "--port" in r.message
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+        )
+        mock_server.run.assert_called_once_with(transport="stdio")
+
+
+class TestBuildCollectionEmbeddingFailure:
+    """Graceful degradation when the embedding provider fails to load."""
+
+    def test_embedding_provider_failure_returns_collection(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Collection is still returned even when get_embedding_provider raises."""
+        import logging
+
+        from markdown_vault_mcp.cli import _build_collection
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault))
+        # Set an embeddings_path so the try-block is entered.
+        monkeypatch.setenv(
+            "MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH", str(tmp_path / "vecs.npy")
+        )
+
+        args = _build_parser().parse_args(["index"])
+
+        with (
+            patch(
+                "markdown_vault_mcp.providers.get_embedding_provider",
+                side_effect=RuntimeError("no sentence-transformers"),
+            ),
+            caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.cli"),
+        ):
+            collection = _build_collection(args)
+
+        # Collection is returned despite the provider failure.
+        from markdown_vault_mcp.collection import Collection
+
+        assert isinstance(collection, Collection)
+        assert any("semantic search disabled" in r.message for r in caplog.records)
+
+
+class TestCmdSearchJsonOutput:
+    """Verify --json flag in _cmd_search produces valid parseable output."""
+
+    @patch("markdown_vault_mcp.cli._build_collection")
+    def test_json_flag_produces_valid_json(
+        self,
+        mock_build: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """_cmd_search with --json outputs a valid JSON array."""
+        from markdown_vault_mcp.types import SearchResult
+
+        results = [
+            SearchResult(
+                path="notes/alpha.md",
+                title="Alpha",
+                folder="notes",
+                heading=None,
+                content="some text",
+                score=0.75,
+                search_type="keyword",
+                frontmatter={},
+            ),
+            SearchResult(
+                path="notes/beta.md",
+                title="Beta",
+                folder="notes",
+                heading="Section",
+                content="more text",
+                score=0.55,
+                search_type="keyword",
+                frontmatter={"tag": "x"},
+            ),
+        ]
+        mock_collection = MagicMock()
+        mock_collection.search.return_value = results
+        mock_build.return_value = mock_collection
+
+        with patch("sys.argv", ["markdown-vault-mcp", "search", "alpha", "--json"]):
+            main()
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert isinstance(data, list)
+        assert len(data) == 2
+        assert data[0]["path"] == "notes/alpha.md"
+        assert data[0]["score"] == 0.75
+        assert data[1]["path"] == "notes/beta.md"
+
+    @patch("markdown_vault_mcp.cli._build_collection")
+    def test_json_flag_empty_results(
+        self,
+        mock_build: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """_cmd_search with --json and no results outputs an empty JSON array."""
+        mock_collection = MagicMock()
+        mock_collection.search.return_value = []
+        mock_build.return_value = mock_collection
+
+        with patch("sys.argv", ["markdown-vault-mcp", "search", "nothing", "--json"]):
+            main()
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data == []
 
 
 class TestCmdReindex:

@@ -404,3 +404,108 @@ def test_parse_note_path_relative_to_source_dir(fixtures_path: Path) -> None:
 
     assert not Path(note.path).is_absolute()
     assert note.path == "subfolder/nested.md"
+
+
+# ---------------------------------------------------------------------------
+# HeadingChunker preamble (content before first heading)
+# ---------------------------------------------------------------------------
+
+
+class TestHeadingChunkerPreamble:
+    def test_preamble_before_first_heading_is_its_own_chunk(
+        self, tmp_path: Path
+    ) -> None:
+        """Text before the first H1/H2 becomes a preamble chunk with heading=None."""
+        # Build a document long enough to avoid the short-doc bypass (>30 lines).
+        intro_lines = ["Introductory text — no heading yet.\n"] * 5
+        padding = [f"More intro line {i}.\n" for i in range(30)]
+        heading_section = [
+            "# First Section\n",
+            "Section body content.\n",
+            "More section content.\n",
+        ]
+        content = "".join(intro_lines + padding + heading_section)
+
+        doc = tmp_path / "with_preamble.md"
+        doc.write_text(content, encoding="utf-8")
+
+        chunker = HeadingChunker(short_doc_lines=0)
+        note = parse_note(doc, tmp_path, chunker)
+
+        # There must be at least two chunks: a preamble and the first section.
+        assert len(note.chunks) >= 2
+
+        preamble = note.chunks[0]
+        assert preamble.heading is None
+        assert preamble.heading_level == 0
+        assert "Introductory text" in preamble.content
+
+        section = note.chunks[1]
+        assert section.heading == "First Section"
+        assert section.heading_level == 1
+
+    def test_no_preamble_when_heading_is_first_line(self, tmp_path: Path) -> None:
+        """When the document starts immediately with a heading, no preamble chunk."""
+        # 35+ lines starting directly with a heading.
+        lines = ["# Opening Heading\n"]
+        lines += [f"body line {i}\n" for i in range(35)]
+        content = "".join(lines)
+
+        doc = tmp_path / "heading_first.md"
+        doc.write_text(content, encoding="utf-8")
+
+        chunker = HeadingChunker(short_doc_lines=0)
+        note = parse_note(doc, tmp_path, chunker)
+
+        # All chunks must have a non-None heading (no preamble).
+        assert all(c.heading is not None for c in note.chunks)
+
+
+# ---------------------------------------------------------------------------
+# HeadingChunker empty section body skipped
+# ---------------------------------------------------------------------------
+
+
+class TestHeadingChunkerEmptySection:
+    def test_empty_body_section_not_in_chunks(self, tmp_path: Path) -> None:
+        """A heading immediately followed by the next heading (no body) is skipped."""
+        # Three headings; the first has no body content.
+        lines = ["# Ghost Heading\n"]  # line 0 — empty body
+        lines += ["## Real Section\n"]  # line 1
+        lines += [f"Real content line {i}.\n" for i in range(35)]
+
+        content = "".join(lines)
+        doc = tmp_path / "empty_section.md"
+        doc.write_text(content, encoding="utf-8")
+
+        chunker = HeadingChunker(short_doc_lines=0)
+        note = parse_note(doc, tmp_path, chunker)
+
+        headings = [c.heading for c in note.chunks]
+        # "Ghost Heading" had no body — it must not appear as a chunk.
+        assert "Ghost Heading" not in headings
+        # "Real Section" has body content — it must appear.
+        assert "Real Section" in headings
+
+    def test_multiple_consecutive_empty_sections_skipped(self, tmp_path: Path) -> None:
+        """Multiple consecutive heading-only sections are all skipped."""
+        lines = [
+            "# Empty A\n",
+            "# Empty B\n",
+            "# Empty C\n",
+            "## Content Section\n",
+        ]
+        lines += [f"content {i}\n" for i in range(35)]
+
+        content = "".join(lines)
+        doc = tmp_path / "multi_empty.md"
+        doc.write_text(content, encoding="utf-8")
+
+        chunker = HeadingChunker(short_doc_lines=0)
+        note = parse_note(doc, tmp_path, chunker)
+
+        headings = [c.heading for c in note.chunks]
+        assert "Empty A" not in headings
+        assert "Empty B" not in headings
+        assert "Empty C" not in headings
+        assert "Content Section" in headings

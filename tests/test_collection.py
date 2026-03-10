@@ -1407,3 +1407,809 @@ class TestStatsAttachmentExtensions:
         col.build_index()
         s = col.stats()
         assert s.attachment_extensions == ["*"]
+
+
+# ---------------------------------------------------------------------------
+# Semantic search
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def semantic_collection(
+    vault_path: Path,
+    tmp_path: Path,
+    mock_provider: MockEmbeddingProvider,
+) -> Collection:
+    """Collection with FTS index and vector embeddings fully built."""
+    col = Collection(
+        source_dir=vault_path,
+        embeddings_path=tmp_path / "embeddings",
+        embedding_provider=mock_provider,
+    )
+    col.build_index()
+    col.build_embeddings()
+    return col
+
+
+class TestSemanticSearch:
+    def test_semantic_search_returns_semantic_type(
+        self, semantic_collection: Collection
+    ) -> None:
+        """search(mode='semantic') returns results with search_type='semantic'."""
+        results = semantic_collection.search("document content", mode="semantic")
+
+        assert len(results) > 0
+        assert all(r.search_type == "semantic" for r in results)
+
+    def test_semantic_search_result_fields(
+        self, semantic_collection: Collection
+    ) -> None:
+        """Semantic search results carry path, title, score, and frontmatter fields."""
+        results = semantic_collection.search("document content", mode="semantic")
+
+        assert len(results) > 0
+        for r in results:
+            assert r.path
+            # Cosine similarity ranges from -1 to 1; just verify it is a float.
+            assert isinstance(r.score, float)
+            assert isinstance(r.frontmatter, dict)
+
+    def test_semantic_search_limit_respected(
+        self, semantic_collection: Collection
+    ) -> None:
+        """search(mode='semantic', limit=N) never returns more than N results."""
+        results = semantic_collection.search("content", mode="semantic", limit=2)
+
+        assert len(results) <= 2
+
+    def test_semantic_search_folder_filter(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """search(mode='semantic', folder='subfolder') returns only subfolder docs."""
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=tmp_path / "embeddings",
+            embedding_provider=mock_provider,
+        )
+        col.build_index()
+        col.build_embeddings()
+
+        results = col.search("document content", mode="semantic", folder="subfolder")
+
+        # All results must be in the requested folder or a sub-folder of it.
+        assert len(results) > 0, "Expected at least one result in subfolder"
+        for r in results:
+            assert r.folder == "subfolder" or r.folder.startswith("subfolder/")
+
+    def test_semantic_search_tag_filter(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """search(mode='semantic', filters={...}) filters by frontmatter value."""
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=tmp_path / "embeddings",
+            embedding_provider=mock_provider,
+            indexed_frontmatter_fields=["cluster"],
+        )
+        col.build_index()
+        col.build_embeddings()
+
+        # full_frontmatter.md has cluster=fiction; all results must match.
+        results = col.search(
+            "document", mode="semantic", filters={"cluster": "fiction"}, limit=10
+        )
+
+        assert len(results) > 0, "Expected at least one result with cluster=fiction"
+        for r in results:
+            assert r.frontmatter.get("cluster") == "fiction"
+
+    def test_semantic_search_no_provider_raises(self, vault_path: Path) -> None:
+        """search(mode='semantic') raises ValueError when provider is not configured."""
+        col = _make_collection(vault_path)
+        col.build_index()
+
+        with pytest.raises(ValueError, match="embedding_provider"):
+            col.search("query", mode="semantic")
+
+    def test_load_vectors_creates_empty_when_no_npy(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """_load_vectors() creates an empty VectorIndex when no .npy file exists."""
+        embeddings_path = tmp_path / "embeddings"
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col.build_index()
+
+        # Confirm no .npy file exists before loading.
+        assert not (tmp_path / "embeddings.npy").exists()
+
+        vectors = col._load_vectors()
+
+        assert vectors is not None
+        assert vectors.count == 0
+
+    def test_load_vectors_loads_from_disk(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """_load_vectors() loads persisted embeddings when .npy file exists."""
+        embeddings_path = tmp_path / "embeddings"
+
+        # Build and persist the vector index.
+        col1 = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col1.build_index()
+        chunk_count = col1.build_embeddings()
+        assert chunk_count > 0
+
+        # Create a fresh collection pointing at the same paths — vectors not yet loaded.
+        col2 = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col2.build_index()
+        assert col2._vectors is None  # not yet loaded
+
+        vectors = col2._load_vectors()
+
+        assert vectors.count == chunk_count
+
+    def test_require_vectors_raises_when_unconfigured(self, vault_path: Path) -> None:
+        """_require_vectors() raises ValueError when provider/path are absent."""
+        col = _make_collection(vault_path)
+
+        with pytest.raises(ValueError, match="embedding_provider"):
+            col._require_vectors()
+
+
+# ---------------------------------------------------------------------------
+# Hybrid search
+# ---------------------------------------------------------------------------
+
+
+class TestHybridSearch:
+    def test_hybrid_search_returns_results(
+        self, semantic_collection: Collection
+    ) -> None:
+        """search(mode='hybrid') returns at least one result."""
+        results = semantic_collection.search("document content", mode="hybrid")
+
+        assert len(results) > 0
+
+    def test_hybrid_search_search_type_varies(
+        self, semantic_collection: Collection
+    ) -> None:
+        """Hybrid results can carry 'keyword' or 'semantic' search_type."""
+        results = semantic_collection.search("document content", mode="hybrid", limit=9)
+
+        types = {r.search_type for r in results}
+        # With 9 docs and a broad query, at least one type should appear.
+        assert types.issubset({"keyword", "semantic"})
+        assert len(types) >= 1
+
+    def test_hybrid_search_folder_filter(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """search(mode='hybrid', folder='subfolder') confines results to that folder."""
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=tmp_path / "embeddings",
+            embedding_provider=mock_provider,
+        )
+        col.build_index()
+        col.build_embeddings()
+
+        results = col.search("nested document", mode="hybrid", folder="subfolder")
+
+        assert len(results) > 0, "Expected at least one result in subfolder"
+        for r in results:
+            assert r.folder == "subfolder" or r.folder.startswith("subfolder/")
+
+    def test_hybrid_search_tag_filter(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """search(mode='hybrid', filters={...}) filters semantic candidates by tag."""
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=tmp_path / "embeddings",
+            embedding_provider=mock_provider,
+            indexed_frontmatter_fields=["cluster"],
+        )
+        col.build_index()
+        col.build_embeddings()
+
+        results = col.search(
+            "document", mode="hybrid", filters={"cluster": "fiction"}, limit=10
+        )
+
+        # All results (keyword and semantic) must have the correct tag.
+        # MockEmbeddingProvider uses hash-based vectors so semantic results
+        # may not include the cluster=fiction doc; keyword results are reliable.
+        assert len(results) > 0, "Expected at least one result with cluster=fiction"
+        for r in results:
+            assert r.frontmatter.get("cluster") == "fiction"
+
+    def test_hybrid_rrf_boost_for_dual_match(
+        self,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """A doc appearing in both keyword and semantic results has a higher RRF score.
+
+        Strategy: build a vault with two documents.  Make one uniquely relevant
+        to keyword search (exact term match).  Both appear in semantic search.
+        The keyword-only match and the dual-match document's RRF scores are compared.
+        """
+        vault = tmp_path / "rrf_vault"
+        vault.mkdir()
+        # doc_a appears in both FTS (exact match) and semantic results.
+        (vault / "doc_a.md").write_text(
+            "# Zymurgy Note\n\nZymurgy is the study of fermentation.\n"
+        )
+        # doc_b appears only in semantic (no keyword match for 'zymurgy').
+        (vault / "doc_b.md").write_text(
+            "# Brewing Science\n\nBeer and fermentation science overview.\n"
+        )
+        embeddings_path = tmp_path / "rrf_emb"
+        col = Collection(
+            source_dir=vault,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col.build_index()
+        col.build_embeddings()
+
+        results = col.search("zymurgy", mode="hybrid", limit=10)
+
+        by_path = {r.path: r for r in results}
+        # doc_a matched FTS (rank ~1) and semantic — should appear with a score.
+        assert "doc_a.md" in by_path
+        doc_a_score = by_path["doc_a.md"].score
+        # If doc_b also appears, doc_a (dual match) must outscore doc_b (single match).
+        if "doc_b.md" in by_path:
+            assert doc_a_score >= by_path["doc_b.md"].score
+
+    def test_hybrid_search_no_embeddings_raises(self, vault_path: Path) -> None:
+        """search(mode='hybrid') raises ValueError without a configured provider."""
+        col = _make_collection(vault_path)
+        col.build_index()
+
+        with pytest.raises(ValueError, match="embedding_provider"):
+            col.search("query", mode="hybrid")
+
+
+# ---------------------------------------------------------------------------
+# embeddings_status()
+# ---------------------------------------------------------------------------
+
+
+class TestEmbeddingsStatus:
+    def test_status_unavailable_when_no_provider(self, vault_path: Path) -> None:
+        """embeddings_status() returns available=False when no provider is set."""
+        col = _make_collection(vault_path)
+        col.build_index()
+
+        status = col.embeddings_status()
+
+        assert status["available"] is False
+        assert status["provider"] is None
+        assert status["chunk_count"] == 0
+        assert status["path"] is None
+
+    def test_status_available_with_provider_before_build(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """embeddings_status() returns available=True with chunk_count=0 before build."""
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=tmp_path / "embeddings",
+            embedding_provider=mock_provider,
+        )
+        col.build_index()
+
+        status = col.embeddings_status()
+
+        assert status["available"] is True
+        assert status["chunk_count"] == 0
+        assert "MockEmbeddingProvider" in status["provider"]
+
+    def test_status_chunk_count_after_build(
+        self, semantic_collection: Collection
+    ) -> None:
+        """embeddings_status() returns correct chunk_count after build_embeddings()."""
+        status = semantic_collection.embeddings_status()
+
+        assert status["available"] is True
+        # 9 documents, each one chunk — chunk_count must match.
+        assert status["chunk_count"] == 9
+
+    def test_status_reads_json_when_vectors_not_loaded(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """embeddings_status() reads chunk_count from JSON metadata without loading matrix.
+
+        Builds embeddings with col1, then creates fresh col2 pointing at the same
+        path.  col2 has never called _load_vectors(), so _vectors is None.
+        embeddings_status() must still return the correct count from the .json sidecar.
+        """
+        embeddings_path = tmp_path / "embeddings"
+
+        col1 = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col1.build_index()
+        chunk_count = col1.build_embeddings()
+        assert chunk_count > 0
+
+        col2 = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col2.build_index()
+        # Confirm vectors have NOT been loaded in-memory.
+        assert col2._vectors is None
+
+        status = col2.embeddings_status()
+
+        assert status["available"] is True
+        assert status["chunk_count"] == chunk_count
+
+
+# ---------------------------------------------------------------------------
+# build_embeddings() skip / force paths
+# ---------------------------------------------------------------------------
+
+
+class TestBuildEmbeddings:
+    def test_build_embeddings_skip_when_already_built(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """build_embeddings(force=False) skips rebuild when index already has chunks.
+
+        The first call embeds 9 chunks and saves to disk.  The second call (no
+        force) must return the same count without re-embedding.
+        """
+        embeddings_path = tmp_path / "embeddings"
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col.build_index()
+        count1 = col.build_embeddings()
+        assert count1 == 9
+
+        # Track embed calls to prove no re-embedding happens.
+        original_embed = mock_provider.embed
+        embed_calls: list = []
+
+        def tracking_embed(texts):
+            embed_calls.append(texts)
+            return original_embed(texts)
+
+        mock_provider.embed = tracking_embed  # type: ignore[method-assign]
+
+        count2 = col.build_embeddings(force=False)
+
+        # No new embedding calls; same count returned.
+        assert embed_calls == []
+        assert count2 == count1
+
+    def test_build_embeddings_force_rebuilds(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """build_embeddings(force=True) re-embeds even when index exists."""
+        embeddings_path = tmp_path / "embeddings"
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col.build_index()
+        col.build_embeddings()
+
+        original_embed = mock_provider.embed
+        embed_calls: list = []
+
+        def tracking_embed(texts):
+            embed_calls.append(texts)
+            return original_embed(texts)
+
+        mock_provider.embed = tracking_embed  # type: ignore[method-assign]
+
+        count = col.build_embeddings(force=True)
+
+        # Re-embedding must have occurred.
+        assert len(embed_calls) > 0
+        assert count == 9
+
+
+# ---------------------------------------------------------------------------
+# build_index() second-call no-op
+# ---------------------------------------------------------------------------
+
+
+class TestBuildIndexNoOp:
+    def test_second_build_index_is_noop(self, vault_path: Path) -> None:
+        """build_index() a second time (no force) returns existing stats without re-scanning.
+
+        The IndexStats returned on the second call must reflect the existing
+        document count (9) while chunks_indexed=0 (no new scanning performed).
+        """
+        col = _make_collection(vault_path)
+        col.build_index()
+
+        # Intercept scan_directory to confirm it is NOT called again.
+        import markdown_vault_mcp.collection as col_mod
+
+        original_scan = col_mod.scan_directory
+        scan_calls: list = []
+
+        def tracking_scan(*args, **kwargs):
+            scan_calls.append(args)
+            return original_scan(*args, **kwargs)
+
+        with patch.object(col_mod, "scan_directory", side_effect=tracking_scan):
+            stats2 = col.build_index()
+
+        # scan_directory must not have been invoked on the second call.
+        assert scan_calls == []
+        # Returned stats reflect the existing index content.
+        assert stats2.documents_indexed == 9
+        assert stats2.chunks_indexed == 0
+
+
+# ---------------------------------------------------------------------------
+# reindex() with vectors active
+# ---------------------------------------------------------------------------
+
+
+class TestReindexWithVectors:
+    @pytest.fixture
+    def writable_semantic(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> Collection:
+        """Writable collection with vectors loaded in memory."""
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=tmp_path / "embeddings",
+            embedding_provider=mock_provider,
+            state_path=tmp_path / "state.json",
+            read_only=False,
+        )
+        col.build_index()
+        col.build_embeddings()
+        # Trigger vector load so _vectors is not None.
+        col._load_vectors()
+        return col
+
+    def test_reindex_adds_vector_entries_for_new_files(
+        self,
+        writable_semantic: Collection,
+        vault_path: Path,
+    ) -> None:
+        """reindex() embeds newly added files when the vector index is loaded."""
+        before_count = writable_semantic._vectors.count  # type: ignore[union-attr]
+
+        (vault_path / "brand_new.md").write_text(
+            "# Brand New Note\n\nFresh content for reindex test.\n"
+        )
+        writable_semantic.reindex()
+
+        after_count = writable_semantic._vectors.count  # type: ignore[union-attr]
+        assert after_count == before_count + 1
+
+        # The new file must be findable via semantic search.
+        results = writable_semantic.search("fresh content", mode="semantic")
+        paths = [r.path for r in results]
+        assert "brand_new.md" in paths
+
+    def test_reindex_removes_vector_entries_for_deleted_files(
+        self,
+        writable_semantic: Collection,
+        vault_path: Path,
+    ) -> None:
+        """reindex() removes deleted files from the vector index."""
+        before_count = writable_semantic._vectors.count  # type: ignore[union-attr]
+
+        (vault_path / "simple.md").unlink()
+        writable_semantic.reindex()
+
+        after_count = writable_semantic._vectors.count  # type: ignore[union-attr]
+        assert after_count == before_count - 1
+
+        # Deleted file must not appear in semantic search results.
+        results = writable_semantic.search("simple document", mode="semantic")
+        paths = [r.path for r in results]
+        assert "simple.md" not in paths
+
+    def test_reindex_updates_vector_entries_for_modified_files(
+        self,
+        writable_semantic: Collection,
+        vault_path: Path,
+    ) -> None:
+        """reindex() re-embeds modified files so updated content is searchable."""
+        # simple.md contains "Simple Document"; replace with unique token.
+        (vault_path / "simple.md").write_text(
+            "# QuantumXyloscopeModified\n\nUnique modified content.\n"
+        )
+        writable_semantic.reindex()
+
+        # Updated content must be findable by the new unique term.
+        results = writable_semantic.search("QuantumXyloscopeModified", mode="semantic")
+        paths = [r.path for r in results]
+        assert "simple.md" in paths
+
+
+# ---------------------------------------------------------------------------
+# Gap coverage: _resolve_chunk_strategy
+# ---------------------------------------------------------------------------
+
+
+class TestResolveChunkStrategy:
+    def test_whole_returns_whole_document_chunker(self) -> None:
+        """_resolve_chunk_strategy('whole') returns a WholeDocumentChunker."""
+        from markdown_vault_mcp.collection import _resolve_chunk_strategy
+        from markdown_vault_mcp.scanner import WholeDocumentChunker
+
+        result = _resolve_chunk_strategy("whole")
+        assert isinstance(result, WholeDocumentChunker)
+
+    def test_heading_returns_heading_chunker(self) -> None:
+        """_resolve_chunk_strategy('heading') returns a HeadingChunker."""
+        from markdown_vault_mcp.collection import _resolve_chunk_strategy
+        from markdown_vault_mcp.scanner import HeadingChunker
+
+        result = _resolve_chunk_strategy("heading")
+        assert isinstance(result, HeadingChunker)
+
+    def test_unknown_string_raises_value_error(self) -> None:
+        """_resolve_chunk_strategy raises ValueError for unrecognised string."""
+        from markdown_vault_mcp.collection import _resolve_chunk_strategy
+
+        with pytest.raises(ValueError, match="Unknown chunk_strategy"):
+            _resolve_chunk_strategy("paragraph")
+
+    def test_strategy_instance_passes_through(self) -> None:
+        """_resolve_chunk_strategy passes a ChunkStrategy instance through unchanged."""
+        from markdown_vault_mcp.collection import _resolve_chunk_strategy
+        from markdown_vault_mcp.scanner import WholeDocumentChunker
+
+        strategy = WholeDocumentChunker()
+        result = _resolve_chunk_strategy(strategy)
+        assert result is strategy
+
+
+# ---------------------------------------------------------------------------
+# Gap coverage: _fts_row_to_note_info malformed JSON
+# ---------------------------------------------------------------------------
+
+
+class TestFtsRowToNoteInfoMalformedJson:
+    def test_invalid_frontmatter_json_returns_empty_dict(self) -> None:
+        """_fts_row_to_note_info with invalid JSON returns NoteInfo with empty frontmatter."""
+        from markdown_vault_mcp.collection import _fts_row_to_note_info
+
+        row = {
+            "path": "x.md",
+            "title": "X",
+            "folder": "",
+            "frontmatter_json": "not-valid-json{{{",
+            "modified_at": 0.0,
+        }
+        result = _fts_row_to_note_info(row)
+
+        assert isinstance(result, NoteInfo)
+        assert result.frontmatter == {}
+        assert result.path == "x.md"
+
+    def test_none_frontmatter_json_returns_empty_dict(self) -> None:
+        """_fts_row_to_note_info with frontmatter_json=None returns empty frontmatter."""
+        from markdown_vault_mcp.collection import _fts_row_to_note_info
+
+        row = {
+            "path": "y.md",
+            "title": "Y",
+            "folder": "sub",
+            "frontmatter_json": None,
+            "modified_at": 1234567890.0,
+        }
+        result = _fts_row_to_note_info(row)
+
+        assert result.frontmatter == {}
+
+    def test_empty_string_frontmatter_json_returns_empty_dict(self) -> None:
+        """_fts_row_to_note_info with frontmatter_json='' returns empty frontmatter."""
+        from markdown_vault_mcp.collection import _fts_row_to_note_info
+
+        row = {
+            "path": "z.md",
+            "title": "Z",
+            "folder": "",
+            "frontmatter_json": "",
+            "modified_at": 0.0,
+        }
+        result = _fts_row_to_note_info(row)
+
+        assert result.frontmatter == {}
+
+
+# ---------------------------------------------------------------------------
+# Gap coverage: read() error paths
+# ---------------------------------------------------------------------------
+
+
+class TestReadErrorPaths:
+    def test_read_returns_none_for_path_traversal(self, collection: Collection) -> None:
+        """read() returns None for paths that escape the source directory."""
+        result = collection.read("../secret.md")
+        assert result is None
+
+    def test_read_returns_none_when_file_deleted_from_disk(
+        self, vault_path: Path
+    ) -> None:
+        """read() returns None when file exists in index but was deleted from disk."""
+        col = _make_collection(vault_path)
+        col.build_index()
+
+        # Confirm the file is readable before deleting it.
+        assert col.read("simple.md") is not None
+
+        # Delete the file directly from disk (bypassing the Collection API).
+        (vault_path / "simple.md").unlink()
+
+        # read() must return None — file no longer exists.
+        result = col.read("simple.md")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Gap coverage: search() on document with no frontmatter
+# ---------------------------------------------------------------------------
+
+
+class TestSearchNoFrontmatter:
+    def test_search_no_frontmatter_document_has_empty_frontmatter(
+        self, collection: Collection
+    ) -> None:
+        """search() on a document with no frontmatter returns result.frontmatter == {}."""
+        # no_frontmatter.md has no YAML header at all.
+        results = collection.search("plain markdown", mode="keyword")
+        no_fm_results = [r for r in results if r.path == "no_frontmatter.md"]
+
+        assert len(no_fm_results) >= 1
+        assert no_fm_results[0].frontmatter == {}
+
+
+# ---------------------------------------------------------------------------
+# Gap coverage: list() attachment edge cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def vault_with_root_attachment(vault_path: Path) -> Path:
+    """Vault with an attachment at the root level (no subdirectory)."""
+    (vault_path / "diagram.json").write_bytes(b'{"key": "value"}')
+    (vault_path / "notes").mkdir(exist_ok=True)
+    (vault_path / "notes" / "readme.txt").write_bytes(b"plain text file")
+    return vault_path
+
+
+class TestListAttachmentEdgeCases:
+    def test_list_attachment_in_vault_root_has_empty_folder(
+        self, vault_with_root_attachment: Path
+    ) -> None:
+        """Attachments at the vault root have folder='' (not '.' or '/')."""
+        col = Collection(source_dir=vault_with_root_attachment)
+        col.build_index()
+        results = col.list(include_attachments=True)
+
+        attachments = [r for r in results if isinstance(r, AttachmentInfo)]
+        root_json = next((a for a in attachments if a.path == "diagram.json"), None)
+        assert root_json is not None, "diagram.json not found in attachment listing"
+        assert root_json.folder == ""
+
+    def test_list_attachment_pattern_filters_by_extension(
+        self, vault_with_root_attachment: Path
+    ) -> None:
+        """list(include_attachments=True, pattern='*.json') returns only .json files."""
+        col = Collection(source_dir=vault_with_root_attachment)
+        col.build_index()
+        results = col.list(include_attachments=True, pattern="*.json")
+
+        attachment_paths = [r.path for r in results if isinstance(r, AttachmentInfo)]
+        assert all(p.endswith(".json") for p in attachment_paths)
+        # txt file must not appear
+        assert not any(p.endswith(".txt") for p in attachment_paths)
+
+    def test_list_attachment_folder_filter_excludes_other_folders(
+        self, vault_with_root_attachment: Path
+    ) -> None:
+        """list(include_attachments=True, folder='notes') only returns notes/ attachments."""
+        col = Collection(source_dir=vault_with_root_attachment)
+        col.build_index()
+        results = col.list(include_attachments=True, folder="notes")
+
+        for r in results:
+            assert r.folder == "notes" or r.folder.startswith("notes/")
+
+        # The root-level diagram.json must not appear.
+        paths = [r.path for r in results]
+        assert "diagram.json" not in paths
+
+
+# ---------------------------------------------------------------------------
+# Gap coverage: write_attachment() size limit
+# ---------------------------------------------------------------------------
+
+
+class TestWriteAttachmentSizeLimit:
+    def test_write_attachment_raises_when_content_exceeds_limit(
+        self, vault_path: Path
+    ) -> None:
+        """write_attachment() raises ValueError when content size exceeds the limit."""
+        col = Collection(
+            source_dir=vault_path,
+            read_only=False,
+            max_attachment_size_mb=0.000001,  # ~1 byte limit
+        )
+        with pytest.raises(ValueError, match="exceeds"):
+            col.write_attachment("assets/big.pdf", b"a" * 100)
+
+    def test_write_attachment_unlimited_when_max_is_zero(
+        self, vault_path: Path
+    ) -> None:
+        """write_attachment() with max_attachment_size_mb=0 accepts any size."""
+        col = Collection(
+            source_dir=vault_path,
+            read_only=False,
+            max_attachment_size_mb=0,
+        )
+        large_content = b"x" * (20 * 1024 * 1024)  # 20 MB
+        result = col.write_attachment("large_file.pdf", large_content)
+
+        assert isinstance(result, WriteResult)
+        assert result.path == "large_file.pdf"
+        assert (vault_path / "large_file.pdf").stat().st_size == len(large_content)
