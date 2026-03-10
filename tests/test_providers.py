@@ -190,6 +190,7 @@ class TestOllamaProvider:
     def test_missing_httpx_raises_import_error(self) -> None:
         """OllamaProvider raises ImportError with helpful message if httpx not found."""
         import builtins
+
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
@@ -355,6 +356,7 @@ class TestSentenceTransformersProvider:
     def test_missing_sentence_transformers_raises(self) -> None:
         """SentenceTransformersProvider raises ImportError if library not found."""
         import builtins
+
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
@@ -515,6 +517,7 @@ class TestGetEmbeddingProvider:
         probe_client.get.side_effect = ConnectionError("refused")
 
         import builtins
+
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
