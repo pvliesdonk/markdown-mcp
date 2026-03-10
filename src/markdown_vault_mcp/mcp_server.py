@@ -204,11 +204,8 @@ def create_server() -> FastMCP:
 
     auth = _build_oidc_auth()
     if auth is None:
-        logger.warning(
-            "OIDC auth not configured — server accepts unauthenticated connections. "
-            "Set MARKDOWN_VAULT_MCP_BASE_URL, MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL, "
-            "MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID, and MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET "
-            "to enable authentication."
+        logger.info(
+            "OIDC auth not configured — server accepts unauthenticated connections"
         )
     else:
         logger.info(
