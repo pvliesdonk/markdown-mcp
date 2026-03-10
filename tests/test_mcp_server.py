@@ -982,7 +982,9 @@ class TestMCPListDocumentsAttachments:
             )
         items = _parse_tool_data(result)
         kinds = {item.get("kind") for item in items}
-        # NoteInfo doesn't have kind by default — check we have at least one attachment
+        # All entries must carry a kind field
+        assert "note" in kinds
+        assert "attachment" in kinds
         paths = [item["path"] for item in items]
         assert any(p.endswith(".pdf") for p in paths)
         assert any(p.endswith(".png") for p in paths)

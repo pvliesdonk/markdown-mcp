@@ -346,10 +346,11 @@ def create_server() -> FastMCP:
                 Default False (notes only).
 
         Returns:
-            List of info dicts. For notes: path, title, folder, frontmatter,
-            modified_at, kind="note". For attachments (when
-            include_attachments=True): path, folder, mime_type, size_bytes,
-            modified_at, kind="attachment". Body content is not included.
+            List of info dicts. Every entry has a 'kind' field.
+            Notes: path, title, folder, frontmatter, modified_at, kind="note".
+            Attachments (when include_attachments=True): path, folder,
+            mime_type, size_bytes, modified_at, kind="attachment".
+            Body content is not included in either case.
         """
         collection = _get_collection()
         results = await asyncio.to_thread(
