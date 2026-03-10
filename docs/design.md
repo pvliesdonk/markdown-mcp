@@ -264,7 +264,7 @@ Two-layer model:
 | `EditConflictError` | `edit()` | `old_text` not found or appears more than once |
 | `DocumentExistsError` | `rename()` | `new_path` already exists |
 | `ValueError` | `build_embeddings()` | No `embedding_provider` or `embeddings_path` configured |
-| `ValueError` | `read()` | Path escapes `source_dir` (traversal attempt); file missing returns `None` |
+| `None` return | `read()` | Path escapes `source_dir` (traversal attempt) or file does not exist on disk |
 | `ValueError` | `edit()` | `old_text` is empty string |
 
 If a provider fails mid-`build_embeddings()`, the partial state is NOT saved;
@@ -406,9 +406,9 @@ class NoteInfo:
     path: str
     title: str
     folder: str
-    kind: str = "note"                # always "note" for markdown documents
     frontmatter: dict[str, Any]
     modified_at: float
+    kind: str = "note"                # always "note" for markdown documents
 
 @dataclass
 class WriteResult:
@@ -630,7 +630,9 @@ WriteCallback = Callable[[Path, str, Literal["write", "edit", "delete", "rename"
   - For `rename`: the **new** path (old path is gone).
   - For `delete`: the path before deletion (file no longer exists on disk).
 - `content`: updated file content as a string.
-  - For `delete` and `rename`: empty string `""` (content not meaningful).
+  - For `delete`: empty string `""` (file no longer exists).
+  - For `rename` of a note (`.md`): the full file content at the new path.
+  - For `rename` of an attachment: empty string `""` (binary content).
   - For `write` and `edit`: the new file content.
 - `operation`: the operation that triggered the callback.
 
