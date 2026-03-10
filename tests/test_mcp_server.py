@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from fastmcp import Client
 
-from markdown_vault_mcp.mcp_server import create_server
+from markdown_vault_mcp.mcp_server import _build_oidc_auth, create_server
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -588,3 +588,263 @@ class TestMCPExcludePatterns:
         assert "simple.md" in paths
         # Subfolder docs should be excluded.
         assert not any(p.startswith("subfolder/") for p in paths)
+
+
+# ---------------------------------------------------------------------------
+# OIDC auth configuration
+# ---------------------------------------------------------------------------
+
+_OIDC_VARS = (
+    "MARKDOWN_VAULT_MCP_BASE_URL",
+    "MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL",
+    "MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID",
+    "MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET",
+    "MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY",
+    "MARKDOWN_VAULT_MCP_OIDC_AUDIENCE",
+    "MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES",
+)
+
+_OIDC_REQUIRED = {
+    "MARKDOWN_VAULT_MCP_BASE_URL": "https://mcp.example.com",
+    "MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL": "https://auth.example.com/.well-known/openid-configuration",
+    "MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID": "test-client",
+    "MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET": "test-secret",
+}
+
+
+class TestBuildOidcAuth:
+    """Unit tests for _build_oidc_auth()."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_oidc_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ensure OIDC env vars are absent before each test."""
+        for var in _OIDC_VARS:
+            monkeypatch.delenv(var, raising=False)
+
+    def test_returns_none_when_no_vars_set(self) -> None:
+        assert _build_oidc_auth() is None
+
+    @pytest.mark.parametrize(
+        "missing_var",
+        [
+            "MARKDOWN_VAULT_MCP_BASE_URL",
+            "MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL",
+            "MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID",
+            "MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET",
+        ],
+    )
+    def test_returns_none_when_one_required_var_missing(
+        self, monkeypatch: pytest.MonkeyPatch, missing_var: str
+    ) -> None:
+        """Any one missing required var disables auth."""
+        for var, val in _OIDC_REQUIRED.items():
+            if var != missing_var:
+                monkeypatch.setenv(var, val)
+        assert _build_oidc_auth() is None
+
+    def test_returns_non_none_when_all_required_vars_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            result = _build_oidc_auth()
+
+        assert result is not None
+        mock_cls.assert_called_once()
+
+    def test_passes_required_kwargs_to_oidc_proxy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        kw = mock_cls.call_args.kwargs
+        assert kw["base_url"] == "https://mcp.example.com"
+        assert (
+            kw["config_url"]
+            == "https://auth.example.com/.well-known/openid-configuration"
+        )
+        assert kw["client_id"] == "test-client"
+        assert kw["client_secret"] == "test-secret"
+
+    def test_default_required_scopes_is_openid(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["required_scopes"] == ["openid"]
+
+    def test_empty_required_scopes_falls_back_to_openid(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Explicitly empty REQUIRED_SCOPES falls back to ['openid'], not []."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES", "")
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["required_scopes"] == ["openid"]
+
+    def test_custom_required_scopes_parsed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv(
+            "MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES", "openid, profile, email"
+        )
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["required_scopes"] == [
+            "openid",
+            "profile",
+            "email",
+        ]
+
+    def test_audience_forwarded_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OIDC_AUDIENCE", "my-api")
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["audience"] == "my-api"
+
+    def test_audience_is_none_when_not_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["audience"] is None
+
+    def test_jwt_signing_key_forwarded_when_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY", "deadbeef1234")
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["jwt_signing_key"] == "deadbeef1234"
+
+    def test_jwt_signing_key_is_none_when_not_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["jwt_signing_key"] is None
+
+    def test_linux_warning_when_jwt_key_absent(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with (
+            patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls),
+            patch("markdown_vault_mcp.mcp_server.sys") as mock_sys,
+        ):
+            mock_sys.platform = "linux"
+            _build_oidc_auth()
+
+        assert any(
+            "JWT_SIGNING_KEY" in r.message and r.levelname == "WARNING"
+            for r in caplog.records
+        )
+
+    def test_no_warning_when_jwt_key_present_on_linux(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY", "some-key")
+
+        mock_cls = MagicMock()
+        with (
+            patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls),
+            patch("markdown_vault_mcp.mcp_server.sys") as mock_sys,
+        ):
+            mock_sys.platform = "linux"
+            _build_oidc_auth()
+
+        assert not any(
+            "JWT_SIGNING_KEY" in r.message and r.levelname == "WARNING"
+            for r in caplog.records
+        )
+
+    def test_no_warning_on_non_linux_without_jwt_key(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with (
+            patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls),
+            patch("markdown_vault_mcp.mcp_server.sys") as mock_sys,
+        ):
+            mock_sys.platform = "darwin"
+            _build_oidc_auth()
+
+        assert not any(
+            "JWT_SIGNING_KEY" in r.message and r.levelname == "WARNING"
+            for r in caplog.records
+        )

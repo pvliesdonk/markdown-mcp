@@ -158,7 +158,9 @@ def _build_oidc_auth() -> Any:
     )
     audience = os.environ.get(f"{_ENV_PREFIX}_OIDC_AUDIENCE", "").strip() or None
     raw_scopes = os.environ.get(f"{_ENV_PREFIX}_OIDC_REQUIRED_SCOPES", "openid").strip()
-    required_scopes = [s.strip() for s in raw_scopes.split(",") if s.strip()]
+    required_scopes = [s.strip() for s in raw_scopes.split(",") if s.strip()] or [
+        "openid"
+    ]
 
     if jwt_signing_key is None and sys.platform.startswith("linux"):
         logger.warning(
@@ -208,10 +210,7 @@ def create_server() -> FastMCP:
             "OIDC auth not configured — server accepts unauthenticated connections"
         )
     else:
-        logger.info(
-            "OIDC auth enabled (config_url=%s)",
-            os.environ.get(f"{_ENV_PREFIX}_OIDC_CONFIG_URL", ""),
-        )
+        logger.info("OIDC auth enabled")
 
     mcp = FastMCP(
         server_name,
