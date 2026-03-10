@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import TYPE_CHECKING
+from unittest.mock import patch
+
+import pytest
 
 from markdown_vault_mcp.tracker import ChangeTracker
 from markdown_vault_mcp.types import Chunk, ParsedNote
@@ -206,6 +209,126 @@ class TestStateFileParentDirs:
         tracker.update_state([])
 
         assert deep_state.exists()
+
+
+class TestResetNoStateFile:
+    def test_reset_when_no_state_file_is_noop(self, tmp_path: Path) -> None:
+        """reset() on a fresh tracker (no state file) does not raise."""
+        state_path = tmp_path / "state.json"
+        tracker = ChangeTracker(state_path)
+
+        assert not state_path.exists()
+        tracker.reset()  # Must not raise.
+        assert not state_path.exists()
+
+    def test_reset_no_state_file_logs_debug(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """reset() logs a DEBUG message when the state file does not exist."""
+        import logging
+
+        state_path = tmp_path / "state.json"
+        tracker = ChangeTracker(state_path)
+
+        with caplog.at_level(logging.DEBUG, logger="markdown_vault_mcp.tracker"):
+            tracker.reset()
+
+        assert any(
+            "does not exist" in r.message or "nothing to delete" in r.message
+            for r in caplog.records
+            if r.levelno == logging.DEBUG
+        )
+
+
+class TestMalformedStateFile:
+    def test_json_array_treated_as_empty(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A state file containing a JSON array is treated as empty; all files added."""
+        import logging
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        _write_md(vault, "a.md")
+
+        state_path = tmp_path / "state.json"
+        state_path.write_text("[1, 2, 3]", encoding="utf-8")
+
+        tracker = ChangeTracker(state_path)
+
+        with caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.tracker"):
+            changes = tracker.detect_changes(vault)
+
+        # All files should be treated as added (not crash).
+        assert "a.md" in changes.added
+        assert any(
+            "malformed" in r.message
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+        )
+
+    def test_invalid_json_treated_as_empty(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A state file with invalid JSON is treated as empty; a WARNING is logged."""
+        import logging
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        _write_md(vault, "b.md")
+
+        state_path = tmp_path / "state.json"
+        state_path.write_text("not json{{{", encoding="utf-8")
+
+        tracker = ChangeTracker(state_path)
+
+        with caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.tracker"):
+            changes = tracker.detect_changes(vault)
+
+        assert "b.md" in changes.added
+        assert any("Cannot read state file" in r.message for r in caplog.records)
+
+    def test_oserror_on_state_read_treated_as_empty(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """OSError reading the state file falls back to empty; WARNING is logged."""
+        import logging
+        import stat
+
+        state_path = tmp_path / "state.json"
+        # Write a valid state file so _state_path.exists() returns True.
+        state_path.write_text("{}", encoding="utf-8")
+        # Remove read permission so open() raises OSError.
+        state_path.chmod(0o000)
+
+        tracker = ChangeTracker(state_path)
+        try:
+            with caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.tracker"):
+                result = tracker._load_state()
+        finally:
+            # Restore permissions so pytest can clean up tmp_path.
+            state_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+        assert result == {}
+        assert any("Cannot read state file" in r.message for r in caplog.records)
+
+
+class TestSaveStateFailure:
+    def test_save_state_cleans_up_tmp_file_on_failure(self, tmp_path: Path) -> None:
+        """When _save_state fails mid-write, no .tmp file is left behind."""
+
+        state_path = tmp_path / "state.json"
+        tracker = ChangeTracker(state_path)
+
+        with (
+            patch("json.dump", side_effect=RuntimeError("disk full")),
+            pytest.raises(RuntimeError, match="disk full"),
+        ):
+            tracker._save_state({"a.md": "abc123"})
+
+        # No leftover .tmp files.
+        leftover = list(tmp_path.glob("*.tmp"))
+        assert leftover == [], f"Leftover tmp files: {leftover}"
 
 
 class TestStateFileFormat:

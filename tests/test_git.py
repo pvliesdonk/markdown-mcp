@@ -760,6 +760,187 @@ class TestCheckIdentity:
         )
 
 
+class TestTokenRedactionInLogs:
+    """Token must never appear in log output — even when it leaks via stderr."""
+
+    def test_stage_and_commit_error_token_redacted(
+        self, git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """CalledProcessError in __call__ redacts token from logged stderr."""
+        import logging
+        import subprocess
+        from unittest.mock import patch
+
+        secret = "ghp_supersecret_token_xyz"
+        strategy = GitWriteStrategy(token=secret, push_delay_s=0)
+
+        # Force _git_root to the repo so we skip the init path.
+        strategy._git_root = git_repo
+        strategy._checked = True
+
+        fake_exc = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["git", "commit"],
+            stderr=f"remote: Invalid credentials {secret}",
+        )
+
+        with (
+            patch("markdown_vault_mcp.git._stage_and_commit", side_effect=fake_exc),
+            caplog.at_level(logging.ERROR, logger="markdown_vault_mcp.git"),
+        ):
+            test_file = git_repo / "note.md"
+            test_file.write_text("# Note\n")
+            strategy(test_file, "# Note\n", "write")
+
+        log_text = " ".join(r.message for r in caplog.records)
+        assert secret not in log_text
+        assert "***" in log_text
+
+    def test_do_push_safe_called_process_error_token_redacted(
+        self, git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_do_push_safe redacts token when push raises CalledProcessError."""
+        import logging
+        import subprocess
+        from unittest.mock import patch
+
+        secret = "ghp_push_secret_abc123"
+        strategy = GitWriteStrategy(token=secret, push_delay_s=0)
+        strategy._git_root = git_repo
+        strategy._push_pending = True
+
+        fake_exc = subprocess.CalledProcessError(
+            returncode=128,
+            cmd=["git", "push", "origin"],
+            stderr=f"fatal: authentication failed — token={secret}",
+        )
+
+        with (
+            patch("markdown_vault_mcp.git._push", side_effect=fake_exc),
+            caplog.at_level(logging.ERROR, logger="markdown_vault_mcp.git"),
+        ):
+            strategy._do_push_safe()
+
+        log_text = " ".join(r.message for r in caplog.records)
+        assert secret not in log_text
+        assert "***" in log_text
+
+    def test_do_push_safe_generic_exception_caught(
+        self, git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_do_push_safe catches generic Exception and logs it without propagating."""
+        import logging
+        from unittest.mock import patch
+
+        strategy = GitWriteStrategy(token=None, push_delay_s=0)
+        strategy._git_root = git_repo
+        strategy._push_pending = True
+
+        with (
+            patch(
+                "markdown_vault_mcp.git._push", side_effect=RuntimeError("network down")
+            ),
+            caplog.at_level(logging.ERROR, logger="markdown_vault_mcp.git"),
+        ):
+            # Must not raise.
+            strategy._do_push_safe()
+
+        assert any("Git push failed" in r.message for r in caplog.records)
+
+    def test_push_if_unpushed_token_redacted_on_failure(
+        self, git_repo_with_remote: tuple[Path, Path], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_push_if_unpushed redacts token in logged error when startup push fails."""
+        import logging
+        import subprocess
+        from unittest.mock import patch
+
+        work, _bare = git_repo_with_remote
+
+        # Create an unpushed local commit so _push_if_unpushed actually calls _push.
+        md_file = work / "unpushed.md"
+        md_file.write_text("# Unpushed\n")
+        subprocess.run(
+            ["git", "-C", str(work), "add", "--", str(md_file)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "commit", "-m", "unpushed"],
+            check=True,
+            capture_output=True,
+        )
+
+        secret = "ghp_startup_token_999"
+        strategy = GitWriteStrategy(token=secret, push_delay_s=0)
+        strategy._git_root = work
+
+        fake_exc = subprocess.CalledProcessError(
+            returncode=128,
+            cmd=["git", "push", "origin"],
+            stderr=f"remote: bad credentials {secret}",
+        )
+
+        with (
+            patch("markdown_vault_mcp.git._push", side_effect=fake_exc),
+            caplog.at_level(logging.ERROR, logger="markdown_vault_mcp.git"),
+        ):
+            strategy._push_if_unpushed()
+
+        log_text = " ".join(r.message for r in caplog.records)
+        assert secret not in log_text
+        assert "***" in log_text
+
+
+class TestStageAndCommitPathHandling:
+    """Edge cases in _stage_and_commit path handling."""
+
+    def test_path_not_under_git_root_uses_full_path(self, git_repo: Path) -> None:
+        """Commit message uses the full path when path is not under git_root."""
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from markdown_vault_mcp.git import _stage_and_commit
+
+        # Path outside the git_root — path.relative_to(git_root) will raise ValueError.
+        outside_path = Path("/tmp/some_other_file.md")
+
+        recorded_msgs: list[str] = []
+
+        def mock_run(cmd, **_kwargs):  # type: ignore[no-untyped-def]
+            if isinstance(cmd, list) and "commit" in cmd:
+                try:
+                    idx = cmd.index("-m")
+                    recorded_msgs.append(cmd[idx + 1])
+                except (ValueError, IndexError):
+                    pass
+                result = MagicMock()
+                result.returncode = 0
+                result.stdout = ""
+                result.stderr = ""
+                return result
+
+            if isinstance(cmd, list) and "diff" in cmd:
+                # Return nonzero so the commit is not skipped.
+                result = MagicMock()
+                result.returncode = 1
+                return result
+
+            # All other calls (git add) succeed silently.
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+
+        with patch("markdown_vault_mcp.git.subprocess.run", side_effect=mock_run):
+            _stage_and_commit(git_repo, outside_path, "write")
+
+        # The commit message must use the full outside_path (not a relative path).
+        assert len(recorded_msgs) == 1
+        assert str(outside_path) in recorded_msgs[0]
+
+
 class TestCommitterIdentityInCommit:
     """Tests that commit_name and commit_email appear in git commit commands."""
 
