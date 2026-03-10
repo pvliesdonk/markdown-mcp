@@ -77,6 +77,7 @@ class NoteInfo:
     folder: str
     frontmatter: dict[str, Any]
     modified_at: float
+    kind: str = "note"
 
 
 @dataclass
