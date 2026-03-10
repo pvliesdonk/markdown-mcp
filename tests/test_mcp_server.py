@@ -858,6 +858,7 @@ class TestBuildOidcAuth:
             for r in caplog.records
         )
 
+
 # ---------------------------------------------------------------------------
 # MCP attachment tool tests
 # ---------------------------------------------------------------------------
@@ -938,7 +939,9 @@ class TestMCPWriteAttachment:
         data = result.data
         assert data["path"] == "assets/new.pdf"
         assert data["created"] is True
-        assert (_mcp_env_writable_with_attachments / "assets" / "new.pdf").read_bytes() == raw
+        assert (
+            _mcp_env_writable_with_attachments / "assets" / "new.pdf"
+        ).read_bytes() == raw
 
     async def test_write_attachment_missing_base64_raises(
         self, _mcp_env_writable_with_attachments: Path

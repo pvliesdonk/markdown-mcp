@@ -1049,7 +1049,9 @@ def vault_with_attachment(vault_path: Path) -> Path:
     """Vault fixture with a sample PDF-like binary file."""
     (vault_path / "assets").mkdir()
     (vault_path / "assets" / "report.pdf").write_bytes(b"%PDF-1.4 fake content")
-    (vault_path / "assets" / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    (vault_path / "assets" / "image.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    )
     return vault_path
 
 
@@ -1068,7 +1070,9 @@ class TestReadAttachment:
         decoded = base64.b64decode(result.content_base64)
         assert decoded == b"%PDF-1.4 fake content"
 
-    def test_read_attachment_not_found_raises(self, vault_with_attachment: Path) -> None:
+    def test_read_attachment_not_found_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
         """read_attachment() raises ValueError for missing files."""
         col = Collection(source_dir=vault_with_attachment)
         with pytest.raises(ValueError, match="not found"):
@@ -1109,9 +1113,7 @@ class TestReadAttachment:
 
 
 class TestWriteAttachment:
-    def test_write_attachment_creates_file(
-        self, vault_with_attachment: Path
-    ) -> None:
+    def test_write_attachment_creates_file(self, vault_with_attachment: Path) -> None:
         """write_attachment() creates a new binary file on disk."""
         col = Collection(source_dir=vault_with_attachment, read_only=False)
         raw = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
@@ -1131,7 +1133,9 @@ class TestWriteAttachment:
         result = col.write_attachment("assets/report.pdf", new_content)
 
         assert result.created is False
-        assert (vault_with_attachment / "assets" / "report.pdf").read_bytes() == new_content
+        assert (
+            vault_with_attachment / "assets" / "report.pdf"
+        ).read_bytes() == new_content
 
     def test_write_attachment_creates_intermediate_dirs(
         self, vault_with_attachment: Path
@@ -1142,7 +1146,9 @@ class TestWriteAttachment:
 
         assert (vault_with_attachment / "deep" / "nested" / "file.pdf").is_file()
 
-    def test_write_attachment_readonly_raises(self, vault_with_attachment: Path) -> None:
+    def test_write_attachment_readonly_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
         """write_attachment() raises ReadOnlyError on a read-only collection."""
         col = Collection(source_dir=vault_with_attachment, read_only=True)
         with pytest.raises(ReadOnlyError):
@@ -1168,7 +1174,9 @@ class TestWriteAttachment:
         with pytest.raises(ValueError, match="allowlist"):
             col.write_attachment("file.xyz", b"content")
 
-    def test_write_attachment_triggers_callback(self, vault_with_attachment: Path) -> None:
+    def test_write_attachment_triggers_callback(
+        self, vault_with_attachment: Path
+    ) -> None:
         """write_attachment() invokes the on_write callback."""
         calls: list = []
         col = Collection(
@@ -1246,9 +1254,7 @@ class TestListWithAttachments:
     ) -> None:
         """attachment_extensions=['*'] returns all non-.md files."""
         (vault_with_attachment / "assets" / "data.xyz").write_bytes(b"unknown")
-        col = Collection(
-            source_dir=vault_with_attachment, attachment_extensions=["*"]
-        )
+        col = Collection(source_dir=vault_with_attachment, attachment_extensions=["*"])
         col.build_index()
         results = col.list(include_attachments=True)
 
@@ -1388,9 +1394,7 @@ class TestStatsAttachmentExtensions:
         self, vault_path: Path
     ) -> None:
         """stats() reflects a custom attachment_extensions list."""
-        col = Collection(
-            source_dir=vault_path, attachment_extensions=["pdf", "docx"]
-        )
+        col = Collection(source_dir=vault_path, attachment_extensions=["pdf", "docx"])
         col.build_index()
         s = col.stats()
         assert sorted(s.attachment_extensions) == ["docx", "pdf"]

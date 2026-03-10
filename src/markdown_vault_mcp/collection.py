@@ -680,7 +680,11 @@ class Collection:
             rel_folder = str(Path(rel_path).parent)
             if rel_folder == ".":
                 rel_folder = ""
-            if folder is not None and rel_folder != folder and not rel_folder.startswith(folder + "/"):
+            if (
+                folder is not None
+                and rel_folder != folder
+                and not rel_folder.startswith(folder + "/")
+            ):
                 continue
             try:
                 stat = abs_path.stat()

@@ -570,7 +570,9 @@ def create_server() -> FastMCP:
                 try:
                     raw_bytes = base64.b64decode(content_base64)
                 except Exception as exc:
-                    raise ValueError(f"Invalid base64 in content_base64: {exc}") from exc
+                    raise ValueError(
+                        f"Invalid base64 in content_base64: {exc}"
+                    ) from exc
                 result = await asyncio.to_thread(
                     collection.write_attachment, path, raw_bytes
                 )
