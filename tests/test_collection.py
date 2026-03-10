@@ -2271,9 +2271,9 @@ class TestListAttachmentHiddenDirFiltering:
         vault = tmp_path / "vault"
         vault.mkdir()
         (vault / "doc.md").write_text("# Doc\n", encoding="utf-8")
-        # File in an excluded directory.
-        (vault / ".obsidian").mkdir()
-        (vault / ".obsidian" / "workspace.json").write_text("{}", encoding="utf-8")
+        # File in a non-hidden excluded directory (tests pure exclude_patterns path).
+        (vault / "archived").mkdir()
+        (vault / "archived" / "workspace.json").write_text("{}", encoding="utf-8")
         # File in another excluded directory.
         (vault / "trash").mkdir()
         (vault / "trash" / "old.pdf").write_bytes(b"PDF")
@@ -2284,7 +2284,7 @@ class TestListAttachmentHiddenDirFiltering:
         col = Collection(
             source_dir=vault,
             attachment_extensions=["pdf", "json"],
-            exclude_patterns=[".obsidian/**", "trash/**"],
+            exclude_patterns=["archived/**", "trash/**"],
         )
         col.build_index()
         results = col.list(include_attachments=True)
@@ -2292,5 +2292,4 @@ class TestListAttachmentHiddenDirFiltering:
         attachment_paths = {r.path for r in results if hasattr(r, "mime_type")}
         assert "assets/chart.pdf" in attachment_paths
         assert "trash/old.pdf" not in attachment_paths
-        # .obsidian is hidden dir so it's excluded by the hidden-dir rule too.
-        assert not any(".obsidian" in p for p in attachment_paths)
+        assert "archived/workspace.json" not in attachment_paths

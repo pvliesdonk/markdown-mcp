@@ -676,7 +676,7 @@ class Collection:
             except ValueError:
                 continue
             rel_path = str(rel)
-            # Skip files inside hidden directories (dotfile components).
+            # Skip files where any path component (including the filename itself) starts with ".".
             if any(part.startswith(".") for part in rel.parts):
                 continue
             # Apply exclude_patterns — mirrors scan_directory behaviour.
