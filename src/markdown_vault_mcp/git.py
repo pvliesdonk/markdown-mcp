@@ -87,13 +87,13 @@ class GitWriteStrategy:
         self,
         token: str | None = None,
         push_delay_s: float = 30.0,
-        commit_name: str = DEFAULT_COMMIT_NAME,
-        commit_email: str = DEFAULT_COMMIT_EMAIL,
+        commit_name: str | None = None,
+        commit_email: str | None = None,
     ) -> None:
         self._token = token
         self._push_delay_s = push_delay_s
-        self._commit_name = commit_name
-        self._commit_email = commit_email
+        self._commit_name = commit_name or self.DEFAULT_COMMIT_NAME
+        self._commit_email = commit_email or self.DEFAULT_COMMIT_EMAIL
         self._git_root: Path | None = None
         self._checked = False
         self._push_pending = False

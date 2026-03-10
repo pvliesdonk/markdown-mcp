@@ -140,3 +140,113 @@ class TestToCollectionKwargs:
             "required_frontmatter": ["title"],
             "exclude_patterns": [".obsidian/**"],
         }
+
+
+class TestGitCommitterConfig:
+    """Tests for git committer identity configuration."""
+
+    def test_default_git_commit_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """load_config() uses default git_commit_name when env var is not set."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME", raising=False)
+        config = load_config()
+        assert config.git_commit_name == "markdown-vault-mcp"
+
+    def test_default_git_commit_email(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """load_config() uses default git_commit_email when env var is not set."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL", raising=False)
+        config = load_config()
+        assert config.git_commit_email == "noreply@markdown-vault-mcp"
+
+    def test_override_git_commit_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """load_config() reads MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME from environment."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME", "MyBot")
+        config = load_config()
+        assert config.git_commit_name == "MyBot"
+
+    def test_override_git_commit_email(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """load_config() reads MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL from environment."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL", "bot@example.com")
+        config = load_config()
+        assert config.git_commit_email == "bot@example.com"
+
+    def test_both_git_committer_vars_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() reads both GIT_COMMIT_NAME and GIT_COMMIT_EMAIL together."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME", "DeployBot")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL", "deploy@corp.local")
+        config = load_config()
+        assert config.git_commit_name == "DeployBot"
+        assert config.git_commit_email == "deploy@corp.local"
+
+    def test_empty_git_commit_name_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() falls back to default when GIT_COMMIT_NAME is empty string."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME", "")
+        config = load_config()
+        assert config.git_commit_name == "markdown-vault-mcp"
+
+    def test_empty_git_commit_email_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() falls back to default when GIT_COMMIT_EMAIL is empty string."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL", "")
+        config = load_config()
+        assert config.git_commit_email == "noreply@markdown-vault-mcp"
+
+    def test_config_dataclass_defaults(self) -> None:
+        """CollectionConfig has correct default committer values."""
+        config = CollectionConfig(source_dir=Path("/tmp/vault"))
+        assert config.git_commit_name == "markdown-vault-mcp"
+        assert config.git_commit_email == "noreply@markdown-vault-mcp"
+
+    def test_config_dataclass_custom_values(self) -> None:
+        """CollectionConfig accepts custom committer name and email."""
+        config = CollectionConfig(
+            source_dir=Path("/tmp/vault"),
+            git_commit_name="CI",
+            git_commit_email="ci@example.com",
+        )
+        assert config.git_commit_name == "CI"
+        assert config.git_commit_email == "ci@example.com"
+
+    def test_to_collection_kwargs_includes_commit_identity(self) -> None:
+        """to_collection_kwargs() passes commit identity to GitWriteStrategy."""
+        from markdown_vault_mcp.git import GitWriteStrategy
+
+        config = CollectionConfig(
+            source_dir=Path("/tmp/vault"),
+            git_token="ghp_test",
+            git_commit_name="TestBot",
+            git_commit_email="test@example.com",
+        )
+        kwargs = config.to_collection_kwargs()
+
+        assert "on_write" in kwargs
+        strategy = kwargs["on_write"]
+        assert isinstance(strategy, GitWriteStrategy)
+        assert strategy._commit_name == "TestBot"
+        assert strategy._commit_email == "test@example.com"
+
+    def test_to_collection_kwargs_with_default_identity(self) -> None:
+        """to_collection_kwargs() uses defaults when no custom identity is set."""
+        from markdown_vault_mcp.git import GitWriteStrategy
+
+        config = CollectionConfig(
+            source_dir=Path("/tmp/vault"),
+            git_token="ghp_test",
+        )
+        kwargs = config.to_collection_kwargs()
+
+        strategy = kwargs["on_write"]
+        assert isinstance(strategy, GitWriteStrategy)
+        assert strategy._commit_name == "markdown-vault-mcp"
+        assert strategy._commit_email == "noreply@markdown-vault-mcp"

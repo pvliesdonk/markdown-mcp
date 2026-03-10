@@ -234,14 +234,12 @@ def load_config() -> CollectionConfig:
     git_token: str | None = raw_git_token or None
     logger.debug("load_config: git_token=%s", "set" if git_token else "not set")
 
-    from markdown_vault_mcp.git import GitWriteStrategy as _GWS
-
     raw_commit_name = (_env("GIT_COMMIT_NAME") or "").strip()
-    git_commit_name: str = raw_commit_name or _GWS.DEFAULT_COMMIT_NAME
+    git_commit_name: str = raw_commit_name or "markdown-vault-mcp"
     logger.debug("load_config: git_commit_name=%s", git_commit_name)
 
     raw_commit_email = (_env("GIT_COMMIT_EMAIL") or "").strip()
-    git_commit_email: str = raw_commit_email or _GWS.DEFAULT_COMMIT_EMAIL
+    git_commit_email: str = raw_commit_email or "noreply@markdown-vault-mcp"
     logger.debug("load_config: git_commit_email=%s", git_commit_email)
 
     raw_push_delay = (_env("GIT_PUSH_DELAY_S") or "").strip()
