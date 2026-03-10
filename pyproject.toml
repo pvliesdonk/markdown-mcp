@@ -1,6 +1,6 @@
 [project]
 name = "markdown-vault-mcp"
-version = "1.3.1"
+version = "1.4.0"
 description = "Generic markdown vault MCP server with FTS5 + semantic search"
 readme = "README.md"
 license = "MIT"
