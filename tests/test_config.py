@@ -329,6 +329,15 @@ class TestAttachmentConfig:
         config = load_config()
         assert config.max_attachment_size_mb == 10.0
 
+    def test_max_attachment_size_mb_negative_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() resets negative MAX_ATTACHMENT_SIZE_MB to 10.0."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB", "-5")
+        config = load_config()
+        assert config.max_attachment_size_mb == 10.0
+
     def test_attachment_config_passed_through_to_collection_kwargs(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
