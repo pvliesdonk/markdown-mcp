@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Literal
@@ -131,6 +132,54 @@ def _build_default_instructions(*, read_only: bool) -> str:
     )
 
 
+def _build_oidc_auth() -> Any:
+    """Build an OIDCProxy auth provider from environment variables, or return None.
+
+    All four of ``BASE_URL``, ``OIDC_CONFIG_URL``, ``OIDC_CLIENT_ID``, and
+    ``OIDC_CLIENT_SECRET`` must be set to enable authentication.  If any is
+    absent the server starts unauthenticated.
+
+    Returns:
+        A configured :class:`~fastmcp.server.auth.oidc_proxy.OIDCProxy` instance,
+        or ``None`` when authentication is disabled.
+    """
+    base_url = os.environ.get(f"{_ENV_PREFIX}_BASE_URL", "").strip()
+    config_url = os.environ.get(f"{_ENV_PREFIX}_OIDC_CONFIG_URL", "").strip()
+    client_id = os.environ.get(f"{_ENV_PREFIX}_OIDC_CLIENT_ID", "").strip()
+    client_secret = os.environ.get(f"{_ENV_PREFIX}_OIDC_CLIENT_SECRET", "").strip()
+
+    if not all([base_url, config_url, client_id, client_secret]):
+        return None
+
+    from fastmcp.server.auth.oidc_proxy import OIDCProxy
+
+    jwt_signing_key = (
+        os.environ.get(f"{_ENV_PREFIX}_OIDC_JWT_SIGNING_KEY", "").strip() or None
+    )
+    audience = os.environ.get(f"{_ENV_PREFIX}_OIDC_AUDIENCE", "").strip() or None
+    raw_scopes = os.environ.get(f"{_ENV_PREFIX}_OIDC_REQUIRED_SCOPES", "openid").strip()
+    required_scopes = [s.strip() for s in raw_scopes.split(",") if s.strip()] or [
+        "openid"
+    ]
+
+    if jwt_signing_key is None and sys.platform.startswith("linux"):
+        logger.warning(
+            "OIDC: MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY is not set — "
+            "the JWT signing key is ephemeral on Linux; all clients must "
+            "re-authenticate after every server restart"
+        )
+
+    return OIDCProxy(
+        config_url=config_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        base_url=base_url,
+        audience=audience,
+        required_scopes=required_scopes,
+        jwt_signing_key=jwt_signing_key,
+    )
+
+
 def create_server() -> FastMCP:
     """Create and configure the FastMCP server.
 
@@ -155,10 +204,19 @@ def create_server() -> FastMCP:
     default_instructions = _build_default_instructions(read_only=is_read_only)
     instructions = os.environ.get(f"{_ENV_PREFIX}_INSTRUCTIONS", default_instructions)
 
+    auth = _build_oidc_auth()
+    if auth is None:
+        logger.info(
+            "OIDC auth not configured — server accepts unauthenticated connections"
+        )
+    else:
+        logger.info("OIDC auth enabled")
+
     mcp = FastMCP(
         server_name,
         instructions=instructions,
         lifespan=_collection_lifespan,
+        auth=auth,
     )
 
     # --- Read-only tools (always registered) ---
