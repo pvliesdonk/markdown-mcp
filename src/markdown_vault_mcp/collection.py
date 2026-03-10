@@ -672,8 +672,18 @@ class Collection:
             if "*" not in exts and suffix not in exts:
                 continue
             try:
-                rel_path = str(abs_path.relative_to(source_resolved))
+                rel = abs_path.relative_to(source_resolved)
             except ValueError:
+                continue
+            rel_path = str(rel)
+            # Skip files inside hidden directories (dotfile components).
+            if any(part.startswith(".") for part in rel.parts):
+                continue
+            # Apply exclude_patterns — mirrors scan_directory behaviour.
+            rel_posix = rel.as_posix()
+            if self._exclude_patterns and any(
+                fnmatch.fnmatch(rel_posix, pat) for pat in self._exclude_patterns
+            ):
                 continue
             if pattern and not fnmatch.fnmatch(rel_path, pattern):
                 continue
