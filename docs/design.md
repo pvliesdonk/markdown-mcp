@@ -870,8 +870,7 @@ credentials. Options: SSH key mount or PAT via env var.
 
 ### Future Work
 
-- **FastMCP OAuth**: evaluate built-in OAuth support as alternative to
-  mcp-auth-proxy for public-facing deployments.
+- **FastMCP OAuth**: implemented via `OIDCProxy` — see OIDC Authentication section above.
 
 ## Implementation Plan
 
