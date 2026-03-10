@@ -329,13 +329,23 @@ class TestSentenceTransformersProvider:
         mock_model.get_sentence_embedding_dimension.return_value = dim
         return mock_model
 
+    def _st_module_mock(self, mock_model: MagicMock) -> MagicMock:
+        """Return a mock sentence_transformers module that vends mock_model.
+
+        Using patch.dict("sys.modules") rather than patch("sentence_transformers.X")
+        means the test works even when the real library is not installed.
+        """
+        mock_module = MagicMock()
+        mock_module.SentenceTransformer.return_value = mock_model
+        return mock_module
+
     def test_embed_returns_list_of_lists(self) -> None:
         """embed() converts numpy output to a list-of-lists."""
         mock_model = self._make_mock_st(dim=3)
         mock_model.encode.return_value = np.array([[1.0, 2.0, 3.0]])
 
-        with patch(
-            "sentence_transformers.SentenceTransformer", return_value=mock_model
+        with patch.dict(
+            "sys.modules", {"sentence_transformers": self._st_module_mock(mock_model)}
         ):
             provider = SentenceTransformersProvider()
             result = provider.embed(["single text"])
@@ -347,8 +357,8 @@ class TestSentenceTransformersProvider:
     def test_dimension_returns_model_dimension(self) -> None:
         """dimension returns the value from get_sentence_embedding_dimension()."""
         mock_model = self._make_mock_st(dim=7)
-        with patch(
-            "sentence_transformers.SentenceTransformer", return_value=mock_model
+        with patch.dict(
+            "sys.modules", {"sentence_transformers": self._st_module_mock(mock_model)}
         ):
             provider = SentenceTransformersProvider()
             assert provider.dimension == 7
@@ -373,8 +383,8 @@ class TestSentenceTransformersProvider:
     def test_embed_passes_texts_to_encode(self) -> None:
         """embed() calls model.encode() with the exact input texts."""
         mock_model = self._make_mock_st(dim=2)
-        with patch(
-            "sentence_transformers.SentenceTransformer", return_value=mock_model
+        with patch.dict(
+            "sys.modules", {"sentence_transformers": self._st_module_mock(mock_model)}
         ):
             provider = SentenceTransformersProvider()
             provider.embed(["foo", "bar", "baz"])
@@ -421,9 +431,11 @@ class TestGetEmbeddingProvider:
         """EMBEDDING_PROVIDER=sentence-transformers returns SentenceTransformersProvider."""
         mock_model = MagicMock()
         mock_model.get_sentence_embedding_dimension.return_value = 384
+        mock_st_module = MagicMock()
+        mock_st_module.SentenceTransformer.return_value = mock_model
         with (
             patch.dict(os.environ, {"EMBEDDING_PROVIDER": "sentence-transformers"}),
-            patch("sentence_transformers.SentenceTransformer", return_value=mock_model),
+            patch.dict("sys.modules", {"sentence_transformers": mock_st_module}),
         ):
             provider = get_embedding_provider()
         assert isinstance(provider, SentenceTransformersProvider)
@@ -432,9 +444,11 @@ class TestGetEmbeddingProvider:
         """EMBEDDING_PROVIDER=sentence_transformers (underscore) also works."""
         mock_model = MagicMock()
         mock_model.get_sentence_embedding_dimension.return_value = 384
+        mock_st_module = MagicMock()
+        mock_st_module.SentenceTransformer.return_value = mock_model
         with (
             patch.dict(os.environ, {"EMBEDDING_PROVIDER": "sentence_transformers"}),
-            patch("sentence_transformers.SentenceTransformer", return_value=mock_model),
+            patch.dict("sys.modules", {"sentence_transformers": mock_st_module}),
         ):
             provider = get_embedding_provider()
         assert isinstance(provider, SentenceTransformersProvider)
@@ -486,6 +500,8 @@ class TestGetEmbeddingProvider:
 
         mock_model = MagicMock()
         mock_model.get_sentence_embedding_dimension.return_value = 384
+        mock_st_module = MagicMock()
+        mock_st_module.SentenceTransformer.return_value = mock_model
 
         def raise_on_get(*_args, **_kwargs):
             raise ConnectionError("refused")
@@ -497,7 +513,7 @@ class TestGetEmbeddingProvider:
 
         with (
             patch("httpx.Client", return_value=probe_client),
-            patch("sentence_transformers.SentenceTransformer", return_value=mock_model),
+            patch.dict("sys.modules", {"sentence_transformers": mock_st_module}),
         ):
             provider = get_embedding_provider()
 
