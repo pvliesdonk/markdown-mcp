@@ -2243,7 +2243,9 @@ class TestListAttachmentHiddenDirFiltering:
         results = col.list(include_attachments=True)
 
         attachment_paths = {
-            r.path for r in results if hasattr(r, "mime_type")  # AttachmentInfo
+            r.path
+            for r in results
+            if hasattr(r, "mime_type")  # AttachmentInfo
         }
         assert "assets/diagram.pdf" in attachment_paths
         assert not any(".git" in p for p in attachment_paths)
@@ -2271,9 +2273,7 @@ class TestListAttachmentHiddenDirFiltering:
         (vault / "doc.md").write_text("# Doc\n", encoding="utf-8")
         # File in an excluded directory.
         (vault / ".obsidian").mkdir()
-        (vault / ".obsidian" / "workspace.json").write_text(
-            "{}", encoding="utf-8"
-        )
+        (vault / ".obsidian" / "workspace.json").write_text("{}", encoding="utf-8")
         # File in another excluded directory.
         (vault / "trash").mkdir()
         (vault / "trash" / "old.pdf").write_bytes(b"PDF")
