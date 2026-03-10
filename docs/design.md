@@ -732,6 +732,8 @@ For MCP server deployment:
 | `MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY` | Persistent JWT signing key — **required for Docker/Linux** to survive restarts | ephemeral on Linux |
 | `MARKDOWN_VAULT_MCP_OIDC_AUDIENCE` | JWT audience claim (required by some providers) | none |
 | `MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES` | Comma-separated OAuth scopes to request | `openid` |
+| `MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS` | Comma-separated allowlist of non-.md extensions (without dot), e.g. `pdf,png,docx`; use `*` to allow all non-.md files | common list (pdf, png, jpg, docx, …) |
+| `MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB` | Maximum attachment size in MB enforced on both read and write; `0` disables the limit | `10.0` |
 | `EMBEDDING_PROVIDER` | `ollama`, `openai`, `sentence-transformers` | auto-detect |
 | `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
 | `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | Ollama embedding model | `nomic-embed-text` |
@@ -800,6 +802,29 @@ identity_providers:
 ```
 
 **Linux/Docker note:** FastMCP uses an ephemeral JWT signing key on Linux by default — every restart invalidates all client tokens and forces re-authentication. Set `MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY` to a stable random secret (e.g. `openssl rand -hex 32`) to persist tokens across restarts.
+
+#### Attachment Support
+
+The server supports reading and writing non-markdown binary files (PDFs, images, etc.) by overloading the existing MCP tools — no new tool registrations.
+
+**Extension-based dispatch**: `.md` files always follow the markdown path. All other extensions are treated as attachments if they appear in the configured allowlist.
+
+**Default allowlist**: `pdf png jpg jpeg gif webp svg bmp tiff docx xlsx pptx odt ods odp zip tar gz mp3 mp4 wav ogg txt csv tsv json yaml toml xml html css js ts`. The `.md` extension is always excluded regardless of configuration.
+
+**Tool behaviour changes**:
+
+| Tool | .md path | Attachment path |
+|------|----------|-----------------|
+| `read(path)` | returns markdown body + frontmatter | returns `{path, mime_type, size_bytes, content_base64, modified_at}` |
+| `write(path, content, frontmatter, content_base64)` | uses `content` + `frontmatter` | uses `content_base64` (base64-encoded bytes) |
+| `list_documents(include_attachments=False)` | notes only (unchanged) | also returns `AttachmentInfo` entries with `kind="attachment"`, `mime_type` |
+| `delete(path)` | removes file + index entries | removes file only (no index) |
+| `rename(old, new)` | moves file + updates index | moves file only (no index) |
+| `stats()` | includes `attachment_extensions` list | — |
+
+Attachments are **not indexed or searched** — only direct path-based read/write/delete/rename. MIME type is detected via Python's `mimetypes.guess_type()` (no extra dependencies).
+
+Size limit applies to both `read_attachment()` and `write_attachment()`. Set `MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB=0` to disable the limit.
 
 ### Phase 3: Evaluate YAML
 

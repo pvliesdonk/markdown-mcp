@@ -16,6 +16,8 @@ from markdown_vault_mcp.exceptions import (
     ReadOnlyError,
 )
 from markdown_vault_mcp.types import (
+    AttachmentContent,
+    AttachmentInfo,
     CollectionStats,
     DeleteResult,
     EditResult,
@@ -985,3 +987,423 @@ class TestConcurrentWrites:
             assert f"Section-Token-{i}: original text" not in final, (
                 f"Token {i} original text still present after replacement"
             )
+
+
+# ---------------------------------------------------------------------------
+# Attachment helpers
+# ---------------------------------------------------------------------------
+
+
+class TestAttachmentHelpers:
+    def test_is_attachment_pdf(self, vault_path: Path) -> None:
+        """_is_attachment() returns True for a .pdf path with default allowlist."""
+        col = Collection(source_dir=vault_path)
+        assert col._is_attachment("assets/report.pdf") is True
+
+    def test_is_attachment_md_always_false(self, vault_path: Path) -> None:
+        """_is_attachment() always returns False for .md paths."""
+        col = Collection(source_dir=vault_path)
+        assert col._is_attachment("notes/note.md") is False
+
+    def test_is_attachment_disallowed_extension(self, vault_path: Path) -> None:
+        """_is_attachment() returns False for extensions not in the default list."""
+        col = Collection(source_dir=vault_path)
+        # .xyz is not in the default list
+        assert col._is_attachment("file.xyz") is False
+
+    def test_is_attachment_wildcard_allows_all(self, vault_path: Path) -> None:
+        """_is_attachment() returns True for any non-.md extension when '*' is set."""
+        col = Collection(source_dir=vault_path, attachment_extensions=["*"])
+        assert col._is_attachment("file.xyz") is True
+        assert col._is_attachment("file.bin") is True
+        assert col._is_attachment("notes/note.md") is False
+
+    def test_validate_attachment_path_rejects_md(self, vault_path: Path) -> None:
+        """_validate_attachment_path() raises ValueError for .md paths."""
+        col = Collection(source_dir=vault_path)
+        with pytest.raises(ValueError, match=r"\.md"):
+            col._validate_attachment_path("note.md")
+
+    def test_validate_attachment_path_rejects_traversal(self, vault_path: Path) -> None:
+        """_validate_attachment_path() raises ValueError on path traversal."""
+        col = Collection(source_dir=vault_path)
+        with pytest.raises(ValueError, match="traversal"):
+            col._validate_attachment_path("../../etc/passwd.pdf")
+
+    def test_validate_attachment_path_rejects_disallowed_ext(
+        self, vault_path: Path
+    ) -> None:
+        """_validate_attachment_path() raises ValueError for disallowed extensions."""
+        col = Collection(source_dir=vault_path)
+        with pytest.raises(ValueError, match="allowlist"):
+            col._validate_attachment_path("file.xyz")
+
+
+# ---------------------------------------------------------------------------
+# read_attachment / write_attachment
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def vault_with_attachment(vault_path: Path) -> Path:
+    """Vault fixture with a sample PDF-like binary file."""
+    (vault_path / "assets").mkdir()
+    (vault_path / "assets" / "report.pdf").write_bytes(b"%PDF-1.4 fake content")
+    (vault_path / "assets" / "image.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    )
+    return vault_path
+
+
+class TestReadAttachment:
+    def test_read_attachment_returns_content(self, vault_with_attachment: Path) -> None:
+        """read_attachment() returns base64-encoded content and mime type."""
+        import base64
+
+        col = Collection(source_dir=vault_with_attachment)
+        result = col.read_attachment("assets/report.pdf")
+
+        assert isinstance(result, AttachmentContent)
+        assert result.path == "assets/report.pdf"
+        assert result.mime_type == "application/pdf"
+        assert result.size_bytes == len(b"%PDF-1.4 fake content")
+        decoded = base64.b64decode(result.content_base64)
+        assert decoded == b"%PDF-1.4 fake content"
+
+    def test_read_attachment_not_found_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """read_attachment() raises ValueError for missing files."""
+        col = Collection(source_dir=vault_with_attachment)
+        with pytest.raises(ValueError, match="not found"):
+            col.read_attachment("assets/missing.pdf")
+
+    def test_read_attachment_disallowed_extension_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """read_attachment() raises ValueError for disallowed extensions."""
+        col = Collection(source_dir=vault_with_attachment)
+        with pytest.raises(ValueError, match="allowlist"):
+            col.read_attachment("assets/report.xyz")
+
+    def test_read_attachment_size_limit_enforced(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """read_attachment() raises ValueError when file exceeds the size limit."""
+        # 1-byte limit
+        col = Collection(
+            source_dir=vault_with_attachment, max_attachment_size_mb=0.000001
+        )
+        with pytest.raises(ValueError, match="exceeds"):
+            col.read_attachment("assets/report.pdf")
+
+    def test_read_attachment_zero_size_limit_disables(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """read_attachment() with max_attachment_size_mb=0 has no size limit."""
+        col = Collection(source_dir=vault_with_attachment, max_attachment_size_mb=0)
+        result = col.read_attachment("assets/report.pdf")
+        assert result.size_bytes > 0
+
+    def test_read_attachment_png_mime_type(self, vault_with_attachment: Path) -> None:
+        """read_attachment() detects image/png MIME type."""
+        col = Collection(source_dir=vault_with_attachment)
+        result = col.read_attachment("assets/image.png")
+        assert result.mime_type == "image/png"
+
+
+class TestWriteAttachment:
+    def test_write_attachment_creates_file(self, vault_with_attachment: Path) -> None:
+        """write_attachment() creates a new binary file on disk."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        raw = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+        result = col.write_attachment("assets/new.png", raw)
+
+        assert isinstance(result, WriteResult)
+        assert result.path == "assets/new.png"
+        assert result.created is True
+        assert (vault_with_attachment / "assets" / "new.png").read_bytes() == raw
+
+    def test_write_attachment_overwrites_existing(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """write_attachment() overwrites an existing file, returns created=False."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        new_content = b"new pdf content"
+        result = col.write_attachment("assets/report.pdf", new_content)
+
+        assert result.created is False
+        assert (
+            vault_with_attachment / "assets" / "report.pdf"
+        ).read_bytes() == new_content
+
+    def test_write_attachment_creates_intermediate_dirs(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """write_attachment() creates parent directories as needed."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        col.write_attachment("deep/nested/file.pdf", b"content")
+
+        assert (vault_with_attachment / "deep" / "nested" / "file.pdf").is_file()
+
+    def test_write_attachment_readonly_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """write_attachment() raises ReadOnlyError on a read-only collection."""
+        col = Collection(source_dir=vault_with_attachment, read_only=True)
+        with pytest.raises(ReadOnlyError):
+            col.write_attachment("assets/new.pdf", b"content")
+
+    def test_write_attachment_size_limit_enforced(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """write_attachment() raises ValueError when content exceeds size limit."""
+        col = Collection(
+            source_dir=vault_with_attachment,
+            read_only=False,
+            max_attachment_size_mb=0.000001,
+        )
+        with pytest.raises(ValueError, match="exceeds"):
+            col.write_attachment("assets/big.pdf", b"a" * 100)
+
+    def test_write_attachment_disallowed_extension_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """write_attachment() raises ValueError for disallowed extensions."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        with pytest.raises(ValueError, match="allowlist"):
+            col.write_attachment("file.xyz", b"content")
+
+    def test_write_attachment_triggers_callback(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """write_attachment() invokes the on_write callback."""
+        calls: list = []
+        col = Collection(
+            source_dir=vault_with_attachment,
+            read_only=False,
+            on_write=lambda *args: calls.append(args),
+        )
+        col.write_attachment("assets/cb.pdf", b"callback test")
+
+        assert len(calls) == 1
+        path, content, operation = calls[0]
+        assert path == vault_with_attachment / "assets" / "cb.pdf"
+        assert content == ""  # binary — empty string passed to callback
+        assert operation == "write"
+
+
+# ---------------------------------------------------------------------------
+# list() with include_attachments
+# ---------------------------------------------------------------------------
+
+
+class TestListWithAttachments:
+    def test_list_default_excludes_attachments(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """list() without include_attachments does not return attachment files."""
+        col = Collection(source_dir=vault_with_attachment)
+        col.build_index()
+        results = col.list()
+
+        paths = [r.path for r in results]
+        assert not any(p.endswith(".pdf") or p.endswith(".png") for p in paths)
+
+    def test_list_include_attachments_returns_both(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """list(include_attachments=True) returns notes and attachments."""
+        col = Collection(source_dir=vault_with_attachment)
+        col.build_index()
+        results = col.list(include_attachments=True)
+
+        kinds = {type(r).__name__ for r in results}
+        assert "NoteInfo" in kinds
+        assert "AttachmentInfo" in kinds
+
+    def test_list_attachment_info_fields(self, vault_with_attachment: Path) -> None:
+        """AttachmentInfo entries have the correct fields."""
+        col = Collection(source_dir=vault_with_attachment)
+        col.build_index()
+        results = col.list(include_attachments=True)
+
+        attachments = [r for r in results if isinstance(r, AttachmentInfo)]
+        assert len(attachments) >= 1
+
+        pdf = next(a for a in attachments if a.path.endswith(".pdf"))
+        assert pdf.kind == "attachment"
+        assert pdf.mime_type == "application/pdf"
+        assert pdf.size_bytes > 0
+        assert pdf.folder == "assets"
+
+    def test_list_attachments_excluded_when_not_in_allowlist(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """Attachments with disallowed extensions are not returned."""
+        (vault_with_attachment / "assets" / "data.xyz").write_bytes(b"unknown")
+        col = Collection(source_dir=vault_with_attachment)
+        col.build_index()
+        results = col.list(include_attachments=True)
+
+        paths = [r.path for r in results]
+        assert not any(p.endswith(".xyz") for p in paths)
+
+    def test_list_attachments_wildcard_includes_all(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """attachment_extensions=['*'] returns all non-.md files."""
+        (vault_with_attachment / "assets" / "data.xyz").write_bytes(b"unknown")
+        col = Collection(source_dir=vault_with_attachment, attachment_extensions=["*"])
+        col.build_index()
+        results = col.list(include_attachments=True)
+
+        paths = [r.path for r in results]
+        assert any(p.endswith(".xyz") for p in paths)
+
+    def test_list_attachments_folder_filter(self, vault_with_attachment: Path) -> None:
+        """list(include_attachments=True, folder=...) filters attachments by folder."""
+        col = Collection(source_dir=vault_with_attachment)
+        col.build_index()
+        results = col.list(include_attachments=True, folder="assets")
+
+        for r in results:
+            assert r.folder == "assets" or r.folder.startswith("assets/")
+
+
+# ---------------------------------------------------------------------------
+# delete() and rename() for attachments
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteAttachment:
+    def test_delete_attachment_removes_file(self, vault_with_attachment: Path) -> None:
+        """delete() removes an attachment file from disk."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        col.build_index()
+        result = col.delete("assets/report.pdf")
+
+        assert isinstance(result, DeleteResult)
+        assert result.path == "assets/report.pdf"
+        assert not (vault_with_attachment / "assets" / "report.pdf").is_file()
+
+    def test_delete_attachment_not_found_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """delete() raises DocumentNotFoundError for missing attachment."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        col.build_index()
+        with pytest.raises(DocumentNotFoundError):
+            col.delete("assets/missing.pdf")
+
+    def test_delete_attachment_disallowed_ext_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """delete() on a disallowed extension raises ValueError."""
+        (vault_with_attachment / "file.xyz").write_bytes(b"data")
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        col.build_index()
+        with pytest.raises(ValueError, match="allowlist"):
+            col.delete("file.xyz")
+
+    def test_delete_attachment_triggers_callback(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """delete() on an attachment invokes the on_write callback."""
+        calls: list = []
+        col = Collection(
+            source_dir=vault_with_attachment,
+            read_only=False,
+            on_write=lambda *args: calls.append(args),
+        )
+        col.build_index()
+        col.delete("assets/report.pdf")
+
+        assert len(calls) == 1
+        _, _, operation = calls[0]
+        assert operation == "delete"
+
+
+class TestRenameAttachment:
+    def test_rename_attachment_moves_file(self, vault_with_attachment: Path) -> None:
+        """rename() moves an attachment file on disk."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        col.build_index()
+        result = col.rename("assets/report.pdf", "docs/report.pdf")
+
+        assert isinstance(result, RenameResult)
+        assert not (vault_with_attachment / "assets" / "report.pdf").is_file()
+        assert (vault_with_attachment / "docs" / "report.pdf").is_file()
+
+    def test_rename_attachment_not_found_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """rename() raises DocumentNotFoundError for missing attachment."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        col.build_index()
+        with pytest.raises(DocumentNotFoundError):
+            col.rename("assets/missing.pdf", "docs/report.pdf")
+
+    def test_rename_attachment_target_exists_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """rename() raises DocumentExistsError when the target already exists."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        col.build_index()
+        with pytest.raises(DocumentExistsError):
+            col.rename("assets/report.pdf", "assets/image.png")
+
+    def test_rename_attachment_creates_intermediate_dirs(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """rename() creates parent directories for the attachment target."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        col.build_index()
+        col.rename("assets/report.pdf", "new_folder/sub/report.pdf")
+
+        assert (vault_with_attachment / "new_folder" / "sub" / "report.pdf").is_file()
+
+    def test_rename_attachment_preserves_content(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """rename() produces a file byte-identical to the original."""
+        original = (vault_with_attachment / "assets" / "report.pdf").read_bytes()
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        col.build_index()
+        col.rename("assets/report.pdf", "docs/report.pdf")
+
+        assert (vault_with_attachment / "docs" / "report.pdf").read_bytes() == original
+
+
+# ---------------------------------------------------------------------------
+# stats() includes attachment_extensions
+# ---------------------------------------------------------------------------
+
+
+class TestStatsAttachmentExtensions:
+    def test_stats_includes_attachment_extensions_default(
+        self, collection: Collection
+    ) -> None:
+        """stats() includes attachment_extensions from the default allowlist."""
+        s = collection.stats()
+        assert isinstance(s.attachment_extensions, list)
+        assert "pdf" in s.attachment_extensions
+        assert "png" in s.attachment_extensions
+
+    def test_stats_includes_attachment_extensions_custom(
+        self, vault_path: Path
+    ) -> None:
+        """stats() reflects a custom attachment_extensions list."""
+        col = Collection(source_dir=vault_path, attachment_extensions=["pdf", "docx"])
+        col.build_index()
+        s = col.stats()
+        assert sorted(s.attachment_extensions) == ["docx", "pdf"]
+
+    def test_stats_includes_attachment_extensions_wildcard(
+        self, vault_path: Path
+    ) -> None:
+        """stats() shows ['*'] when attachment_extensions is the wildcard."""
+        col = Collection(source_dir=vault_path, attachment_extensions=["*"])
+        col.build_index()
+        s = col.stats()
+        assert s.attachment_extensions == ["*"]

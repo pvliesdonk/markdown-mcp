@@ -139,6 +139,8 @@ class TestToCollectionKwargs:
             "indexed_frontmatter_fields": ["cluster"],
             "required_frontmatter": ["title"],
             "exclude_patterns": [".obsidian/**"],
+            "attachment_extensions": None,
+            "max_attachment_size_mb": 10.0,
         }
 
 
@@ -250,3 +252,100 @@ class TestGitCommitterConfig:
         assert isinstance(strategy, GitWriteStrategy)
         assert strategy._commit_name == "markdown-vault-mcp"
         assert strategy._commit_email == "noreply@markdown-vault-mcp"
+
+
+class TestAttachmentConfig:
+    """Tests for attachment extension and size limit configuration."""
+
+    def test_default_attachment_extensions_is_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() returns None attachment_extensions when env var not set."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS", raising=False)
+        config = load_config()
+        assert config.attachment_extensions is None
+
+    def test_attachment_extensions_comma_separated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() parses ATTACHMENT_EXTENSIONS as comma-separated list."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS", "pdf,png,docx")
+        config = load_config()
+        assert config.attachment_extensions == ["pdf", "png", "docx"]
+
+    def test_attachment_extensions_wildcard(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() parses ATTACHMENT_EXTENSIONS=* as ['*']."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS", "*")
+        config = load_config()
+        assert config.attachment_extensions == ["*"]
+
+    def test_attachment_extensions_empty_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() returns None when ATTACHMENT_EXTENSIONS is empty."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS", "")
+        config = load_config()
+        assert config.attachment_extensions is None
+
+    def test_default_max_attachment_size_mb(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() defaults max_attachment_size_mb to 10.0."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB", raising=False)
+        config = load_config()
+        assert config.max_attachment_size_mb == 10.0
+
+    def test_max_attachment_size_mb_parsed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() parses MAX_ATTACHMENT_SIZE_MB from env var."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB", "25.5")
+        config = load_config()
+        assert config.max_attachment_size_mb == 25.5
+
+    def test_max_attachment_size_mb_zero_disables_limit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() accepts 0 as a valid value for MAX_ATTACHMENT_SIZE_MB."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB", "0")
+        config = load_config()
+        assert config.max_attachment_size_mb == 0.0
+
+    def test_max_attachment_size_mb_invalid_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() falls back to 10.0 for invalid MAX_ATTACHMENT_SIZE_MB."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB", "not-a-number")
+        config = load_config()
+        assert config.max_attachment_size_mb == 10.0
+
+    def test_max_attachment_size_mb_negative_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config() resets negative MAX_ATTACHMENT_SIZE_MB to 10.0."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB", "-5")
+        config = load_config()
+        assert config.max_attachment_size_mb == 10.0
+
+    def test_attachment_config_passed_through_to_collection_kwargs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """to_collection_kwargs() includes attachment_extensions and max_attachment_size_mb."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS", "pdf,png")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB", "5.0")
+        config = load_config()
+        kwargs = config.to_collection_kwargs()
+        assert kwargs["attachment_extensions"] == ["pdf", "png"]
+        assert kwargs["max_attachment_size_mb"] == 5.0
