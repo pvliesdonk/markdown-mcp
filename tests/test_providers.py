@@ -55,8 +55,8 @@ class TestOllamaProvider:
             result = provider.embed(["hello"])
 
         mock_client.post.assert_called_once()
-        call_kwargs = mock_client.post.call_args
-        url = call_kwargs[0][0] if call_kwargs[0] else call_kwargs[1]["url"]
+        call_args = mock_client.post.call_args
+        url = call_args[0][0] if call_args[0] else call_args[1]["url"]
         assert url == "http://localhost:11434/api/embed"
         assert result == [[0.1, 0.2, 0.3]]
 
@@ -189,11 +189,8 @@ class TestOllamaProvider:
 
     def test_missing_httpx_raises_import_error(self) -> None:
         """OllamaProvider raises ImportError with helpful message if httpx not found."""
-        real_import = (
-            __builtins__.__import__
-            if hasattr(__builtins__, "__import__")
-            else __import__
-        )
+        import builtins
+        real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
             if name == "httpx":
@@ -357,11 +354,8 @@ class TestSentenceTransformersProvider:
 
     def test_missing_sentence_transformers_raises(self) -> None:
         """SentenceTransformersProvider raises ImportError if library not found."""
-        real_import = (
-            __builtins__.__import__
-            if hasattr(__builtins__, "__import__")
-            else __import__
-        )
+        import builtins
+        real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
             if name == "sentence_transformers":
@@ -520,11 +514,8 @@ class TestGetEmbeddingProvider:
         probe_client.__exit__ = MagicMock(return_value=False)
         probe_client.get.side_effect = ConnectionError("refused")
 
-        real_import = (
-            __builtins__.__import__
-            if hasattr(__builtins__, "__import__")
-            else __import__
-        )
+        import builtins
+        real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
             if name == "sentence_transformers":

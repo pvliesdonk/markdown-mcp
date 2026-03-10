@@ -1480,6 +1480,7 @@ class TestSemanticSearch:
         results = col.search("document content", mode="semantic", folder="subfolder")
 
         # All results must be in the requested folder or a sub-folder of it.
+        assert len(results) > 0, "Expected at least one result in subfolder"
         for r in results:
             assert r.folder == "subfolder" or r.folder.startswith("subfolder/")
 
@@ -1504,6 +1505,7 @@ class TestSemanticSearch:
             "document", mode="semantic", filters={"cluster": "fiction"}, limit=10
         )
 
+        assert len(results) > 0, "Expected at least one result with cluster=fiction"
         for r in results:
             assert r.frontmatter.get("cluster") == "fiction"
 
@@ -1620,6 +1622,7 @@ class TestHybridSearch:
 
         results = col.search("nested document", mode="hybrid", folder="subfolder")
 
+        assert len(results) > 0, "Expected at least one result in subfolder"
         for r in results:
             assert r.folder == "subfolder" or r.folder.startswith("subfolder/")
 
@@ -1643,9 +1646,11 @@ class TestHybridSearch:
             "document", mode="hybrid", filters={"cluster": "fiction"}, limit=10
         )
 
-        # Semantic results that pass the filter must have the correct tag.
-        semantic_results = [r for r in results if r.search_type == "semantic"]
-        for r in semantic_results:
+        # All results (keyword and semantic) must have the correct tag.
+        # MockEmbeddingProvider uses hash-based vectors so semantic results
+        # may not include the cluster=fiction doc; keyword results are reliable.
+        assert len(results) > 0, "Expected at least one result with cluster=fiction"
+        for r in results:
             assert r.frontmatter.get("cluster") == "fiction"
 
     def test_hybrid_rrf_boost_for_dual_match(

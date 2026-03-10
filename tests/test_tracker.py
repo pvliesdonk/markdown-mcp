@@ -293,7 +293,11 @@ class TestMalformedStateFile:
     ) -> None:
         """OSError reading the state file falls back to empty; WARNING is logged."""
         import logging
+        import os
         import stat
+
+        if os.getuid() == 0:
+            pytest.skip("chmod-based permission test skipped when running as root")
 
         state_path = tmp_path / "state.json"
         # Write a valid state file so _state_path.exists() returns True.
