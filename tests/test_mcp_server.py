@@ -856,3 +856,163 @@ class TestBuildOidcAuth:
             "JWT_SIGNING_KEY" in r.message and r.levelname == "WARNING"
             for r in caplog.records
         )
+
+# ---------------------------------------------------------------------------
+# MCP attachment tool tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _mcp_env_writable_with_attachments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Writable vault with a PDF and PNG attachment pre-created."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Note\n\nSome content.\n", encoding="utf-8")
+    (vault / "assets").mkdir()
+    (vault / "assets" / "report.pdf").write_bytes(b"%PDF-1.4 fake content")
+    (vault / "assets" / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+
+    monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault))
+    monkeypatch.setenv("MARKDOWN_VAULT_MCP_READ_ONLY", "false")
+    for var in _CLEAR_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+    return vault
+
+
+class TestMCPReadAttachment:
+    """MCP read() tool dispatches to attachment path for non-.md files."""
+
+    async def test_read_attachment_returns_base64_content(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        import base64
+
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("read", {"path": "assets/report.pdf"})
+        data = result.data
+        assert data["path"] == "assets/report.pdf"
+        assert data["mime_type"] == "application/pdf"
+        assert "size_bytes" in data
+        assert "content_base64" in data
+        decoded = base64.b64decode(data["content_base64"])
+        assert decoded == b"%PDF-1.4 fake content"
+
+    async def test_read_attachment_returns_mime_type(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("read", {"path": "assets/image.png"})
+        assert result.data["mime_type"] == "image/png"
+
+    async def test_read_attachment_missing_raises(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            with pytest.raises(Exception):
+                await client.call_tool("read", {"path": "assets/missing.pdf"})
+
+
+class TestMCPWriteAttachment:
+    """MCP write() tool dispatches to attachment path for non-.md files."""
+
+    async def test_write_attachment_creates_file(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        import base64
+
+        raw = b"new pdf binary content"
+        b64 = base64.b64encode(raw).decode("ascii")
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "write",
+                {"path": "assets/new.pdf", "content_base64": b64},
+            )
+        data = result.data
+        assert data["path"] == "assets/new.pdf"
+        assert data["created"] is True
+        assert (_mcp_env_writable_with_attachments / "assets" / "new.pdf").read_bytes() == raw
+
+    async def test_write_attachment_missing_base64_raises(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            with pytest.raises(Exception):
+                await client.call_tool("write", {"path": "assets/new.pdf"})
+
+    async def test_write_attachment_invalid_base64_raises(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            with pytest.raises(Exception):
+                await client.call_tool(
+                    "write",
+                    {"path": "assets/new.pdf", "content_base64": "!!!invalid!!!"},
+                )
+
+
+class TestMCPListDocumentsAttachments:
+    """MCP list_documents() with include_attachments flag."""
+
+    async def test_list_documents_default_excludes_attachments(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("list_documents", {})
+        items = _parse_tool_data(result)
+        paths = [item["path"] for item in items]
+        assert not any(p.endswith(".pdf") or p.endswith(".png") for p in paths)
+
+    async def test_list_documents_include_attachments_returns_both(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "list_documents", {"include_attachments": True}
+            )
+        items = _parse_tool_data(result)
+        kinds = {item.get("kind") for item in items}
+        # NoteInfo doesn't have kind by default — check we have at least one attachment
+        paths = [item["path"] for item in items]
+        assert any(p.endswith(".pdf") for p in paths)
+        assert any(p.endswith(".png") for p in paths)
+        assert "note.md" in paths
+
+    async def test_list_documents_attachments_have_mime_type(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "list_documents", {"include_attachments": True}
+            )
+        items = _parse_tool_data(result)
+        pdf_items = [i for i in items if i.get("path", "").endswith(".pdf")]
+        assert len(pdf_items) >= 1
+        assert pdf_items[0].get("mime_type") == "application/pdf"
+        assert pdf_items[0].get("kind") == "attachment"
+
+
+class TestMCPStatsAttachmentExtensions:
+    """MCP stats() includes attachment_extensions field."""
+
+    async def test_stats_includes_attachment_extensions(
+        self, _mcp_env_writable_with_attachments: Path
+    ) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("stats", {})
+        data = result.data
+        assert "attachment_extensions" in data
+        assert isinstance(data["attachment_extensions"], list)
+        assert "pdf" in data["attachment_extensions"]

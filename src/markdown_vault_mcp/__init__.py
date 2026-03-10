@@ -11,6 +11,8 @@ from markdown_vault_mcp.exceptions import (
 )
 from markdown_vault_mcp.git import GitWriteStrategy, git_write_strategy
 from markdown_vault_mcp.types import (
+    AttachmentContent,
+    AttachmentInfo,
     ChangeSet,
     Chunk,
     CollectionStats,
@@ -29,6 +31,8 @@ from markdown_vault_mcp.types import (
 )
 
 __all__ = [
+    "AttachmentContent",
+    "AttachmentInfo",
     "ChangeSet",
     "Chunk",
     "Collection",

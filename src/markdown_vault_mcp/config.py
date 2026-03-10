@@ -104,6 +104,8 @@ class CollectionConfig:
     git_push_delay_s: float = 30.0
     git_commit_name: str = "markdown-vault-mcp"
     git_commit_email: str = "noreply@markdown-vault-mcp"
+    attachment_extensions: list[str] | None = None
+    max_attachment_size_mb: float = 10.0
 
     def to_collection_kwargs(self) -> dict[str, Any]:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
@@ -130,6 +132,8 @@ class CollectionConfig:
             "indexed_frontmatter_fields": self.indexed_frontmatter_fields,
             "required_frontmatter": self.required_frontmatter,
             "exclude_patterns": self.exclude_patterns,
+            "attachment_extensions": self.attachment_extensions,
+            "max_attachment_size_mb": self.max_attachment_size_mb,
         }
         if self.git_token is not None:
             from markdown_vault_mcp.git import GitWriteStrategy
@@ -169,6 +173,11 @@ def load_config() -> CollectionConfig:
       auto-commits; default ``markdown-vault-mcp``.
     - ``MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL``: git committer email for
       auto-commits; default ``noreply@markdown-vault-mcp``.
+    - ``MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS``: comma-separated list of
+      allowed attachment extensions (without dot, e.g. ``pdf,png,jpg``); use
+      ``*`` to allow all non-.md files; default: common document and image types.
+    - ``MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB``: maximum attachment size in
+      megabytes for read and write; ``0`` disables the limit; default ``10.0``.
 
     The ``EMBEDDING_PROVIDER`` variable is intentionally **not** resolved here;
     call :func:`~markdown_vault_mcp.providers.get_embedding_provider`
@@ -256,6 +265,30 @@ def load_config() -> CollectionConfig:
         git_push_delay_s = 30.0
     logger.debug("load_config: git_push_delay_s=%s", git_push_delay_s)
 
+    raw_attachment_extensions = (_env("ATTACHMENT_EXTENSIONS") or "").strip()
+    attachment_extensions: list[str] | None
+    if not raw_attachment_extensions:
+        attachment_extensions = None  # use default list in Collection
+    elif raw_attachment_extensions == "*":
+        attachment_extensions = ["*"]
+    else:
+        attachment_extensions = _parse_list(raw_attachment_extensions) or None
+    logger.debug("load_config: attachment_extensions=%s", attachment_extensions)
+
+    raw_max_attachment_size = (_env("MAX_ATTACHMENT_SIZE_MB") or "").strip()
+    if raw_max_attachment_size:
+        try:
+            max_attachment_size_mb = float(raw_max_attachment_size)
+        except ValueError:
+            logger.warning(
+                "load_config: invalid MAX_ATTACHMENT_SIZE_MB=%r, using default 10.0",
+                raw_max_attachment_size,
+            )
+            max_attachment_size_mb = 10.0
+    else:
+        max_attachment_size_mb = 10.0
+    logger.debug("load_config: max_attachment_size_mb=%s", max_attachment_size_mb)
+
     return CollectionConfig(
         source_dir=source_dir,
         read_only=read_only,
@@ -269,4 +302,6 @@ def load_config() -> CollectionConfig:
         git_push_delay_s=git_push_delay_s,
         git_commit_name=git_commit_name,
         git_commit_email=git_commit_email,
+        attachment_extensions=attachment_extensions,
+        max_attachment_size_mb=max_attachment_size_mb,
     )

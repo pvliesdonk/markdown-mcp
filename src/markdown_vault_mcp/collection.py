@@ -6,10 +6,12 @@ LangChain wrappers, and CLI commands all go through this class.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import fnmatch
 import json
 import logging
+import mimetypes
 import shutil
 import threading
 from pathlib import Path
@@ -33,6 +35,8 @@ from markdown_vault_mcp.scanner import (
 )
 from markdown_vault_mcp.tracker import ChangeTracker
 from markdown_vault_mcp.types import (
+    AttachmentContent,
+    AttachmentInfo,
     CollectionStats,
     DeleteResult,
     EditResult,
@@ -58,6 +62,51 @@ _DEFAULT_STATE_FILENAME = "state.json"
 
 # RRF constant — standard value recommended in the original paper.
 _RRF_K = 60
+
+# Default set of allowed attachment extensions (without leading dot, lower-case).
+# .md is always excluded — it is always handled as a markdown note.
+_DEFAULT_ATTACHMENT_EXTENSIONS: frozenset[str] = frozenset(
+    [
+        # Documents
+        "pdf",
+        "docx",
+        "xlsx",
+        "pptx",
+        "odt",
+        "ods",
+        "odp",
+        # Images
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "svg",
+        "bmp",
+        "tiff",
+        # Archives
+        "zip",
+        "tar",
+        "gz",
+        # Audio / Video
+        "mp3",
+        "mp4",
+        "wav",
+        "ogg",
+        # Text and data
+        "txt",
+        "csv",
+        "tsv",
+        "json",
+        "yaml",
+        "toml",
+        "xml",
+        "html",
+        "css",
+        "js",
+        "ts",
+    ]
+)
 
 
 def _resolve_chunk_strategy(strategy: str | ChunkStrategy) -> ChunkStrategy:
@@ -159,6 +208,8 @@ class Collection:
         chunk_strategy: str | ChunkStrategy = "heading",
         on_write: WriteCallback | None = None,
         exclude_patterns: list[str] | None = None,
+        attachment_extensions: list[str] | None = None,
+        max_attachment_size_mb: float = 10.0,
     ) -> None:
         self._source_dir = source_dir
         self._index_path = index_path
@@ -170,6 +221,8 @@ class Collection:
         self._chunk_strategy = _resolve_chunk_strategy(chunk_strategy)
         self._on_write = on_write
         self._exclude_patterns = exclude_patterns
+        self._attachment_extensions = attachment_extensions
+        self._max_attachment_size_mb = max_attachment_size_mb
 
         # Default state path: {source_dir}/.markdown_vault_mcp/state.json
         if state_path is None:
@@ -572,27 +625,78 @@ class Collection:
         *,
         folder: str | None = None,
         pattern: str | None = None,
-    ) -> list[NoteInfo]:
-        """List documents in the collection.
+        include_attachments: bool = False,
+    ) -> list[NoteInfo | AttachmentInfo]:
+        """List documents (and optionally attachments) in the collection.
 
         Args:
             folder: If provided, only return documents in this folder (and
                 sub-folders).
             pattern: Unix glob matched against the relative path using
                 :func:`fnmatch.fnmatch`.  Example: ``"Journal/*.md"``.
+            include_attachments: When ``True``, also return non-.md files
+                that match the attachment allowlist.  Each
+                :class:`~markdown_vault_mcp.types.AttachmentInfo` entry
+                includes ``kind="attachment"`` and ``mime_type``.
 
         Returns:
-            List of :class:`~markdown_vault_mcp.types.NoteInfo` objects.
+            List of :class:`~markdown_vault_mcp.types.NoteInfo` (and
+            optionally :class:`~markdown_vault_mcp.types.AttachmentInfo`)
+            objects.
         """
         self._ensure_initialized()
 
         rows = self._fts.list_notes(folder=folder)
-        notes = [_fts_row_to_note_info(row) for row in rows]
+        notes: list[NoteInfo | AttachmentInfo] = [
+            _fts_row_to_note_info(row) for row in rows
+        ]
 
         if pattern:
             notes = [n for n in notes if fnmatch.fnmatch(n.path, pattern)]
 
-        return notes
+        if not include_attachments:
+            return notes
+
+        exts = self._effective_attachment_extensions()
+        source_resolved = self._source_dir.resolve()
+        attachments: list[AttachmentInfo] = []
+
+        for abs_path in self._source_dir.rglob("*"):
+            if not abs_path.is_file():
+                continue
+            if abs_path.suffix.lower() == ".md":
+                continue
+            suffix = abs_path.suffix.lstrip(".").lower()
+            if "*" not in exts and suffix not in exts:
+                continue
+            try:
+                rel_path = str(abs_path.relative_to(source_resolved))
+            except ValueError:
+                continue
+            if pattern and not fnmatch.fnmatch(rel_path, pattern):
+                continue
+            rel_folder = str(Path(rel_path).parent)
+            if rel_folder == ".":
+                rel_folder = ""
+            if folder is not None:
+                if rel_folder != folder and not rel_folder.startswith(folder + "/"):
+                    continue
+            try:
+                stat = abs_path.stat()
+            except OSError:
+                continue
+            mime_type, _ = mimetypes.guess_type(rel_path)
+            attachments.append(
+                AttachmentInfo(
+                    path=rel_path,
+                    folder=rel_folder,
+                    mime_type=mime_type,
+                    size_bytes=stat.st_size,
+                    modified_at=stat.st_mtime,
+                )
+            )
+
+        return notes + attachments
 
     # ------------------------------------------------------------------
     # Index management
@@ -956,12 +1060,16 @@ class Collection:
             self._embedding_provider is not None and self._embeddings_path is not None
         )
 
+        exts = self._effective_attachment_extensions()
+        attachment_extensions = ["*"] if "*" in exts else sorted(exts)
+
         return CollectionStats(
             document_count=doc_count,
             chunk_count=chunk_count,
             folder_count=folder_count,
             semantic_search_available=semantic_available,
             indexed_frontmatter_fields=list(self._indexed_frontmatter_fields),
+            attachment_extensions=attachment_extensions,
         )
 
     # ------------------------------------------------------------------
@@ -979,6 +1087,32 @@ class Collection:
                 "Collection is read-only; write operations are not permitted."
             )
 
+    def _effective_attachment_extensions(self) -> frozenset[str]:
+        """Return the effective set of allowed attachment extensions.
+
+        Returns:
+            Frozenset of lower-case extension strings (without leading dot).
+            The special value ``frozenset(["*"])`` means all non-.md files.
+        """
+        if self._attachment_extensions is None:
+            return _DEFAULT_ATTACHMENT_EXTENSIONS
+        return frozenset(self._attachment_extensions)
+
+    def _is_attachment(self, path: str) -> bool:
+        """Return True if *path* is an allowed non-.md attachment.
+
+        Args:
+            path: Relative path to check.
+
+        Returns:
+            ``True`` when the extension is in the allowlist and is not ``.md``.
+        """
+        if path.endswith(".md"):
+            return False
+        suffix = Path(path).suffix.lstrip(".").lower()
+        exts = self._effective_attachment_extensions()
+        return "*" in exts or suffix in exts
+
     def _validate_path(self, path: str) -> Path:
         """Resolve a relative path and validate it is inside source_dir.
 
@@ -994,6 +1128,37 @@ class Collection:
         """
         if not path.endswith(".md"):
             raise ValueError(f"Path must end with '.md': {path}")
+        abs_path = (self._source_dir / path).resolve()
+        if not abs_path.is_relative_to(self._source_dir.resolve()):
+            raise ValueError(f"Path traversal detected: {path}")
+        return abs_path
+
+    def _validate_attachment_path(self, path: str) -> Path:
+        """Resolve and validate a non-.md attachment path.
+
+        Args:
+            path: Relative attachment path.
+
+        Returns:
+            The resolved absolute path.
+
+        Raises:
+            ValueError: If the path escapes the source directory, ends with
+                ``.md``, or has an extension not in the attachment allowlist.
+        """
+        if path.endswith(".md"):
+            raise ValueError(
+                f"Path ends with '.md' — use the note read/write methods instead: {path}"
+            )
+        exts = self._effective_attachment_extensions()
+        suffix = Path(path).suffix.lstrip(".").lower()
+        if "*" not in exts and suffix not in exts:
+            allowed_str = ", ".join(f".{e}" for e in sorted(exts))
+            raise ValueError(
+                f"Extension '.{suffix}' is not in the attachment allowlist. "
+                f"Allowed: {allowed_str}. "
+                "Set MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS=* to allow all non-.md files."
+            )
         abs_path = (self._source_dir / path).resolve()
         if not abs_path.is_relative_to(self._source_dir.resolve()):
             raise ValueError(f"Path traversal detected: {path}")
@@ -1025,6 +1190,87 @@ class Collection:
         if texts:
             self._vectors.add(texts, meta)
         self._vectors.save(self._embeddings_path)
+
+    def read_attachment(self, path: str) -> AttachmentContent:
+        """Read the binary content of a non-.md attachment.
+
+        Args:
+            path: Relative attachment path (e.g. ``"assets/diagram.pdf"``).
+
+        Returns:
+            :class:`~markdown_vault_mcp.types.AttachmentContent` with
+            base64-encoded content and MIME type.
+
+        Raises:
+            ValueError: If the path escapes the source directory, has an
+                extension not in the allowlist, or the file does not exist.
+            ValueError: If the file exceeds the configured size limit.
+        """
+        abs_path = self._validate_attachment_path(path)
+        if not abs_path.is_file():
+            raise ValueError(f"Attachment not found: {path}")
+
+        stat = abs_path.stat()
+        size_bytes = stat.st_size
+        if self._max_attachment_size_mb > 0:
+            limit_bytes = int(self._max_attachment_size_mb * 1024 * 1024)
+            if size_bytes > limit_bytes:
+                raise ValueError(
+                    f"Attachment {path!r} is {size_bytes} bytes, which exceeds "
+                    f"the limit of {self._max_attachment_size_mb} MB "
+                    f"({limit_bytes} bytes). "
+                    "Raise MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB or set it "
+                    "to 0 to disable the limit."
+                )
+
+        mime_type, _ = mimetypes.guess_type(path)
+        raw = abs_path.read_bytes()
+        content_base64 = base64.b64encode(raw).decode("ascii")
+        return AttachmentContent(
+            path=path,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            content_base64=content_base64,
+            modified_at=stat.st_mtime,
+        )
+
+    def write_attachment(self, path: str, content: bytes) -> WriteResult:
+        """Create or overwrite a non-.md attachment.
+
+        Args:
+            path: Relative attachment path (e.g. ``"assets/diagram.pdf"``).
+            content: Raw bytes to write.
+
+        Returns:
+            :class:`~markdown_vault_mcp.types.WriteResult`.
+
+        Raises:
+            ReadOnlyError: If the collection is read-only.
+            ValueError: If the path escapes the source directory, has an
+                extension not in the allowlist, or the content exceeds the
+                size limit.
+        """
+        self._check_writable()
+        with self._write_lock:
+            abs_path = self._validate_attachment_path(path)
+            if self._max_attachment_size_mb > 0:
+                limit_bytes = int(self._max_attachment_size_mb * 1024 * 1024)
+                if len(content) > limit_bytes:
+                    raise ValueError(
+                        f"Content ({len(content)} bytes) exceeds the limit of "
+                        f"{self._max_attachment_size_mb} MB ({limit_bytes} bytes). "
+                        "Raise MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB or set "
+                        "it to 0 to disable the limit."
+                    )
+            created = not abs_path.is_file()
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_bytes(content)
+            result = WriteResult(path=path, created=created)
+
+        if self._on_write is not None:
+            self._on_write(abs_path, "", "write")
+
+        return result
 
     def write(
         self,
@@ -1143,13 +1389,14 @@ class Collection:
         return EditResult(path=path, replacements=1)
 
     def delete(self, path: str) -> DeleteResult:
-        """Delete a document.
+        """Delete a document or attachment.
 
-        Removes the file from disk and deletes all FTS and embedding
-        index entries.
+        Removes the file from disk.  For ``.md`` documents, also removes all
+        FTS and embedding index entries.  For attachments, only the file is
+        deleted (no index update).
 
         Args:
-            path: Relative document path.
+            path: Relative document or attachment path.
 
         Returns:
             :class:`~markdown_vault_mcp.types.DeleteResult`.
@@ -1157,25 +1404,27 @@ class Collection:
         Raises:
             ReadOnlyError: If the collection is read-only.
             DocumentNotFoundError: If the file does not exist.
+            ValueError: If the path escapes the source directory, or (for
+                non-.md paths) has an extension not in the attachment allowlist.
         """
         self._check_writable()
         with self._write_lock:
             self._ensure_initialized()
 
-            abs_path = self._validate_path(path)
-            if not abs_path.is_file():
-                raise DocumentNotFoundError(f"Document not found: {path}")
-
-            # Remove file from disk.
-            abs_path.unlink()
-
-            # Delete FTS index entries.
-            self._fts.delete_by_path(path)
-
-            # Delete vector index entries if active.
-            if self._vectors is not None and self._embeddings_path is not None:
-                self._vectors.delete_by_path(path)
-                self._vectors.save(self._embeddings_path)
+            if path.endswith(".md"):
+                abs_path = self._validate_path(path)
+                if not abs_path.is_file():
+                    raise DocumentNotFoundError(f"Document not found: {path}")
+                abs_path.unlink()
+                self._fts.delete_by_path(path)
+                if self._vectors is not None and self._embeddings_path is not None:
+                    self._vectors.delete_by_path(path)
+                    self._vectors.save(self._embeddings_path)
+            else:
+                abs_path = self._validate_attachment_path(path)
+                if not abs_path.is_file():
+                    raise DocumentNotFoundError(f"Attachment not found: {path}")
+                abs_path.unlink()
 
         # Trigger callback outside lock to prevent deadlock.
         if self._on_write is not None:
@@ -1184,15 +1433,16 @@ class Collection:
         return DeleteResult(path=path)
 
     def rename(self, old_path: str, new_path: str) -> RenameResult:
-        """Rename or move a document.
+        """Rename or move a document or attachment.
 
-        Renames the file on disk, deletes old index entries, and inserts
-        new entries under the new path.  Creates intermediate directories
-        for *new_path* as needed.
+        Renames the file on disk.  For ``.md`` documents, also updates FTS
+        and embedding index entries.  For attachments, only the file is moved
+        (no index update).  Creates intermediate directories for *new_path*
+        as needed.
 
         Args:
-            old_path: Current relative document path.
-            new_path: Target relative document path.
+            old_path: Current relative document or attachment path.
+            new_path: Target relative document or attachment path.
 
         Returns:
             :class:`~markdown_vault_mcp.types.RenameResult`.
@@ -1201,44 +1451,50 @@ class Collection:
             ReadOnlyError: If the collection is read-only.
             DocumentNotFoundError: If *old_path* does not exist.
             DocumentExistsError: If *new_path* already exists.
-            ValueError: If either path escapes the source directory.
+            ValueError: If either path escapes the source directory, or (for
+                non-.md paths) has an extension not in the attachment allowlist.
         """
         self._check_writable()
         with self._write_lock:
             self._ensure_initialized()
 
-            old_abs = self._validate_path(old_path)
-            new_abs = self._validate_path(new_path)
+            if old_path.endswith(".md"):
+                old_abs = self._validate_path(old_path)
+                new_abs = self._validate_path(new_path)
 
-            if not old_abs.is_file():
-                raise DocumentNotFoundError(f"Document not found: {old_path}")
-            if new_abs.is_file():
-                raise DocumentExistsError(f"Target already exists: {new_path}")
+                if not old_abs.is_file():
+                    raise DocumentNotFoundError(f"Document not found: {old_path}")
+                if new_abs.is_file():
+                    raise DocumentExistsError(f"Target already exists: {new_path}")
 
-            # Create intermediate directories for new path.
-            new_abs.parent.mkdir(parents=True, exist_ok=True)
+                new_abs.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(old_abs), str(new_abs))
 
-            # Move file on disk.  shutil.move() handles cross-device renames
-            # (copy+delete fallback) unlike Path.rename().
-            shutil.move(str(old_abs), str(new_abs))
+                self._fts.delete_by_path(old_path)
+                if self._vectors is not None:
+                    self._vectors.delete_by_path(old_path)
 
-            # Delete old index entries.
-            self._fts.delete_by_path(old_path)
-            if self._vectors is not None:
-                self._vectors.delete_by_path(old_path)
+                note = parse_note(new_abs, self._source_dir, self._chunk_strategy)
+                self._fts.upsert_note(note)
+                self._update_vector_index(note)
 
-            # Insert new entries under the new path.
-            note = parse_note(new_abs, self._source_dir, self._chunk_strategy)
-            self._fts.upsert_note(note)
+                callback_content = new_abs.read_text(encoding="utf-8")
+            else:
+                old_abs = self._validate_attachment_path(old_path)
+                new_abs = self._validate_attachment_path(new_path)
 
-            # Update vector index if active.
-            self._update_vector_index(note)
+                if not old_abs.is_file():
+                    raise DocumentNotFoundError(f"Attachment not found: {old_path}")
+                if new_abs.is_file():
+                    raise DocumentExistsError(f"Target already exists: {new_path}")
 
-            # Read content for callback.
-            new_content = new_abs.read_text(encoding="utf-8")
+                new_abs.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(old_abs), str(new_abs))
+
+                callback_content = ""
 
         # Trigger callback outside lock to prevent deadlock.
         if self._on_write is not None:
-            self._on_write(new_abs, new_content, "rename")
+            self._on_write(new_abs, callback_content, "rename")
 
         return RenameResult(old_path=old_path, new_path=new_path)
