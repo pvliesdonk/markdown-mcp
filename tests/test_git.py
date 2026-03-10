@@ -849,10 +849,6 @@ class TestCommitterIdentityInCommit:
             recorded_calls.append(
                 (git_root, path, operation, commit_name, commit_email)
             )
-            # Call original to actually stage/commit
-            from markdown_vault_mcp.git import _stage_and_commit as orig
-
-            orig(git_root, path, operation, commit_name, commit_email)
 
         test_file = git_repo / "note.md"
         test_file.write_text("# Note\n")
