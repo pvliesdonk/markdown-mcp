@@ -272,8 +272,8 @@ Path dispatch is extension-based: a path ending in `.md` is treated as a note; a
 
 ```json
 [
-  { "path": "notes/intro.md",     "kind": "note" },
-  { "path": "assets/diagram.pdf", "kind": "attachment", "mime_type": "application/pdf" }
+  { "path": "notes/intro.md", "kind": "note", "title": "Intro", "folder": "notes", "frontmatter": {}, "modified_at": 1741564800.0 },
+  { "path": "assets/diagram.pdf", "kind": "attachment", "folder": "assets", "mime_type": "application/pdf", "size_bytes": 12345, "modified_at": 1741564800.0 }
 ]
 ```
 
