@@ -287,16 +287,18 @@ push) and must not block concurrent writers. The contract is:
 
 ### Security: Path Traversal Protection
 
-All public methods accepting a `path` parameter call `Collection._validate_path()`
-before any disk I/O. This method:
+All public **write** methods accepting a `path` parameter call
+`Collection._validate_path()` before any disk I/O. This method:
 
 1. Resolves the path to an absolute path via `Path.resolve()`.
 2. Checks the resolved path is within `source_dir` via `is_relative_to()`.
 3. Raises `ValueError("Path traversal detected: ...")` if it escapes.
 
-This applies to `read()`, `write()`, `edit()`, `delete()`, `rename()`, and all
-attachment operations. No file outside the vault root can be accessed or
-written.
+This applies to `write()`, `edit()`, `delete()`, `rename()`, and all
+attachment write operations.
+
+`read()` validates the path inline rather than via `_validate_path()`: if the
+resolved path escapes `source_dir`, it returns `None` instead of raising.
 
 ### Lifecycle: Collection.close()
 
@@ -633,7 +635,8 @@ WriteCallback = Callable[[Path, str, Literal["write", "edit", "delete", "rename"
   - For `delete`: empty string `""` (file no longer exists).
   - For `rename` of a note (`.md`): the full file content at the new path.
   - For `rename` of an attachment: empty string `""` (binary content).
-  - For `write` and `edit`: the new file content.
+  - For `write` and `edit` of a note (`.md`): the new file content.
+  - For `write` of an attachment: empty string `""` (binary content cannot be passed as a string).
 - `operation`: the operation that triggered the callback.
 
 **Contract**: the callback fires **outside** the write lock. It must not raise;
