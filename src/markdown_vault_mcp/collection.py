@@ -661,6 +661,8 @@ class Collection:
         source_resolved = self._source_dir.resolve()
         attachments: list[AttachmentInfo] = []
 
+        # Attachment scan runs outside _write_lock — result is a best-effort
+        # snapshot and is not atomic with the FTS note listing above.
         for abs_path in self._source_dir.rglob("*"):
             if not abs_path.is_file():
                 continue
@@ -678,9 +680,8 @@ class Collection:
             rel_folder = str(Path(rel_path).parent)
             if rel_folder == ".":
                 rel_folder = ""
-            if folder is not None:
-                if rel_folder != folder and not rel_folder.startswith(folder + "/"):
-                    continue
+            if folder is not None and rel_folder != folder and not rel_folder.startswith(folder + "/"):
+                continue
             try:
                 stat = abs_path.stat()
             except OSError:
@@ -1252,6 +1253,7 @@ class Collection:
         """
         self._check_writable()
         with self._write_lock:
+            self._ensure_initialized()
             abs_path = self._validate_attachment_path(path)
             if self._max_attachment_size_mb > 0:
                 limit_bytes = int(self._max_attachment_size_mb * 1024 * 1024)

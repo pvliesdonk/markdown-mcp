@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
 from markdown_vault_mcp.mcp_server import _build_oidc_auth, create_server
 
@@ -914,7 +915,7 @@ class TestMCPReadAttachment:
     ) -> None:
         server = create_server()
         async with Client(server) as client:
-            with pytest.raises(Exception):
+            with pytest.raises(ToolError):
                 await client.call_tool("read", {"path": "assets/missing.pdf"})
 
 
@@ -944,7 +945,7 @@ class TestMCPWriteAttachment:
     ) -> None:
         server = create_server()
         async with Client(server) as client:
-            with pytest.raises(Exception):
+            with pytest.raises(ToolError):
                 await client.call_tool("write", {"path": "assets/new.pdf"})
 
     async def test_write_attachment_invalid_base64_raises(
@@ -952,7 +953,7 @@ class TestMCPWriteAttachment:
     ) -> None:
         server = create_server()
         async with Client(server) as client:
-            with pytest.raises(Exception):
+            with pytest.raises(ToolError):
                 await client.call_tool(
                     "write",
                     {"path": "assets/new.pdf", "content_base64": "!!!invalid!!!"},

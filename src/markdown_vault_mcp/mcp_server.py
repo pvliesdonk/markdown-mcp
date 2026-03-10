@@ -12,6 +12,7 @@ configured :class:`~fastmcp.FastMCP` instance.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 import sys
@@ -311,12 +312,12 @@ def create_server() -> FastMCP:
         """
         collection = _get_collection()
         if not path.endswith(".md"):
-            result = await asyncio.to_thread(collection.read_attachment, path)
-            return asdict(result)
-        result = await asyncio.to_thread(collection.read, path)
-        if result is None:
+            attachment = await asyncio.to_thread(collection.read_attachment, path)
+            return asdict(attachment)
+        note = await asyncio.to_thread(collection.read, path)
+        if note is None:
             raise ValueError(f"Document not found: {path}")
-        return asdict(result)
+        return asdict(note)
 
     @mcp.tool(
         annotations={
@@ -560,8 +561,6 @@ def create_server() -> FastMCP:
                 ValueError: If content_base64 is missing/invalid for
                     attachments, or the content exceeds the size limit.
             """
-            import base64
-
             collection = _get_collection()
             if not path.endswith(".md"):
                 if not content_base64:

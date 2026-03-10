@@ -285,6 +285,13 @@ def load_config() -> CollectionConfig:
                 raw_max_attachment_size,
             )
             max_attachment_size_mb = 10.0
+        else:
+            if max_attachment_size_mb < 0:
+                logger.warning(
+                    "load_config: MAX_ATTACHMENT_SIZE_MB=%r is negative, using default 10.0",
+                    max_attachment_size_mb,
+                )
+                max_attachment_size_mb = 10.0
     else:
         max_attachment_size_mb = 10.0
     logger.debug("load_config: max_attachment_size_mb=%s", max_attachment_size_mb)
