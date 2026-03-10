@@ -304,8 +304,8 @@ resolved path escapes `source_dir`, it returns `None` instead of raising.
 
 `Collection.close()` must be called on shutdown to release resources:
 
-1. Closes the SQLite database connection.
-2. Duck-types on `on_write`: if the callback has a `close()` method, calls it.
+1. Duck-types on `on_write`: if the callback has a `close()` method, calls it (e.g. `GitWriteStrategy.close()` flushes and pushes pending commits).
+2. Closes the SQLite database connection.
 
 This enables `GitWriteStrategy` to flush and push any pending commits before
 the process exits. The contract is:
