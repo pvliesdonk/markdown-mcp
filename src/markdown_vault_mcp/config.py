@@ -102,6 +102,8 @@ class CollectionConfig:
     exclude_patterns: list[str] | None = None
     git_token: str | None = None
     git_push_delay_s: float = 30.0
+    git_commit_name: str = "markdown-vault-mcp"
+    git_commit_email: str = "noreply@markdown-vault-mcp"
 
     def to_collection_kwargs(self) -> dict[str, Any]:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
@@ -135,6 +137,8 @@ class CollectionConfig:
             kwargs["on_write"] = GitWriteStrategy(
                 token=self.git_token,
                 push_delay_s=self.git_push_delay_s,
+                commit_name=self.git_commit_name,
+                commit_email=self.git_commit_email,
             )
         return kwargs
 
@@ -161,6 +165,10 @@ def load_config() -> CollectionConfig:
       disabled.
     - ``MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S``: seconds of idle before pushing
       (default ``30``).  Set to ``0`` to push only on shutdown.
+    - ``MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME``: git committer name for
+      auto-commits; default ``markdown-vault-mcp``.
+    - ``MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL``: git committer email for
+      auto-commits; default ``noreply@markdown-vault-mcp``.
 
     The ``EMBEDDING_PROVIDER`` variable is intentionally **not** resolved here;
     call :func:`~markdown_vault_mcp.providers.get_embedding_provider`
@@ -226,6 +234,14 @@ def load_config() -> CollectionConfig:
     git_token: str | None = raw_git_token or None
     logger.debug("load_config: git_token=%s", "set" if git_token else "not set")
 
+    raw_commit_name = (_env("GIT_COMMIT_NAME") or "").strip()
+    git_commit_name: str = raw_commit_name or "markdown-vault-mcp"
+    logger.debug("load_config: git_commit_name=%s", git_commit_name)
+
+    raw_commit_email = (_env("GIT_COMMIT_EMAIL") or "").strip()
+    git_commit_email: str = raw_commit_email or "noreply@markdown-vault-mcp"
+    logger.debug("load_config: git_commit_email=%s", git_commit_email)
+
     raw_push_delay = (_env("GIT_PUSH_DELAY_S") or "").strip()
     if raw_push_delay:
         try:
@@ -251,4 +267,6 @@ def load_config() -> CollectionConfig:
         exclude_patterns=exclude_patterns,
         git_token=git_token,
         git_push_delay_s=git_push_delay_s,
+        git_commit_name=git_commit_name,
+        git_commit_email=git_commit_email,
     )

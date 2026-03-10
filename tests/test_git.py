@@ -676,3 +676,195 @@ class TestCollectionCloseWiresStrategy:
         col.close()
 
         assert closed == [True]
+
+
+class TestCheckIdentity:
+    """Tests for the _check_identity() warning path."""
+
+    def test_check_identity_warns_when_no_user_email(
+        self, git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_check_identity warns when git config has no user.email."""
+        import subprocess
+        from unittest.mock import patch
+
+        # Remove user.email from the repo config so git config returns empty.
+        subprocess.run(
+            ["git", "-C", str(git_repo), "config", "--unset", "user.email"],
+            capture_output=True,
+        )
+
+        strategy = GitWriteStrategy()
+        strategy._git_root = git_repo
+
+        # Mock subprocess.run to return empty stdout (no user.email).
+        with patch("markdown_vault_mcp.git.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = ""
+            strategy._check_identity()
+
+        # Verify warning was logged with the expected message.
+        assert any(
+            "no user.email in git config" in record.message
+            for record in caplog.records
+            if record.levelname == "WARNING"
+        )
+        # Verify the default identity is mentioned in the warning.
+        assert any(
+            "markdown-vault-mcp" in record.message
+            and "noreply@markdown-vault-mcp" in record.message
+            for record in caplog.records
+            if record.levelname == "WARNING"
+        )
+
+    def test_check_identity_no_warning_when_user_email_set(
+        self, git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_check_identity does not warn when git config has user.email."""
+        from unittest.mock import patch
+
+        strategy = GitWriteStrategy()
+        strategy._git_root = git_repo
+
+        # Mock subprocess.run to return non-empty stdout (user.email is set).
+        with patch("markdown_vault_mcp.git.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = "existing@example.com\n"
+            strategy._check_identity()
+
+        # Verify no warning was logged.
+        assert not any(
+            "no user.email in git config" in record.message
+            for record in caplog.records
+            if record.levelname == "WARNING"
+        )
+
+    def test_check_identity_custom_name_and_email_in_warning(
+        self, git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_check_identity warning shows custom commit name and email."""
+        from unittest.mock import patch
+
+        strategy = GitWriteStrategy(
+            commit_name="CustomBot", commit_email="bot@custom.local"
+        )
+        strategy._git_root = git_repo
+
+        with patch("markdown_vault_mcp.git.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = ""
+            strategy._check_identity()
+
+        # Verify the warning mentions the custom identity.
+        assert any(
+            "CustomBot" in record.message and "bot@custom.local" in record.message
+            for record in caplog.records
+            if record.levelname == "WARNING"
+        )
+
+
+class TestCommitterIdentityInCommit:
+    """Tests that commit_name and commit_email appear in git commit commands."""
+
+    def test_default_committer_in_commit_flags(self, git_repo: Path) -> None:
+        """_stage_and_commit uses default committer identity in -c flags."""
+        import subprocess
+        from unittest.mock import patch
+
+        recorded_cmds: list[list[str]] = []
+        original_run = subprocess.run
+
+        def recording_run(cmd: list[str], **kwargs):  # type: ignore[no-untyped-def]
+            recorded_cmds.append(list(cmd))
+            return original_run(cmd, **kwargs)
+
+        test_file = git_repo / "note.md"
+        test_file.write_text("# Note\n")
+
+        with patch("markdown_vault_mcp.git.subprocess.run", side_effect=recording_run):
+            from markdown_vault_mcp.git import _stage_and_commit
+
+            _stage_and_commit(git_repo, test_file, "write")
+
+        # Find the commit command (should have "commit" in it).
+        commit_cmd = None
+        for cmd in recorded_cmds:
+            if "commit" in cmd:
+                commit_cmd = cmd
+                break
+
+        assert commit_cmd is not None, "No commit command found"
+        # Verify the default -c flags are present.
+        assert "-c" in commit_cmd
+        assert "user.name=markdown-vault-mcp" in commit_cmd
+        assert "user.email=noreply@markdown-vault-mcp" in commit_cmd
+
+    def test_custom_committer_in_commit_flags(self, git_repo: Path) -> None:
+        """_stage_and_commit uses custom committer identity in -c flags."""
+        import subprocess
+        from unittest.mock import patch
+
+        recorded_cmds: list[list[str]] = []
+        original_run = subprocess.run
+
+        def recording_run(cmd: list[str], **kwargs):  # type: ignore[no-untyped-def]
+            recorded_cmds.append(list(cmd))
+            return original_run(cmd, **kwargs)
+
+        test_file = git_repo / "note.md"
+        test_file.write_text("# Note\n")
+
+        with patch("markdown_vault_mcp.git.subprocess.run", side_effect=recording_run):
+            from markdown_vault_mcp.git import _stage_and_commit
+
+            _stage_and_commit(
+                git_repo,
+                test_file,
+                "write",
+                commit_name="CustomBot",
+                commit_email="bot@example.com",
+            )
+
+        # Find the commit command.
+        commit_cmd = None
+        for cmd in recorded_cmds:
+            if "commit" in cmd:
+                commit_cmd = cmd
+                break
+
+        assert commit_cmd is not None
+        # Verify the custom -c flags are present.
+        assert "-c" in commit_cmd
+        assert "user.name=CustomBot" in commit_cmd
+        assert "user.email=bot@example.com" in commit_cmd
+
+    def test_strategy_passes_commit_identity_to_stage_and_commit(
+        self, git_repo: Path
+    ) -> None:
+        """GitWriteStrategy passes commit_name and commit_email to _stage_and_commit."""
+        from unittest.mock import patch
+
+        recorded_calls: list[tuple] = []
+
+        def recording_stage_and_commit(
+            git_root, path, operation, commit_name="default", commit_email="default"
+        ):
+            recorded_calls.append(
+                (git_root, path, operation, commit_name, commit_email)
+            )
+
+        test_file = git_repo / "note.md"
+        test_file.write_text("# Note\n")
+
+        strategy = GitWriteStrategy(
+            commit_name="BotName", commit_email="bot@test.local"
+        )
+
+        with patch(
+            "markdown_vault_mcp.git._stage_and_commit",
+            side_effect=recording_stage_and_commit,
+        ):
+            strategy(test_file, "# Note\n", "write")
+
+        # Verify the custom identity was passed.
+        assert len(recorded_calls) > 0
+        call = recorded_calls[0]
+        assert call[3] == "BotName"  # commit_name
+        assert call[4] == "bot@test.local"  # commit_email

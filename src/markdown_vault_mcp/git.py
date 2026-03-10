@@ -78,13 +78,22 @@ class GitWriteStrategy:
         strategy.close()  # final flush
     """
 
+    #: Default committer name used when none is set in git config or env.
+    DEFAULT_COMMIT_NAME = "markdown-vault-mcp"
+    #: Default committer email used when none is set in git config or env.
+    DEFAULT_COMMIT_EMAIL = "noreply@markdown-vault-mcp"
+
     def __init__(
         self,
         token: str | None = None,
         push_delay_s: float = 30.0,
+        commit_name: str | None = None,
+        commit_email: str | None = None,
     ) -> None:
         self._token = token
         self._push_delay_s = push_delay_s
+        self._commit_name = commit_name or self.DEFAULT_COMMIT_NAME
+        self._commit_email = commit_email or self.DEFAULT_COMMIT_EMAIL
         self._git_root: Path | None = None
         self._checked = False
         self._push_pending = False
@@ -116,13 +125,20 @@ class GitWriteStrategy:
                     path,
                 )
             else:
+                self._check_identity()
                 self._push_if_unpushed()
 
         if self._git_root is None:
             return
 
         try:
-            _stage_and_commit(self._git_root, path, operation)
+            _stage_and_commit(
+                self._git_root,
+                path,
+                operation,
+                commit_name=self._commit_name,
+                commit_email=self._commit_email,
+            )
             self._schedule_push()
         except subprocess.CalledProcessError as exc:
             sanitized_stderr = exc.stderr or ""
@@ -187,6 +203,32 @@ class GitWriteStrategy:
 
         _push(self._git_root, self._token)
         logger.info("Git: pushed to remote")
+
+    def _check_identity(self) -> None:
+        """Warn once at startup if no git committer identity is configured.
+
+        Runs ``git config user.email`` against the repo.  If it returns
+        nothing the repo (and global) git config have no identity set, so
+        commits will use the identity supplied to this strategy instance.
+        """
+        if self._git_root is None:
+            return
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(self._git_root), "config", "user.email"],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            return
+        if not result.stdout.strip():
+            logger.warning(
+                "Git: no user.email in git config — commits will use "
+                "committer identity '%s <%s>'. Set MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME "
+                "and MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL to override.",
+                self._commit_name,
+                self._commit_email,
+            )
 
     def _push_if_unpushed(self) -> None:
         """On startup, push any local commits ahead of the remote."""
@@ -292,6 +334,8 @@ def _stage_and_commit(
     git_root: Path,
     path: Path,
     operation: Literal["write", "edit", "delete", "rename"],
+    commit_name: str = GitWriteStrategy.DEFAULT_COMMIT_NAME,
+    commit_email: str = GitWriteStrategy.DEFAULT_COMMIT_EMAIL,
 ) -> None:
     """Stage and commit a single file change (no push).
 
@@ -299,6 +343,8 @@ def _stage_and_commit(
         git_root: Git repository root.
         path: Absolute path to the changed file.
         operation: The write operation type.
+        commit_name: Git committer name (overrides git config).
+        commit_email: Git committer email (overrides git config).
     """
     root = str(git_root)
 
@@ -364,7 +410,18 @@ def _stage_and_commit(
     commit_msg = f"{operation}: {rel_path}"
 
     subprocess.run(
-        ["git", "-C", root, "commit", "-m", commit_msg],
+        [
+            "git",
+            "-C",
+            root,
+            "-c",
+            f"user.name={commit_name}",
+            "-c",
+            f"user.email={commit_email}",
+            "commit",
+            "-m",
+            commit_msg,
+        ],
         capture_output=True,
         text=True,
         check=True,
