@@ -259,14 +259,67 @@ Two-layer model:
 
 | Exception | Raised by | When |
 |-----------|-----------|------|
-| `DocumentNotFoundError` | `read()`, `edit()`, `delete()`, `rename()` | Document path does not exist on disk |
+| `DocumentNotFoundError` | `edit()`, `delete()`, `rename()` | Document path does not exist on disk |
 | `ReadOnlyError` | `write()`, `edit()`, `delete()`, `rename()` | `read_only=True` |
 | `EditConflictError` | `edit()` | `old_text` not found or appears more than once |
 | `DocumentExistsError` | `rename()` | `new_path` already exists |
 | `ValueError` | `build_embeddings()` | No `embedding_provider` or `embeddings_path` configured |
+| `None` return | `read()` | Path escapes `source_dir` (traversal attempt) or file does not exist on disk |
+| `ValueError` | `edit()` | `old_text` is empty string |
 
 If a provider fails mid-`build_embeddings()`, the partial state is NOT saved;
 the previous embeddings file (if any) is left intact.
+
+### Thread Safety
+
+`Collection` serialises all write operations with a `threading.Lock`. The lock
+is held for the duration of each write (disk write + index update), then
+released **before** the `on_write` callback fires.
+
+This ordering is intentional: the callback may perform slow I/O (e.g. a git
+push) and must not block concurrent writers. The contract is:
+
+- Concurrent reads are safe without locking.
+- Concurrent writes are serialised.
+- The `on_write` callback fires **outside the lock** — it must not itself call
+  write methods on the same Collection instance (deadlock).
+- Callbacks must not raise; exceptions are the callback's responsibility.
+
+### Security: Path Traversal Protection
+
+All public **write** methods accepting a `path` parameter call
+`Collection._validate_path()` before any disk I/O. This method:
+
+1. Resolves the path to an absolute path via `Path.resolve()`.
+2. Checks the resolved path is within `source_dir` via `is_relative_to()`.
+3. Raises `ValueError("Path traversal detected: ...")` if it escapes.
+
+This applies to `write()`, `edit()`, `delete()`, `rename()`, and all
+attachment write operations.
+
+`read()` validates the path inline rather than via `_validate_path()`: if the
+resolved path escapes `source_dir`, it returns `None` instead of raising.
+
+### Lifecycle: Collection.close()
+
+`Collection.close()` must be called on shutdown to release resources:
+
+1. Duck-types on `on_write`: if the callback has a `close()` method, calls it (e.g. `GitWriteStrategy.close()` flushes and pushes pending commits).
+2. Closes the SQLite database connection.
+
+This enables `GitWriteStrategy` to flush and push any pending commits before
+the process exits. The contract is:
+
+```
+Collection(...)
+  → build_index() or lazy init on first use
+  → zero or more write operations
+  → close()          # flush git, release SQLite
+```
+
+In the MCP server, `close()` is called in the FastMCP lifespan `finally` block.
+Callers using `Collection` as a Python library must call `close()` explicitly
+(or use it as a context manager if one is added in future).
 
 ### Concurrency
 
@@ -283,8 +336,7 @@ operations.
 ### Logging
 
 Follow FastMCP conventions and standard Python logging:
-`logging.getLogger(__name__)` throughout. Include a `configure_logging()` setup
-module (adapted from ifcraftcorpus). No `print()` for operational output.
+`logging.getLogger(__name__)` throughout. No `print()` for operational output.
 
 ## Data Types
 
@@ -352,12 +404,13 @@ class NoteContent:
 
 @dataclass
 class NoteInfo:
-    """Summary info for a document, returned by list()."""
+    """Summary info for a document, returned by list_documents()."""
     path: str
     title: str
     folder: str
     frontmatter: dict[str, Any]
     modified_at: float
+    kind: str = "note"                # always "note" for markdown documents
 
 @dataclass
 class WriteResult:
@@ -494,6 +547,7 @@ class Collection:
         required_frontmatter: list[str] | None = None,
         chunk_strategy: str | ChunkStrategy = "heading",
         on_write: WriteCallback | None = None,
+        exclude_patterns: list[str] | None = None,
     ): ...
 
     # --- Search ---
@@ -573,13 +627,27 @@ against the relative path using `fnmatch.fnmatch()`. Example:
 WriteCallback = Callable[[Path, str, Literal["write", "edit", "delete", "rename"]], None]
 ```
 
-- `path`: absolute path on disk (for `delete`, the path before deletion; for
-  `rename`, the new path).
-- `content`: new file content (empty string `""` for `delete`).
-- `operation`: which operation triggered the callback.
+- `path`: absolute path on disk.
+  - For `write`, `edit`: the file's final path after the operation.
+  - For `rename`: the **new** path (old path is gone).
+  - For `delete`: the path before deletion (file no longer exists on disk).
+- `content`: updated file content as a string.
+  - For `delete`: empty string `""` (file no longer exists).
+  - For `rename` of a note (`.md`): the full file content at the new path.
+  - For `rename` of an attachment: empty string `""` (binary content).
+  - For `write` and `edit` of a note (`.md`): the new file content.
+  - For `write` of an attachment: empty string `""` (binary content cannot be passed as a string).
+- `operation`: the operation that triggered the callback.
 
-Default: `None` (no callback). Built-in option: git strategy factory
-`git_write_strategy(token=...)` that auto-commits and pushes.
+**Contract**: the callback fires **outside** the write lock. It must not raise;
+unhandled exceptions are logged at `ERROR` but not propagated to the caller.
+
+Default: `None` (no callback). Built-in option: `GitWriteStrategy` (or the
+legacy factory `git_write_strategy(token=...)`) that auto-commits and pushes.
+
+**Deprecation note**: `git_write_strategy()` factory function is preserved for
+backward compatibility. Prefer constructing `GitWriteStrategy` directly for
+access to `flush()` and `close()` methods.
 
 ### `scanner.py` -- File Discovery and Parsing
 
@@ -672,7 +740,7 @@ pattern). Each tool is annotated with MCP `ToolAnnotations`:
 |------|-------------|:-:|:-:|:-:|
 | `search` | Search the collection by query | `True` | `False` | `True` |
 | `read` | Read a document's full content | `True` | `False` | `True` |
-| `list` | List documents, optionally filtered | `True` | `False` | `True` |
+| `list_documents` | List documents, optionally filtered | `True` | `False` | `True` |
 | `write` | Create or overwrite a document | `False` | `False` | `True` |
 | `edit` | Patch a section (read-before-edit) | `False` | `False` | `False` |
 | `rename` | Rename/move a document (Phase 2-3) | `False` | `False` | `False` |
@@ -684,10 +752,19 @@ pattern). Each tool is annotated with MCP `ToolAnnotations`:
 | `build_embeddings` | Build/rebuild vector embeddings | `False` | `False` | `True` |
 | `embeddings_status` | Check embedding provider status | `True` | `False` | `True` |
 
+**Tool name note**: the MCP tool is registered as `list_documents` (not `list`)
+to avoid shadowing Python's built-in `list`. The underlying `Collection.list()`
+method is unchanged.
+
 **Conditional registration**: `write`, `edit`, `delete`, `rename` are only
 registered when `read_only=False`. If a client somehow invokes them on a
 read-only server, `ReadOnlyError` is raised (converted to structured error
 response by the MCP layer).
+
+**Dynamic instructions**: the server's MCP `instructions` string varies with
+`read_only` mode. When `read_only=True`, the instructions state this is a
+read-only instance; when `read_only=False`, they describe write tool semantics.
+This signals capability status to clients and reduces irrelevant prompting.
 
 **Tool semantics**:
 - `read(path)` returns full file content + frontmatter metadata
@@ -890,8 +967,22 @@ Startup recovery: `GitWriteStrategy` checks for unpushed local commits
 (`git log @{upstream}..HEAD`) on first invocation and pushes them before
 accepting new writes.
 
+**Deferred push mechanics**: `GitWriteStrategy` uses a `threading.Timer` that
+resets on each write. After `push_delay_s` seconds of idle, all accumulated
+local commits are pushed in a single `git push`. `flush()` cancels the timer
+and pushes synchronously. `close()` calls `flush()` and marks the strategy as
+closed (subsequent writes are ignored).
+
 For private repos (like `pvliesdonk/obsidian.md`), the git strategy needs
-credentials. Options: SSH key mount or PAT via env var.
+credentials. Options: SSH key mount or PAT via `MARKDOWN_VAULT_MCP_GIT_TOKEN`.
+
+**Git credential security**: when a token is supplied, `GitWriteStrategy` uses
+a `GIT_ASKPASS` temporary script rather than embedding the token in any
+command-line argument. This means the token is never visible in
+`/proc/<pid>/cmdline` or process listings. The script is created with `0o700`
+permissions (owner-only) and deleted in a `finally` block regardless of push
+outcome. Tokens are also **redacted** from all error log messages (replaced
+with `***`).
 
 ### Future Work
 
