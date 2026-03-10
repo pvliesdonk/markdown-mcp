@@ -2213,3 +2213,83 @@ class TestWriteAttachmentSizeLimit:
         assert isinstance(result, WriteResult)
         assert result.path == "large_file.pdf"
         assert (vault_path / "large_file.pdf").stat().st_size == len(large_content)
+
+
+# ---------------------------------------------------------------------------
+# Attachment listing — hidden dir and exclude_patterns filtering (issue #78)
+# ---------------------------------------------------------------------------
+
+
+class TestListAttachmentHiddenDirFiltering:
+    def test_hidden_dir_files_excluded_from_listing(self, tmp_path: Path) -> None:
+        """list(include_attachments=True) excludes files inside hidden directories."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "doc.md").write_text("# Doc\n", encoding="utf-8")
+        # Attachment in a normal directory — should appear.
+        (vault / "assets").mkdir()
+        (vault / "assets" / "diagram.pdf").write_bytes(b"PDF")
+        # File in a hidden directory — must NOT appear.
+        (vault / ".git").mkdir()
+        (vault / ".git" / "config").write_bytes(b"[core]")
+        # JSON file in .markdown_vault_mcp — must NOT appear.
+        (vault / ".markdown_vault_mcp").mkdir()
+        (vault / ".markdown_vault_mcp" / "state.json").write_text(
+            "{}", encoding="utf-8"
+        )
+
+        col = Collection(source_dir=vault, attachment_extensions=["pdf", "json"])
+        col.build_index()
+        results = col.list(include_attachments=True)
+
+        attachment_paths = {
+            r.path
+            for r in results
+            if hasattr(r, "mime_type")  # AttachmentInfo
+        }
+        assert "assets/diagram.pdf" in attachment_paths
+        assert not any(".git" in p for p in attachment_paths)
+        assert not any(".markdown_vault_mcp" in p for p in attachment_paths)
+
+    def test_dotfile_at_root_excluded(self, tmp_path: Path) -> None:
+        """Files whose own name starts with '.' are not considered attachments."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "doc.md").write_text("# Doc\n", encoding="utf-8")
+        # A dotfile directly in the vault root.
+        (vault / ".hidden_config.json").write_bytes(b"{}")
+
+        col = Collection(source_dir=vault, attachment_extensions=["json"])
+        col.build_index()
+        results = col.list(include_attachments=True)
+
+        attachment_paths = {r.path for r in results if hasattr(r, "mime_type")}
+        assert ".hidden_config.json" not in attachment_paths
+
+    def test_exclude_patterns_applied_to_attachments(self, tmp_path: Path) -> None:
+        """Configured exclude_patterns suppress attachments from excluded directories."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "doc.md").write_text("# Doc\n", encoding="utf-8")
+        # File in a non-hidden excluded directory (tests pure exclude_patterns path).
+        (vault / "archived").mkdir()
+        (vault / "archived" / "workspace.json").write_text("{}", encoding="utf-8")
+        # File in another excluded directory.
+        (vault / "trash").mkdir()
+        (vault / "trash" / "old.pdf").write_bytes(b"PDF")
+        # File in a normal directory — should appear.
+        (vault / "assets").mkdir()
+        (vault / "assets" / "chart.pdf").write_bytes(b"PDF")
+
+        col = Collection(
+            source_dir=vault,
+            attachment_extensions=["pdf", "json"],
+            exclude_patterns=["archived/**", "trash/**"],
+        )
+        col.build_index()
+        results = col.list(include_attachments=True)
+
+        attachment_paths = {r.path for r in results if hasattr(r, "mime_type")}
+        assert "assets/chart.pdf" in attachment_paths
+        assert "trash/old.pdf" not in attachment_paths
+        assert "archived/workspace.json" not in attachment_paths
