@@ -284,25 +284,35 @@ def create_server() -> FastMCP:
         },
     )
     async def read(path: str) -> dict[str, Any]:
-        """Read the full content and frontmatter of a single document by path.
+        """Read the full content of a document or attachment by path.
 
-        Use this after 'search' or 'list_documents' to retrieve full text.
-        Do not guess paths — look them up first.
+        For .md documents: returns markdown body, frontmatter, title, folder.
+        For attachments (pdf, png, etc.): returns base64-encoded binary content
+        and MIME type. Use 'list_documents(include_attachments=True)' to
+        discover attachment paths. Use 'stats' to see allowed extensions.
+
+        Do not guess paths — look them up first via 'search' or 'list_documents'.
 
         Args:
-            path: Relative path to the document (e.g. "Journal/note.md").
-                Case-sensitive. Must match a path from 'search' or
-                'list_documents'.
+            path: Relative path to the document or attachment
+                (e.g. "Journal/note.md" or "assets/diagram.pdf").
+                Case-sensitive.
 
         Returns:
-            Dict with path, title, folder, content (full markdown body),
-            frontmatter (dict of YAML fields), modified_at (ISO 8601).
+            For .md: dict with path, title, folder, content (markdown body),
+            frontmatter (dict), modified_at (Unix timestamp).
+            For attachments: dict with path, mime_type (str or null),
+            size_bytes (int), content_base64 (str), modified_at (Unix timestamp).
 
         Raises:
-            ValueError: If no document exists at the given path. Use
-                'search' or 'list_documents' to find the correct path.
+            ValueError: If no file exists at the given path, the extension is
+                not in the attachment allowlist, or the file exceeds the size
+                limit.
         """
         collection = _get_collection()
+        if not path.endswith(".md"):
+            result = await asyncio.to_thread(collection.read_attachment, path)
+            return asdict(result)
         result = await asyncio.to_thread(collection.read, path)
         if result is None:
             raise ValueError(f"Document not found: {path}")
@@ -318,8 +328,9 @@ def create_server() -> FastMCP:
     async def list_documents(
         folder: str | None = None,
         pattern: str | None = None,
+        include_attachments: bool = False,
     ) -> list[dict[str, Any]]:
-        """List all documents in the collection, optionally filtered by folder or glob.
+        """List documents (and optionally attachments) in the collection.
 
         Use this to enumerate documents when you need a complete listing, not
         ranked search results. For finding documents by content, use 'search'.
@@ -329,14 +340,23 @@ def create_server() -> FastMCP:
             folder: Return only documents in this folder (e.g. "Journal").
             pattern: Unix glob matched against relative paths (e.g.
                 "Journal/*.md", "**/*meeting*.md").
+            include_attachments: When True, also returns non-.md files (PDFs,
+                images, etc.) that match the configured allowlist. Each
+                attachment entry includes kind="attachment" and mime_type.
+                Default False (notes only).
 
         Returns:
-            List of document info dicts with path, title, folder, frontmatter,
-            modified_at. Body content is not included.
+            List of info dicts. For notes: path, title, folder, frontmatter,
+            modified_at, kind="note". For attachments (when
+            include_attachments=True): path, folder, mime_type, size_bytes,
+            modified_at, kind="attachment". Body content is not included.
         """
         collection = _get_collection()
         results = await asyncio.to_thread(
-            collection.list, folder=folder, pattern=pattern
+            collection.list,
+            folder=folder,
+            pattern=pattern,
+            include_attachments=include_attachments,
         )
         return [asdict(r) for r in results]
 
@@ -506,28 +526,55 @@ def create_server() -> FastMCP:
         )
         async def write(
             path: str,
-            content: str,
+            content: str = "",
             frontmatter: dict[str, Any] | None = None,
+            content_base64: str = "",
         ) -> dict[str, Any]:
-            """Create a new document or completely overwrite an existing one.
+            """Create or overwrite a document or attachment.
 
-            WARNING: If the path already exists, its entire content is replaced.
-            To make targeted changes to an existing document, use 'edit' instead.
-            Call 'read' first if you are unsure whether the document exists.
+            For .md documents: uses 'content' (markdown body) and optional
+            'frontmatter'. WARNING: replaces the entire file — use 'edit'
+            for targeted changes.
+
+            For attachments (pdf, png, etc.): uses 'content_base64' (base64-
+            encoded binary). 'content' and 'frontmatter' are ignored.
+            Parent directories are created automatically for both.
 
             Args:
-                path: Relative path (e.g. "Journal/note.md"). Parent
-                    directories are created automatically.
-                content: Full markdown body (excluding frontmatter). Do not
-                    include YAML delimiters — pass frontmatter separately.
-                frontmatter: Optional dict of YAML frontmatter fields,
-                    e.g. {"title": "My Note", "tags": ["draft", "idea"]}.
+                path: Relative path (e.g. "Journal/note.md" or
+                    "assets/photo.png"). Extension determines handling.
+                content: Full markdown body for .md files (excluding
+                    frontmatter). Ignored for attachments.
+                frontmatter: Optional YAML frontmatter dict for .md files,
+                    e.g. {"title": "My Note", "tags": ["draft"]}.
+                    Ignored for attachments.
+                content_base64: Base64-encoded binary content for attachment
+                    files. Required when path is not .md.
 
             Returns:
                 Dict with path (str) and created (bool — true if new file,
                 false if overwrite).
+
+            Raises:
+                ValueError: If content_base64 is missing/invalid for
+                    attachments, or the content exceeds the size limit.
             """
+            import base64
+
             collection = _get_collection()
+            if not path.endswith(".md"):
+                if not content_base64:
+                    raise ValueError(
+                        f"content_base64 is required for non-.md attachments: {path}"
+                    )
+                try:
+                    raw_bytes = base64.b64decode(content_base64)
+                except Exception as exc:
+                    raise ValueError(f"Invalid base64 in content_base64: {exc}") from exc
+                result = await asyncio.to_thread(
+                    collection.write_attachment, path, raw_bytes
+                )
+                return asdict(result)
             result = await asyncio.to_thread(
                 collection.write, path, content, frontmatter=frontmatter
             )
@@ -575,17 +622,18 @@ def create_server() -> FastMCP:
             },
         )
         async def delete(path: str) -> dict[str, Any]:
-            """Permanently delete a document and remove it from all search indices.
+            """Permanently delete a document or attachment.
 
-            IRREVERSIBLE unless git history exists. Confirm the path with the
-            user before calling. Use 'list_documents' or 'search' to verify
-            the path.
+            For .md documents: also removes from all search indices.
+            For attachments: only the file is deleted (no index to update).
+            IRREVERSIBLE unless git history exists. Confirm the path with
+            the user before calling.
 
             Args:
-                path: Relative path to the document to delete.
+                path: Relative path to the document or attachment to delete.
 
             Returns:
-                Dict with path (str) of the deleted document.
+                Dict with path (str) of the deleted file.
             """
             collection = _get_collection()
             result = await asyncio.to_thread(collection.delete, path)
@@ -602,16 +650,17 @@ def create_server() -> FastMCP:
             old_path: str,
             new_path: str,
         ) -> dict[str, Any]:
-            """Rename a document or move it to a different folder.
+            """Rename a document or attachment, or move it to a different folder.
 
-            Both the file and its search index entries are updated atomically.
-            No need to call 'reindex' after renaming. Parent directories for
-            new_path are created automatically.
+            For .md documents: the file and its search index entries are updated.
+            For attachments: only the file is moved (no index update needed).
+            Parent directories for new_path are created automatically.
 
             Args:
-                old_path: Current relative path (e.g. "drafts/idea.md").
-                new_path: Target relative path (e.g. "projects/idea.md").
-                    Can cross folders. Fails if new_path already exists.
+                old_path: Current relative path (e.g. "drafts/idea.md"
+                    or "assets/old.png").
+                new_path: Target relative path (e.g. "projects/idea.md"
+                    or "assets/new.png"). Fails if new_path already exists.
 
             Returns:
                 Dict with old_path (str) and new_path (str).

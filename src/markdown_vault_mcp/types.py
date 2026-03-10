@@ -130,6 +130,29 @@ class ReindexResult:
 
 
 @dataclass
+class AttachmentContent:
+    """Full content of an attachment, returned by read() for non-.md files."""
+
+    path: str
+    mime_type: str | None
+    size_bytes: int
+    content_base64: str
+    modified_at: float
+
+
+@dataclass
+class AttachmentInfo:
+    """Summary info for an attachment, returned by list(include_attachments=True)."""
+
+    path: str
+    folder: str
+    mime_type: str | None
+    size_bytes: int
+    modified_at: float
+    kind: str = "attachment"
+
+
+@dataclass
 class CollectionStats:
     """Collection-wide statistics."""
 
@@ -138,6 +161,7 @@ class CollectionStats:
     folder_count: int
     semantic_search_available: bool
     indexed_frontmatter_fields: list[str] = field(default_factory=list)
+    attachment_extensions: list[str] = field(default_factory=list)
 
 
 @dataclass
