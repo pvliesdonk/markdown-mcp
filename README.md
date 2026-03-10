@@ -170,7 +170,7 @@ Optional token-based authentication for HTTP deployments. OIDC activates when al
 | `MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET` | Yes | OIDC client secret |
 | `MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY` | No | JWT signing key; **required on Linux/Docker** — the default is ephemeral and invalidates tokens on restart. Generate with `openssl rand -hex 32` |
 | `MARKDOWN_VAULT_MCP_OIDC_AUDIENCE` | No | Expected JWT audience claim; leave unset if your provider does not set one |
-| `MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES` | No | Space-separated required scopes; default `openid` |
+| `MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES` | No | Comma-separated required scopes; default `openid` |
 
 ## CLI Reference
 
@@ -189,8 +189,8 @@ markdown-vault-mcp serve [--transport {stdio|sse|http}] [--host HOST] [--port PO
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--transport` | `stdio` | MCP transport: `stdio` (stdin/stdout, default), `sse` (Server-Sent Events), `http` (streamable-HTTP). Use `http` for Docker with a reverse proxy or when OIDC is enabled. |
-| `--host` | `0.0.0.0` | Bind host; only used with `sse` and `http` transports |
-| `--port` | `8000` | Port; only used with `sse` and `http` transports |
+| `--host` | `0.0.0.0` | Bind host for the `http` transport (ignored for `stdio` and `sse`) |
+| `--port` | `8000` | Port for the `http` transport (ignored for `stdio` and `sse`) |
 
 ### `index`
 
@@ -251,10 +251,10 @@ Path dispatch is extension-based: a path ending in `.md` is treated as a note; a
 ```json
 {
   "path": "assets/diagram.pdf",
-  "kind": "attachment",
-  "encoding": "base64",
-  "content": "<base64 string>",
-  "mime_type": "application/pdf"
+  "mime_type": "application/pdf",
+  "size_bytes": 12345,
+  "content_base64": "<base64 string>",
+  "modified_at": 1741564800.0
 }
 ```
 
