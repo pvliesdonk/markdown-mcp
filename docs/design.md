@@ -725,6 +725,13 @@ For MCP server deployment:
 | `MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S` | Seconds of idle before git push (0 = push on shutdown only) | `30` |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME` | Committer name for auto-commits | `markdown-vault-mcp` |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL` | Committer email for auto-commits | `noreply@markdown-vault-mcp` |
+| `MARKDOWN_VAULT_MCP_BASE_URL` | Server's public URL, required to enable OIDC auth (e.g. `https://mcp.example.com`) | none |
+| `MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL` | OIDC discovery URL (`/.well-known/openid-configuration`) | none |
+| `MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID` | OIDC client ID registered with the provider | none |
+| `MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET` | OIDC client secret | none |
+| `MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY` | Persistent JWT signing key — **required for Docker/Linux** to survive restarts | ephemeral on Linux |
+| `MARKDOWN_VAULT_MCP_OIDC_AUDIENCE` | JWT audience claim (required by some providers) | none |
+| `MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES` | Comma-separated OAuth scopes to request | `openid` |
 | `EMBEDDING_PROVIDER` | `ollama`, `openai`, `sentence-transformers` | auto-detect |
 | `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
 | `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | Ollama embedding model | `nomic-embed-text` |
@@ -756,6 +763,43 @@ MARKDOWN_VAULT_MCP_READ_ONLY=false
 MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**,_templates/**
 MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_xxx
 ```
+
+**Obsidian vault with OIDC auth (Authelia)**:
+```bash
+MARKDOWN_VAULT_MCP_SOURCE_DIR=/data/vault
+MARKDOWN_VAULT_MCP_READ_ONLY=true
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com
+MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/.well-known/openid-configuration
+MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
+MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
+MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-random-secret   # required on Linux/Docker
+```
+
+#### OIDC Authentication
+
+When all four required vars are set (`BASE_URL`, `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`), the server uses FastMCP's `OIDCProxy` to authenticate MCP clients via OAuth 2.1 + PKCE. The server auto-discovers provider endpoints from the OIDC discovery URL so no additional endpoint configuration is needed.
+
+**Authelia client registration** (in your Authelia `configuration.yml`):
+```yaml
+identity_providers:
+  oidc:
+    clients:
+      - client_id: markdown-vault-mcp
+        client_secret: '$pbkdf2-sha512$...'   # hashed secret
+        redirect_uris:
+          - https://mcp.example.com/auth/callback
+        grant_types:
+          - authorization_code
+        response_types:
+          - code
+        pkce_challenge_method: S256
+        scopes:
+          - openid
+          - profile
+          - email
+```
+
+**Linux/Docker note:** FastMCP uses an ephemeral JWT signing key on Linux by default — every restart invalidates all client tokens and forces re-authentication. Set `MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY` to a stable random secret (e.g. `openssl rand -hex 32`) to persist tokens across restarts.
 
 ### Phase 3: Evaluate YAML
 
