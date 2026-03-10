@@ -710,7 +710,8 @@ class TestCheckIdentity:
         )
         # Verify the default identity is mentioned in the warning.
         assert any(
-            "markdown-vault-mcp" in record.message and "noreply@markdown-vault-mcp" in record.message
+            "markdown-vault-mcp" in record.message
+            and "noreply@markdown-vault-mcp" in record.message
             for record in caplog.records
             if record.levelname == "WARNING"
         )
@@ -762,9 +763,7 @@ class TestCheckIdentity:
 class TestCommitterIdentityInCommit:
     """Tests that commit_name and commit_email appear in git commit commands."""
 
-    def test_default_committer_in_commit_flags(
-        self, git_repo: Path
-    ) -> None:
+    def test_default_committer_in_commit_flags(self, git_repo: Path) -> None:
         """_stage_and_commit uses default committer identity in -c flags."""
         import subprocess
         from unittest.mock import patch
