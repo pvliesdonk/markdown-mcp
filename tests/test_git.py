@@ -1364,3 +1364,46 @@ class TestGitPullLoop:
         assert calls
         assert pause_calls
         assert on_pull_calls
+
+    def test_tick_exceptions_do_not_kill_thread(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Exceptions inside a pull tick are logged and the loop continues."""
+        import contextlib
+        import time
+        from types import SimpleNamespace
+
+        strategy = GitWriteStrategy(token=None, push_delay_s=0)
+
+        # Pretend tmp_path is a git repo with an upstream so start() launches the loop.
+        monkeypatch.setattr(strategy, "_ensure_git_root", lambda _p: tmp_path)
+        monkeypatch.setattr(
+            "markdown_vault_mcp.git.subprocess.run",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                returncode=0, stdout="", stderr=""
+            ),
+        )
+
+        def boom(_repo_path: Path) -> bool:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(strategy, "sync_once", boom)
+
+        @contextlib.contextmanager
+        def pause() -> None:
+            yield
+
+        strategy.start(
+            repo_path=tmp_path,
+            pull_interval_s=3600,
+            pause_writes=pause,  # type: ignore[arg-type]
+            on_pull=lambda: None,
+        )
+        time.sleep(0.05)
+
+        assert strategy._pull_thread is not None
+        assert strategy._pull_thread.is_alive()
+
+        strategy.stop()

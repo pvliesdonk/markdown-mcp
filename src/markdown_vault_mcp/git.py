@@ -524,16 +524,19 @@ class GitWriteStrategy:
             return
 
         while not self._pull_stop.is_set():
-            pause = self._pause_writes
-            if pause is None:
-                did_advance = self.sync_once(repo_path)
-                if did_advance and self._on_pull is not None:
-                    self._on_pull()
-            else:
-                with pause():
+            try:
+                pause = self._pause_writes
+                if pause is None:
                     did_advance = self.sync_once(repo_path)
                     if did_advance and self._on_pull is not None:
                         self._on_pull()
+                else:
+                    with pause():
+                        did_advance = self.sync_once(repo_path)
+                        if did_advance and self._on_pull is not None:
+                            self._on_pull()
+            except Exception:
+                logger.exception("Git pull loop tick failed")
             # Wait until the next interval, or stop early.
             if self._pull_stop.wait(timeout=self._pull_interval_s):
                 break
