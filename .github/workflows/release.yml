@@ -56,6 +56,22 @@ jobs:
         if: steps.release.outputs.released == 'true'
         run: uv build
 
+      - name: Generate SBOM
+        if: steps.release.outputs.released == 'true'
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d  # v0.23.1
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Upload SBOM to GitHub Release
+        if: steps.release.outputs.released == 'true'
+        run: gh release upload ${{ steps.release.outputs.tag }} sbom.cdx.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload to GitHub Release Assets
         uses: python-semantic-release/publish-action@v10.5.3
         if: steps.release.outputs.released == 'true'
@@ -176,4 +192,21 @@ jobs:
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate SBOM for Docker image
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d  # v0.23.1
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom-docker.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Attest Docker SBOM
+        uses: actions/attest-sbom@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          sbom-path: sbom-docker.cdx.json
           push-to-registry: true
