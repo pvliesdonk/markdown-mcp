@@ -8,7 +8,7 @@ This guide walks through three progressive Docker deployments:
 
 Each step builds on the previous one.
 
-## Step 1: Basic container with stdio
+## Step 1: Basic container via HTTP
 
 **Goal:** Run markdown-vault-mcp in a Docker container with your vault mounted as a volume.
 
