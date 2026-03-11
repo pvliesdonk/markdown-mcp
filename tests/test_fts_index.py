@@ -577,9 +577,39 @@ class TestWALMode:
         mode = idx._conn.execute("PRAGMA journal_mode").fetchone()[0]
         assert mode.lower() == "wal"
 
-    def test_in_memory_index_does_not_crash_on_wal(self) -> None:
-        """In-memory FTSIndex handles WAL pragma gracefully (may be 'memory')."""
+    def test_in_memory_index_uses_memory_journal_mode(self) -> None:
+        """In-memory FTSIndex skips WAL and retains SQLite default 'memory' mode."""
         idx = FTSIndex(":memory:")
         mode = idx._conn.execute("PRAGMA journal_mode").fetchone()[0]
-        # In-memory databases report 'memory' — WAL is not applicable.
-        assert mode.lower() in ("wal", "memory")
+        # WAL pragma is skipped for :memory: databases; SQLite uses 'memory' mode.
+        assert mode.lower() == "memory"
+
+    def test_wal_allows_concurrent_reader_during_write(self, tmp_path: Path) -> None:
+        """A reader on a second connection succeeds while the first connection writes."""
+        import sqlite3
+
+        db_path = tmp_path / "concurrent.db"
+        idx = FTSIndex(str(db_path))
+        # Seed one document so there is something to read.
+        idx.upsert_note(make_note(path="seed.md"))
+
+        writer_conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        reader_conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        try:
+            # Begin an exclusive write transaction on writer_conn.
+            writer_conn.execute("BEGIN EXCLUSIVE")
+            writer_conn.execute(
+                "INSERT OR REPLACE INTO documents(path, title, folder, "
+                "frontmatter_json, content_hash, modified_at) "
+                "VALUES ('concurrent.md', 'Concurrent', '', '{}', 'abc', 0.0)"
+            )
+            # WAL allows the reader to see the previously committed state
+            # without waiting for the writer to commit.
+            rows = reader_conn.execute(
+                "SELECT path FROM documents WHERE path = 'seed.md'"
+            ).fetchall()
+            assert len(rows) == 1, "Reader should see committed data while writer holds EXCLUSIVE"
+            writer_conn.rollback()
+        finally:
+            writer_conn.close()
+            reader_conn.close()
