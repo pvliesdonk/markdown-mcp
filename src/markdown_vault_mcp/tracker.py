@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
 import tempfile
 from pathlib import Path
 
+from markdown_vault_mcp.hashing import compute_file_hash
 from markdown_vault_mcp.types import ChangeSet, ParsedNote
 
 logger = logging.getLogger(__name__)
@@ -204,8 +204,7 @@ class ChangeTracker:
     def _compute_hash(self, path: Path) -> str:
         """Compute the SHA256 hex digest of *path* using chunked reads.
 
-        Reads the file in 8 KiB chunks so that large files do not require
-        loading the entire content into memory at once.
+        Delegates to :func:`~markdown_vault_mcp.hashing.compute_file_hash`.
 
         Args:
             path: Absolute path to the file to hash.
@@ -216,8 +215,4 @@ class ChangeTracker:
         Raises:
             OSError: If the file cannot be opened or read.
         """
-        h = hashlib.sha256()
-        with path.open("rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                h.update(chunk)
-        return h.hexdigest()
+        return compute_file_hash(path)

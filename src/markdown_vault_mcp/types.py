@@ -66,6 +66,7 @@ class NoteContent:
     content: str
     frontmatter: dict[str, Any]
     modified_at: float
+    etag: str = ""
 
 
 @dataclass
@@ -139,6 +140,7 @@ class AttachmentContent:
     size_bytes: int
     content_base64: str
     modified_at: float
+    etag: str = ""
 
 
 @dataclass

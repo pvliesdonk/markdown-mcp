@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import fnmatch
+import hashlib
 import json
 import logging
 import mimetypes
@@ -107,6 +108,18 @@ _DEFAULT_ATTACHMENT_EXTENSIONS: frozenset[str] = frozenset(
         "ts",
     ]
 )
+
+
+def _hash_bytes(data: bytes) -> str:
+    """Return the lowercase hex SHA256 digest of *data*.
+
+    Args:
+        data: Raw bytes to hash.
+
+    Returns:
+        Lowercase hex-encoded SHA256 digest.
+    """
+    return hashlib.sha256(data).hexdigest()
 
 
 def _resolve_chunk_strategy(strategy: str | ChunkStrategy) -> ChunkStrategy:
@@ -606,7 +619,14 @@ class Collection:
             logger.warning("read(%s): could not parse file — %s", path, exc)
             return None
 
-        raw_content = abs_path.read_text(encoding="utf-8")
+        try:
+            raw_bytes = abs_path.read_bytes()
+        except OSError as exc:
+            logger.warning("read(%s): could not read file bytes — %s", path, exc)
+            return None
+
+        raw_content = raw_bytes.decode("utf-8")
+        etag = _hash_bytes(raw_bytes)
         folder = str(Path(path).parent)
         if folder == ".":
             folder = ""
@@ -618,6 +638,7 @@ class Collection:
             content=raw_content,
             frontmatter=note.frontmatter,
             modified_at=note.modified_at,
+            etag=etag,
         )
 
     def list(
@@ -1289,12 +1310,14 @@ class Collection:
         mime_type, _ = mimetypes.guess_type(path)
         raw = abs_path.read_bytes()
         content_base64 = base64.b64encode(raw).decode("ascii")
+        etag = _hash_bytes(raw)
         return AttachmentContent(
             path=path,
             mime_type=mime_type,
             size_bytes=size_bytes,
             content_base64=content_base64,
             modified_at=stat.st_mtime,
+            etag=etag,
         )
 
     def write_attachment(self, path: str, content: bytes) -> WriteResult:
