@@ -387,6 +387,7 @@ class TestRead:
 
         assert result1 is not None
         assert result2 is not None
+        assert result1.etag is not None
         assert result1.etag == result2.etag
         assert len(result1.etag) == 64  # SHA256 hex is 64 chars
 
@@ -1150,12 +1151,12 @@ class TestReadAttachment:
 
     def test_read_attachment_returns_etag(self, vault_with_attachment: Path) -> None:
         """read_attachment() returns an etag field containing the SHA256 hex digest."""
-        import hashlib
+        from markdown_vault_mcp.hashing import compute_file_hash
 
         col = Collection(source_dir=vault_with_attachment)
         result = col.read_attachment("assets/report.pdf")
 
-        expected = hashlib.sha256(b"%PDF-1.4 fake content").hexdigest()
+        expected = compute_file_hash(vault_with_attachment / "assets" / "report.pdf")
         assert result.etag == expected
 
     def test_read_attachment_etag_is_stable(self, vault_with_attachment: Path) -> None:
@@ -1164,6 +1165,7 @@ class TestReadAttachment:
         result1 = col.read_attachment("assets/report.pdf")
         result2 = col.read_attachment("assets/report.pdf")
 
+        assert result1.etag is not None
         assert result1.etag == result2.etag
         assert len(result1.etag) == 64  # SHA256 hex is 64 chars
 

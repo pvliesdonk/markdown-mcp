@@ -6,6 +6,21 @@ import hashlib
 from pathlib import Path  # noqa: TC003
 
 
+def compute_etag(data: bytes) -> str:
+    """Compute the SHA256 hex digest of in-memory bytes.
+
+    Used to compute the ``etag`` field returned by :meth:`Collection.read`
+    and :meth:`Collection.read_attachment` from already-loaded byte content.
+
+    Args:
+        data: Raw bytes to hash.
+
+    Returns:
+        Lowercase hex-encoded SHA256 digest.
+    """
+    return hashlib.sha256(data).hexdigest()
+
+
 def compute_file_hash(path: Path) -> str:
     """Compute the SHA256 hex digest of a file using chunked reads.
 

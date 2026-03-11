@@ -9,7 +9,6 @@ from __future__ import annotations
 import base64
 import contextlib
 import fnmatch
-import hashlib
 import json
 import logging
 import mimetypes
@@ -27,6 +26,7 @@ from markdown_vault_mcp.exceptions import (
     ReadOnlyError,
 )
 from markdown_vault_mcp.fts_index import FTSIndex, _derive_folder
+from markdown_vault_mcp.hashing import compute_etag
 from markdown_vault_mcp.scanner import (
     ChunkStrategy,
     HeadingChunker,
@@ -109,17 +109,6 @@ _DEFAULT_ATTACHMENT_EXTENSIONS: frozenset[str] = frozenset(
     ]
 )
 
-
-def _hash_bytes(data: bytes) -> str:
-    """Return the lowercase hex SHA256 digest of *data*.
-
-    Args:
-        data: Raw bytes to hash.
-
-    Returns:
-        Lowercase hex-encoded SHA256 digest.
-    """
-    return hashlib.sha256(data).hexdigest()
 
 
 def _resolve_chunk_strategy(strategy: str | ChunkStrategy) -> ChunkStrategy:
@@ -626,7 +615,7 @@ class Collection:
             return None
 
         raw_content = raw_bytes.decode("utf-8")
-        etag = _hash_bytes(raw_bytes)
+        etag = compute_etag(raw_bytes)
         folder = str(Path(path).parent)
         if folder == ".":
             folder = ""
@@ -1310,7 +1299,7 @@ class Collection:
         mime_type, _ = mimetypes.guess_type(path)
         raw = abs_path.read_bytes()
         content_base64 = base64.b64encode(raw).decode("ascii")
-        etag = _hash_bytes(raw)
+        etag = compute_etag(raw)
         return AttachmentContent(
             path=path,
             mime_type=mime_type,
