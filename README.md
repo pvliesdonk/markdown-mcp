@@ -18,6 +18,8 @@ Point it at a directory of Markdown files (an Obsidian vault, a docs folder, a Z
 - **Git integration** — optional auto-commit and push on every write via `GIT_ASKPASS`
 - **OIDC authentication** — optional token-based auth for HTTP deployments (Authelia, Keycloak, etc.)
 - **MCP tools** — 13 tools including search, read, write, edit, delete, rename, and admin operations
+- **MCP resources** — 6 resources exposing vault configuration, statistics, tags, folders, and document outlines
+- **MCP prompts** — 5 prompt templates for summarizing, researching, discussing, comparing, and finding related notes
 
 ## Installation
 
@@ -237,6 +239,33 @@ markdown-vault-mcp reindex [--source-dir PATH] [--index-path PATH]
 | `embeddings_status` | Check embedding provider and index status |
 
 Write tools (`write`, `edit`, `delete`, `rename`) are only available when `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
+
+### Resources
+
+MCP resources expose vault metadata as structured JSON that clients can read directly without invoking tools.
+
+| URI | Description |
+|-----|-------------|
+| `config://vault` | Current collection configuration (source dir, indexed fields, read-only state, etc.) |
+| `stats://vault` | Collection statistics (document count, chunk count, embedding count, etc.) |
+| `tags://vault` | All frontmatter tag values grouped by indexed field |
+| `tags://vault/{field}` | Tag values for a specific indexed frontmatter field (template) |
+| `folders://vault` | All folder paths in the vault |
+| `toc://vault/{path}` | Table of contents (heading outline) for a specific document (template) |
+
+### Prompts
+
+Prompt templates guide the LLM through multi-step workflows using the vault tools.
+
+| Prompt | Parameters | Description |
+|--------|------------|-------------|
+| `summarize` | `path` | Read a document and produce a structured summary with key themes and takeaways |
+| `research` | `topic` | Search for a topic, synthesize findings, and create a new note at `research/{topic}.md` |
+| `discuss` | `path` | Analyze a document and suggest improvements using `edit` (not `write`) |
+| `related` | `path` | Find related notes via search and suggest cross-references as markdown links |
+| `compare` | `path1`, `path2` | Read two documents and produce a side-by-side comparison |
+
+Write prompts (`research`, `discuss`) are only available when `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
 
 ## Attachments
 

@@ -2293,3 +2293,101 @@ class TestListAttachmentHiddenDirFiltering:
         assert "assets/chart.pdf" in attachment_paths
         assert "trash/old.pdf" not in attachment_paths
         assert "archived/workspace.json" not in attachment_paths
+
+
+# ---------------------------------------------------------------------------
+# get_toc
+# ---------------------------------------------------------------------------
+
+# A document long enough to be split by HeadingChunker (default threshold 30
+# lines). We need > 30 lines so that the chunker splits on headings rather than
+# returning the whole file as a single NULL-headed chunk.
+_LONG_DOC = """\
+# Long Document Title
+
+Introductory paragraph to pad the line count.
+Line 04.
+Line 05.
+Line 06.
+Line 07.
+Line 08.
+Line 09.
+Line 10.
+
+## Section Alpha
+
+Content under Alpha.
+Line 14.
+Line 15.
+Line 16.
+Line 17.
+Line 18.
+Line 19.
+Line 20.
+
+## Section Beta
+
+Content under Beta.
+Line 24.
+Line 25.
+Line 26.
+Line 27.
+Line 28.
+Line 29.
+Line 30.
+Line 31.
+"""
+
+
+@pytest.fixture
+def collection_with_long_doc(vault_path: Path) -> Collection:
+    """Collection with a long multi-section document added for ToC testing."""
+    (vault_path / "long_doc.md").write_text(_LONG_DOC, encoding="utf-8")
+    col = _make_collection(vault_path)
+    col.build_index()
+    return col
+
+
+class TestCollectionGetToc:
+    def test_get_toc_returns_headings(
+        self, collection_with_long_doc: Collection
+    ) -> None:
+        """get_toc() returns headings for a document with multiple sections."""
+        toc = collection_with_long_doc.get_toc("long_doc.md")
+
+        assert isinstance(toc, list)
+        assert len(toc) >= 2
+        headings = [entry["heading"] for entry in toc]
+        assert "Section Alpha" in headings
+        # All entries must have heading and level keys.
+        for entry in toc:
+            assert "heading" in entry
+            assert "level" in entry
+
+    def test_get_toc_first_entry_is_synthetic_h1(
+        self, collection_with_long_doc: Collection
+    ) -> None:
+        """The first entry in get_toc() is always the document title at level 1."""
+        toc = collection_with_long_doc.get_toc("long_doc.md")
+
+        assert toc[0]["level"] == 1
+        assert toc[0]["heading"] == "Long Document Title"
+
+    def test_get_toc_no_duplicate_h1(
+        self, collection_with_long_doc: Collection
+    ) -> None:
+        """Synthetic H1 title must not duplicate a real H1 heading."""
+        toc = collection_with_long_doc.get_toc("long_doc.md")
+
+        h1_entries = [e for e in toc if e["level"] == 1]
+        assert len(h1_entries) == 1, (
+            f"Expected 1 H1, got {len(h1_entries)}: {h1_entries}"
+        )
+        assert h1_entries[0]["heading"] == "Long Document Title"
+
+    def test_get_toc_raises_for_nonexistent_document(
+        self, collection_with_long_doc: Collection
+    ) -> None:
+        """get_toc() raises ValueError for a path not in the index."""
+        with pytest.raises(ValueError, match="Document not found"):
+            collection_with_long_doc.get_toc("does_not_exist.md")
