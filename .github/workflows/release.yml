@@ -58,7 +58,7 @@ jobs:
 
       - name: Generate SBOM
         if: steps.release.outputs.released == 'true'
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d  # v0.23.1
         with:
           path: .
           format: cyclonedx-json
@@ -195,7 +195,7 @@ jobs:
           push-to-registry: true
 
       - name: Generate SBOM for Docker image
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d  # v0.23.1
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
           format: cyclonedx-json
