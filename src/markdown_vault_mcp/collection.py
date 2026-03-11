@@ -885,9 +885,7 @@ class Collection:
                 try:
                     self._fts.upsert_note(note)
                 except Exception:
-                    logger.warning(
-                        "reindex: failed to index %s", path, exc_info=True
-                    )
+                    logger.warning("reindex: failed to index %s", path, exc_info=True)
                     continue
                 if path in added_set:
                     indexed_added += 1
