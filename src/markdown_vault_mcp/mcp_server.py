@@ -153,6 +153,10 @@ async def _collection_lifespan(
         kwargs["embedding_provider"] = embedding_provider
     collection = Collection(**kwargs)
 
+    # If periodic git pull is enabled, sync before building the initial index so
+    # build_index() scans the freshest working tree.
+    await asyncio.to_thread(collection.sync_from_remote_before_index)
+
     # Build index eagerly so first tool call is fast.
     stats = await asyncio.to_thread(collection.build_index)
     logger.info(
@@ -160,6 +164,9 @@ async def _collection_lifespan(
         stats.documents_indexed,
         stats.chunks_indexed,
     )
+
+    # Start background tasks (e.g. git pull loop) after index is built.
+    collection.start()
 
     try:
         yield {"collection": collection}

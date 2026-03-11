@@ -87,6 +87,8 @@ class CollectionConfig:
             ``None`` means no files are excluded.
         git_lfs: When ``True`` (default), run ``git lfs pull`` during git
             strategy initialisation so LFS pointers are resolved before reads.
+        git_pull_interval_s: Interval in seconds for periodic git fetch +
+            fast-forward-only updates (default ``600``). Set to ``0`` to disable.
 
     Example::
 
@@ -107,6 +109,7 @@ class CollectionConfig:
     git_commit_name: str = "markdown-vault-mcp"
     git_commit_email: str = "noreply@markdown-vault-mcp"
     git_lfs: bool = True
+    git_pull_interval_s: int = 600
     attachment_extensions: list[str] | None = None
     max_attachment_size_mb: float = 10.0
 
@@ -137,17 +140,26 @@ class CollectionConfig:
             "exclude_patterns": self.exclude_patterns,
             "attachment_extensions": self.attachment_extensions,
             "max_attachment_size_mb": self.max_attachment_size_mb,
+            "git_pull_interval_s": self.git_pull_interval_s,
         }
-        if self.git_token is not None:
+        git_strategy = None
+        if self.git_token is not None or self.git_pull_interval_s > 0:
+            # Periodic pull defaults to enabled, so we create the strategy even
+            # without a token. It will no-op gracefully when git is unavailable.
             from markdown_vault_mcp.git import GitWriteStrategy
 
-            kwargs["on_write"] = GitWriteStrategy(
+            git_strategy = GitWriteStrategy(
                 token=self.git_token,
                 push_delay_s=self.git_push_delay_s,
                 commit_name=self.git_commit_name,
                 commit_email=self.git_commit_email,
                 git_lfs=self.git_lfs,
             )
+            kwargs["git_strategy"] = git_strategy
+
+        # Preserve existing semantics: auto-commit/push on write is gated on GIT_TOKEN.
+        if self.git_token is not None and git_strategy is not None:
+            kwargs["on_write"] = git_strategy
         return kwargs
 
 
@@ -179,6 +191,8 @@ def load_config() -> CollectionConfig:
       auto-commits; default ``noreply@markdown-vault-mcp``.
     - ``MARKDOWN_VAULT_MCP_GIT_LFS``: run ``git lfs pull`` during git strategy
       init to resolve LFS pointers; default ``true``.
+    - ``MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S``: seconds between periodic
+      git fetch + ff-only updates (default ``600``). Set to ``0`` to disable.
     - ``MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS``: comma-separated list of
       allowed attachment extensions (without dot, e.g. ``pdf,png,jpg``); use
       ``*`` to allow all non-.md files; default: common document and image types.
@@ -275,6 +289,26 @@ def load_config() -> CollectionConfig:
     git_lfs: bool = _parse_bool(raw_git_lfs) if raw_git_lfs is not None else True
     logger.debug("load_config: git_lfs=%s (raw=%r)", git_lfs, raw_git_lfs)
 
+    raw_pull_interval = (_env("GIT_PULL_INTERVAL_S") or "").strip()
+    if raw_pull_interval:
+        try:
+            git_pull_interval_s = int(raw_pull_interval)
+        except ValueError:
+            logger.warning(
+                "load_config: invalid GIT_PULL_INTERVAL_S=%r, using default 600",
+                raw_pull_interval,
+            )
+            git_pull_interval_s = 600
+    else:
+        git_pull_interval_s = 600
+    if git_pull_interval_s < 0:
+        logger.warning(
+            "load_config: GIT_PULL_INTERVAL_S=%r is negative, using 0 (disabled)",
+            git_pull_interval_s,
+        )
+        git_pull_interval_s = 0
+    logger.debug("load_config: git_pull_interval_s=%s", git_pull_interval_s)
+
     raw_attachment_extensions = (_env("ATTACHMENT_EXTENSIONS") or "").strip()
     attachment_extensions: list[str] | None
     if not raw_attachment_extensions:
@@ -320,6 +354,7 @@ def load_config() -> CollectionConfig:
         git_commit_name=git_commit_name,
         git_commit_email=git_commit_email,
         git_lfs=git_lfs,
+        git_pull_interval_s=git_pull_interval_s,
         attachment_extensions=attachment_extensions,
         max_attachment_size_mb=max_attachment_size_mb,
     )

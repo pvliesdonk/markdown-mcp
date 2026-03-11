@@ -1,6 +1,9 @@
 # Git Integration
 
-The `git` module provides auto-commit and push functionality for write operations. When configured, every write triggers a git commit and deferred push.
+The `git` module provides:
+
+- Auto-commit + deferred push for write operations (via `on_write`)
+- Periodic pull (ff-only) primitives used by the server to keep the working tree up to date
 
 ## Quick Start
 
@@ -33,6 +36,9 @@ collection.close()
       members:
         - __init__
         - __call__
+        - sync_once
+        - start
+        - stop
         - flush
         - close
 

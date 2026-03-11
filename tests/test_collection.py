@@ -1028,6 +1028,107 @@ class TestConcurrentWrites:
                 f"Token {i} original text still present after replacement"
             )
 
+    def test_pause_writes_blocks_write(self, vault_path: Path) -> None:
+        """pause_writes() queues write() calls until the context exits."""
+        import threading
+        import time
+
+        col = Collection(source_dir=vault_path, read_only=False)
+
+        finished = threading.Event()
+
+        def do_write() -> None:
+            col.write("paused.md", "# Paused\n")
+            finished.set()
+
+        with col.pause_writes():
+            t = threading.Thread(target=do_write, daemon=True)
+            t.start()
+            time.sleep(0.05)
+            assert not finished.is_set()
+
+        t.join(timeout=2.0)
+        assert finished.is_set()
+
+    def test_start_and_close_delegate_to_git_strategy(self, vault_path: Path) -> None:
+        """start() and close() call into the configured git strategy."""
+
+        class DummyGitStrategy:
+            def __init__(self) -> None:
+                self.started: dict[str, object] | None = None
+                self.stopped = False
+                self.closed = False
+
+            def start(
+                self,
+                *,
+                repo_path: Path,
+                pull_interval_s: int,
+                pause_writes: object,
+                on_pull: object,
+            ) -> None:
+                self.started = {
+                    "repo_path": repo_path,
+                    "pull_interval_s": pull_interval_s,
+                    "pause_writes": pause_writes,
+                    "on_pull": on_pull,
+                }
+
+            def stop(self) -> None:
+                self.stopped = True
+
+            def close(self) -> None:
+                self.closed = True
+
+            def sync_once(self, _repo_path: Path) -> bool:
+                return False
+
+        git_strategy = DummyGitStrategy()
+        col = Collection(
+            source_dir=vault_path,
+            read_only=False,
+            git_strategy=git_strategy,  # type: ignore[arg-type]
+            git_pull_interval_s=60,
+        )
+
+        col.start()
+        assert git_strategy.started is not None
+        assert git_strategy.started["repo_path"] == vault_path
+        assert git_strategy.started["pull_interval_s"] == 60
+
+        # Verify Collection.stop() delegates to git_strategy.stop() (Option C lifecycle).
+        col.stop()
+        assert git_strategy.stopped is True
+
+        col.close()
+        assert git_strategy.closed is True
+
+    def test_sync_from_remote_before_index_calls_sync_once(
+        self, vault_path: Path
+    ) -> None:
+        """sync_from_remote_before_index() calls git sync when enabled."""
+
+        class DummyGitStrategy:
+            def __init__(self) -> None:
+                self.calls: list[Path] = []
+
+            def sync_once(self, repo_path: Path) -> bool:
+                self.calls.append(repo_path)
+                return False
+
+            def close(self) -> None:
+                return None
+
+        git_strategy = DummyGitStrategy()
+        col = Collection(
+            source_dir=vault_path,
+            git_strategy=git_strategy,  # type: ignore[arg-type]
+            git_pull_interval_s=60,
+        )
+
+        col.sync_from_remote_before_index()
+        assert git_strategy.calls == [vault_path]
+
 
 # ---------------------------------------------------------------------------
 # Attachment helpers

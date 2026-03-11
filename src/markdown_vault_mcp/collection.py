@@ -54,6 +54,9 @@ from markdown_vault_mcp.types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from markdown_vault_mcp.git import GitWriteStrategy
     from markdown_vault_mcp.providers import EmbeddingProvider
     from markdown_vault_mcp.vector_index import VectorIndex
 
@@ -194,6 +197,10 @@ class Collection:
         on_write: Optional callback invoked after every successful write
             operation.  Signature:
             ``Callable[[Path, str, Literal["write","edit","delete","rename"]], None]``.
+        git_strategy: Optional git strategy used for background git tasks (e.g.
+            periodic fetch + ff-only updates). Started via :meth:`start`.
+        git_pull_interval_s: Interval in seconds for periodic pulls. ``0``
+            disables the pull loop.
     """
 
     def __init__(
@@ -209,6 +216,8 @@ class Collection:
         required_frontmatter: list[str] | None = None,
         chunk_strategy: str | ChunkStrategy = "heading",
         on_write: WriteCallback | None = None,
+        git_strategy: GitWriteStrategy | None = None,
+        git_pull_interval_s: int = 0,
         exclude_patterns: list[str] | None = None,
         attachment_extensions: list[str] | None = None,
         max_attachment_size_mb: float = 10.0,
@@ -222,6 +231,8 @@ class Collection:
         self._required_frontmatter = required_frontmatter
         self._chunk_strategy = _resolve_chunk_strategy(chunk_strategy)
         self._on_write = on_write
+        self._git_strategy = git_strategy
+        self._git_pull_interval_s = git_pull_interval_s
         self._exclude_patterns = exclude_patterns
         self._attachment_extensions = attachment_extensions
         self._max_attachment_size_mb = max_attachment_size_mb
@@ -249,11 +260,55 @@ class Collection:
         self._initialized = False
 
         # Serialise concurrent write operations on this instance.
-        self._write_lock = threading.Lock()
+        # Re-entrant: periodic pull tick blocks writes, then reindex() acquires
+        # this lock again for its mutation phase.
+        self._write_lock = threading.RLock()
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    @contextlib.contextmanager
+    def pause_writes(self) -> Iterator[None]:
+        """Block all write operations until the context exits.
+
+        Write operations are queued (blocked on the lock) rather than being
+        rejected. Reads and search remain unblocked at the Python level.
+        """
+        with self._write_lock:
+            yield
+
+    def sync_from_remote_before_index(self) -> None:
+        """One-time git fetch + ff-only update before build_index().
+
+        Intended to run during server startup before the initial index build.
+        No reindex is triggered here because build_index() will scan the updated
+        working tree.
+        """
+        if self._git_strategy is None or self._git_pull_interval_s <= 0:
+            return
+        self._git_strategy.sync_once(self._source_dir)
+
+    def start(self) -> None:
+        """Start background tasks for this Collection (e.g. git pull loop)."""
+        if self._git_strategy is None or self._git_pull_interval_s <= 0:
+            return
+        self._git_strategy.start(
+            repo_path=self._source_dir,
+            pull_interval_s=self._git_pull_interval_s,
+            pause_writes=self.pause_writes,
+            on_pull=self.reindex,
+        )
+
+    def stop(self) -> None:
+        """Stop background tasks (e.g. git pull loop) without closing the collection.
+
+        Safe to call multiple times.  A no-op if no pull loop was started.
+        The SQLite connection and write callback remain open; only the pull
+        loop thread is signalled to stop.
+        """
+        if self._git_strategy is not None:
+            self._git_strategy.stop()
 
     def close(self) -> None:
         """Release resources held by the collection.
@@ -262,7 +317,13 @@ class Collection:
         has a ``close()`` method (e.g. :class:`~markdown_vault_mcp.git.GitWriteStrategy`),
         calls it to flush pending git operations.
         """
-        if self._on_write is not None and hasattr(self._on_write, "close"):
+        if self._git_strategy is not None:
+            self._git_strategy.close()
+        if (
+            self._on_write is not None
+            and self._on_write is not self._git_strategy
+            and hasattr(self._on_write, "close")
+        ):
             self._on_write.close()  # type: ignore[union-attr]
         self._fts.close()
 
