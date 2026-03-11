@@ -596,6 +596,36 @@ class FTSIndex:
         row = self._conn.execute("SELECT COUNT(*) FROM sections").fetchone()
         return row[0] if row else 0
 
+    def get_toc(self, path: str) -> list[dict[str, str | int]]:
+        """Return headings for a document, ordered by position.
+
+        Queries the sections table for distinct non-NULL headings, ordered by
+        the first row that introduces each heading.
+
+        Args:
+            path: Relative document path (e.g. ``"Journal/note.md"``).
+
+        Returns:
+            List of ``{"heading": str, "level": int}`` dicts ordered by
+            first appearance.  Empty list if the document is not found or
+            has no headings.
+        """
+        cur = self._conn.execute(
+            """
+            SELECT heading, heading_level
+            FROM sections
+            WHERE document_id = (SELECT id FROM documents WHERE path = ?)
+              AND heading IS NOT NULL
+            GROUP BY heading, heading_level
+            ORDER BY MIN(rowid)
+            """,
+            (path,),
+        )
+        return [
+            {"heading": row["heading"], "level": row["heading_level"]}
+            for row in cur.fetchall()
+        ]
+
     def close(self) -> None:
         """Close the underlying database connection.
 

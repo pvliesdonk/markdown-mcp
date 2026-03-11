@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import sys
@@ -783,6 +784,125 @@ def create_server() -> FastMCP:
         """
         result = await asyncio.to_thread(collection.rename, old_path, new_path)
         return asdict(result)
+
+    # --- Resources ---
+
+    @mcp.resource("config://vault", mime_type="application/json")
+    async def vault_config(
+        collection: Collection = Depends(get_collection),
+    ) -> str:
+        """Vault configuration and runtime state."""
+        config = load_config()
+        return json.dumps(
+            {
+                "source_dir": str(config.source_dir),
+                "read_only": config.read_only,
+                "indexed_fields": config.indexed_frontmatter_fields or [],
+                "required_fields": config.required_frontmatter or [],
+                "exclude_patterns": config.exclude_patterns or [],
+                "embedding_provider": (
+                    type(collection._embedding_provider).__name__
+                    if collection._embedding_provider is not None
+                    else None
+                ),
+                "attachment_extensions": sorted(
+                    collection._effective_attachment_extensions()
+                ),
+            }
+        )
+
+    @mcp.resource("stats://vault", mime_type="application/json")
+    async def vault_stats(
+        collection: Collection = Depends(get_collection),
+    ) -> str:
+        """Collection statistics — document count, chunk count, capabilities."""
+        result = await asyncio.to_thread(collection.stats)
+        return json.dumps(asdict(result))
+
+    @mcp.resource("tags://vault", mime_type="application/json")
+    async def vault_tags(
+        collection: Collection = Depends(get_collection),
+    ) -> str:
+        """All tags grouped by indexed field."""
+        config = load_config()
+        fields = config.indexed_frontmatter_fields or []
+        grouped: dict[str, list[str]] = {}
+        for field in fields:
+            values = await asyncio.to_thread(collection.list_tags, field)
+            grouped[field] = values
+        return json.dumps(grouped)
+
+    @mcp.resource("tags://vault/{field}", mime_type="application/json")
+    async def vault_tags_by_field(
+        field: str,
+        collection: Collection = Depends(get_collection),
+    ) -> str:
+        """Tags for a specific indexed field."""
+        values = await asyncio.to_thread(collection.list_tags, field)
+        return json.dumps(values)
+
+    @mcp.resource("folders://vault", mime_type="application/json")
+    async def vault_folders(
+        collection: Collection = Depends(get_collection),
+    ) -> str:
+        """All folder paths in the vault."""
+        folders = await asyncio.to_thread(collection.list_folders)
+        return json.dumps(folders)
+
+    @mcp.resource("toc://vault/{path}", mime_type="application/json")
+    async def vault_toc(
+        path: str,
+        collection: Collection = Depends(get_collection),
+    ) -> str:
+        """Table of contents for a document — headings with levels."""
+        toc = await asyncio.to_thread(collection.get_toc, path)
+        return json.dumps(toc)
+
+    # --- Prompts ---
+
+    @mcp.prompt
+    def summarize(path: str) -> str:
+        """Summarize a document."""
+        return (
+            f"Read the document at '{path}' and provide a concise summary "
+            "covering its main points, key arguments, and conclusions."
+        )
+
+    @mcp.prompt(tags={"write"})
+    def research(topic: str) -> str:
+        """Research a topic and consolidate findings as a new note."""
+        return (
+            f"Search for '{topic}' in the vault, read the most relevant results, "
+            "and consolidate your findings into a well-structured new note. "
+            "Include references to the source documents."
+        )
+
+    @mcp.prompt(tags={"write"})
+    def discuss(path: str) -> str:
+        """Analyze a document and suggest improvements."""
+        return (
+            f"Read the document at '{path}', analyze its contents, "
+            "suggest improvements or corrections, and update the note "
+            "with your changes."
+        )
+
+    @mcp.prompt
+    def related(path: str) -> str:
+        """Find related notes and suggest cross-references."""
+        return (
+            f"Read the document at '{path}', search for related notes "
+            "in the vault, and suggest cross-references or links that "
+            "would improve navigation between related content."
+        )
+
+    @mcp.prompt
+    def compare(path1: str, path2: str) -> str:
+        """Compare two documents."""
+        return (
+            f"Read both '{path1}' and '{path2}', then compare their contents. "
+            "Identify similarities, differences, contradictions, and "
+            "complementary information."
+        )
 
     # --- Visibility: hide write-tagged components in read-only mode ---
 

@@ -15,7 +15,7 @@ import mimetypes
 import shutil
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import frontmatter as fm
 
@@ -1053,6 +1053,37 @@ class Collection:
         """
         self._ensure_initialized()
         return self._fts.list_field_values(field)
+
+    def get_toc(self, path: str) -> list[dict[str, Any]]:
+        """Return table of contents for a document.
+
+        Queries the FTS sections table for headings and prepends the document
+        title as a synthetic H1 entry.
+
+        Args:
+            path: Relative path to the document (e.g. ``"notes/intro.md"``).
+
+        Returns:
+            List of ``{"heading": str, "level": int}`` dicts ordered by
+            position, with the document title prepended as level 1.
+
+        Raises:
+            ValueError: If no document exists at the given path.
+        """
+        self._ensure_initialized()
+        self._validate_path(path)
+
+        row = self._fts.get_note(path)
+        if row is None:
+            raise ValueError(f"Document not found: {path}")
+
+        title: str = row["title"]
+        headings = self._fts.get_toc(path)
+
+        # Prepend a synthetic H1 for the document title.
+        toc: list[dict[str, Any]] = [{"heading": title, "level": 1}]
+        toc.extend(headings)
+        return toc
 
     def stats(self) -> CollectionStats:
         """Return collection-wide statistics.

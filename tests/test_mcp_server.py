@@ -1022,3 +1022,172 @@ class TestMCPStatsAttachmentExtensions:
         assert "attachment_extensions" in data
         assert isinstance(data["attachment_extensions"], list)
         assert "pdf" in data["attachment_extensions"]
+
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+
+
+class TestResources:
+    """Verify MCP resources return valid JSON with expected shapes."""
+
+    @pytest.mark.usefixtures("_mcp_env_with_fields")
+    async def test_config_resource(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.read_resource("config://vault")
+        data = json.loads(result[0].text)
+        assert "source_dir" in data
+        assert isinstance(data["read_only"], bool)
+        assert isinstance(data["indexed_fields"], list)
+        assert isinstance(data["required_fields"], list)
+        assert isinstance(data["exclude_patterns"], list)
+        assert isinstance(data["attachment_extensions"], list)
+
+    @pytest.mark.usefixtures("_mcp_env_with_fields")
+    async def test_stats_resource(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            resource_result = await client.read_resource("stats://vault")
+            tool_result = await client.call_tool("stats", {})
+        resource_data = json.loads(resource_result[0].text)
+        tool_data = tool_result.data
+        assert resource_data["document_count"] == tool_data["document_count"]
+        assert resource_data["chunk_count"] == tool_data["chunk_count"]
+
+    @pytest.mark.usefixtures("_mcp_env_with_fields")
+    async def test_tags_resource_grouped(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.read_resource("tags://vault")
+        data = json.loads(result[0].text)
+        # With indexed fields "cluster,tags", both keys should be present.
+        assert isinstance(data, dict)
+        assert "cluster" in data
+        assert "tags" in data
+
+    @pytest.mark.usefixtures("_mcp_env_with_fields")
+    async def test_tags_resource_by_field(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.read_resource("tags://vault/cluster")
+        data = json.loads(result[0].text)
+        assert isinstance(data, list)
+        # full_frontmatter.md has cluster: fiction
+        assert "fiction" in data
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_folders_resource(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.read_resource("folders://vault")
+        data = json.loads(result[0].text)
+        assert isinstance(data, list)
+        assert "" in data  # root folder
+        assert "subfolder" in data
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_toc_resource(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.read_resource("toc://vault/simple.md")
+        data = json.loads(result[0].text)
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        # First entry is always the synthetic H1 for the document title.
+        assert data[0]["level"] == 1
+        assert "heading" in data[0]
+        assert data[0]["heading"] == "Simple Document"
+
+
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
+
+
+class TestPrompts:
+    """Verify MCP prompt templates return expected text."""
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_summarize_prompt(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt("summarize", {"path": "simple.md"})
+        text = result.messages[0].content.text
+        assert "simple.md" in text
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_research_prompt(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt("research", {"topic": "horror fiction"})
+        text = result.messages[0].content.text
+        assert "horror fiction" in text
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_discuss_prompt(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt("discuss", {"path": "simple.md"})
+        text = result.messages[0].content.text
+        assert "simple.md" in text
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_related_prompt(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt("related", {"path": "simple.md"})
+        text = result.messages[0].content.text
+        assert "simple.md" in text
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_compare_prompt(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt(
+                "compare", {"path1": "simple.md", "path2": "no_frontmatter.md"}
+            )
+        text = result.messages[0].content.text
+        assert "simple.md" in text
+        assert "no_frontmatter.md" in text
+
+
+# ---------------------------------------------------------------------------
+# Prompt visibility
+# ---------------------------------------------------------------------------
+
+
+class TestPromptVisibility:
+    """Verify write-tagged prompts are hidden in read-only mode."""
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_write_prompts_hidden_when_readonly(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            prompts = await client.list_prompts()
+        names = {p.name for p in prompts}
+        assert "research" not in names
+        assert "discuss" not in names
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_write_prompts_visible_when_writable(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            prompts = await client.list_prompts()
+        names = {p.name for p in prompts}
+        assert "summarize" in names
+        assert "research" in names
+        assert "discuss" in names
+        assert "related" in names
+        assert "compare" in names
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_readonly_prompts_always_visible(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            prompts = await client.list_prompts()
+        names = {p.name for p in prompts}
+        assert "summarize" in names
+        assert "related" in names
+        assert "compare" in names
