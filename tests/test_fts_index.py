@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import datetime
 import json
-from pathlib import Path  # noqa: TC003 -- used at runtime in fixtures and test helpers
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from markdown_vault_mcp.fts_index import FTSIndex, _json_default
 from markdown_vault_mcp.types import Chunk, FTSResult, ParsedNote

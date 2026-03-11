@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path  # noqa: TC003
+from pathlib import (
+    Path,  # noqa: TC003 -- used at runtime (path.open); ruff FP with PEP 563
+)
 
 
 def compute_etag(data: bytes) -> str:

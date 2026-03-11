@@ -282,6 +282,9 @@ push) and must not block concurrent writers. The contract is:
 
 - Concurrent reads are safe without locking.
 - Concurrent writes are serialised.
+- `reindex()` acquires the write lock for its mutation phase (FTS upserts,
+  vector updates, tracker save). The filesystem scan phase runs outside the
+  lock to minimise lock hold time.
 - The `on_write` callback fires **outside the lock** — it must not itself call
   write methods on the same Collection instance (deadlock).
 - Callbacks must not raise; exceptions are the callback's responsibility.
@@ -420,6 +423,7 @@ class NoteContent:
     content: str                      # raw markdown (including frontmatter)
     frontmatter: dict[str, Any]
     modified_at: float
+    etag: str                         # SHA256 hex of raw file bytes; use as if_match
 
 @dataclass
 class NoteInfo:
@@ -580,11 +584,14 @@ class Collection:
     # --- Read/Write (mirrors LLM file tool semantics) ---
     def read(self, path: str) -> NoteContent | None: ...
     def write(self, path: str, content: str,
-              frontmatter: dict | None = None) -> WriteResult: ...
-    def edit(self, path: str, old_text: str,
-             new_text: str) -> EditResult: ...
-    def delete(self, path: str) -> DeleteResult: ...
-    def rename(self, old_path: str, new_path: str) -> RenameResult: ...
+              frontmatter: dict | None = None,
+              if_match: str | None = None) -> WriteResult: ...
+    def edit(self, path: str, old_text: str, new_text: str,
+             if_match: str | None = None) -> EditResult: ...
+    def delete(self, path: str,
+               if_match: str | None = None) -> DeleteResult: ...
+    def rename(self, old_path: str, new_path: str,
+               if_match: str | None = None) -> RenameResult: ...
     def list(self, *, folder: str | None = None,
              pattern: str | None = None) -> list[NoteInfo]: ...
 
@@ -855,6 +862,7 @@ For MCP server deployment:
 | `MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S` | Seconds of idle before git push (0 = push on shutdown only) | `30` |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME` | Committer name for auto-commits | `markdown-vault-mcp` |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL` | Committer email for auto-commits | `noreply@markdown-vault-mcp` |
+| `MARKDOWN_VAULT_MCP_GIT_LFS` | Run `git lfs pull` on startup to resolve LFS pointer files | `true` |
 | `MARKDOWN_VAULT_MCP_BASE_URL` | Server's public URL, required to enable OIDC auth (e.g. `https://mcp.example.com`) | none |
 | `MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL` | OIDC discovery URL (`/.well-known/openid-configuration`) | none |
 | `MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID` | OIDC client ID registered with the provider | none |
@@ -1036,6 +1044,21 @@ command-line argument. This means the token is never visible in
 permissions (owner-only) and deleted in a `finally` block regardless of push
 outcome. Tokens are also **redacted** from all error log messages (replaced
 with `***`).
+
+**Git LFS support**: when `MARKDOWN_VAULT_MCP_GIT_LFS=true` (default),
+`GitWriteStrategy` calls `_lfs_pull()` once during lazy initialisation — after
+startup recovery (`_push_if_unpushed()`), outside the init lock — to resolve
+LFS pointer files before the first write is committed. `_lfs_pull()` runs
+`git lfs pull` in the vault root; failures (including `git lfs` not installed
+or any non-zero exit) are logged at ERROR and never propagated to the caller.
+Set `MARKDOWN_VAULT_MCP_GIT_LFS=false` for repos that do not use LFS, or when
+`git-lfs` is not available on PATH.
+
+> **Known limitation**: there is a small timing gap between server start and
+> the first write (when lazy init fires). LFS pointer files written to the
+> repo in that window are resolved *after* the write. A future `start()`
+> lifecycle method (tracked in #118) will close this gap by running the pull
+> at server startup instead.
 
 ### Future Work
 
