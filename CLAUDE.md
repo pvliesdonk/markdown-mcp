@@ -36,6 +36,18 @@ src/markdown_vault_mcp/
 
 This project is extracted from [`pvliesdonk/if-craft-corpus`](https://github.com/pvliesdonk/if-craft-corpus). See the design doc's Reference Code section for the mapping between source files.
 
+## Documentation Discipline
+
+Every issue, PR, and code change must consider documentation impact. Before closing any issue or creating any PR, check whether the following need updating:
+
+- **`docs/design.md`** — the authoritative spec. Any new feature, changed behavior, or architectural decision must be reflected here. If the code diverges from the spec, update the spec.
+- **`README.md`** — user-facing documentation. New env vars, tools, resources, prompts, CLI flags, or configuration options must be documented here.
+- **`examples/`** — example env files. New env vars or changed defaults should be reflected in relevant examples.
+- **`CHANGELOG.md`** — managed by semantic-release from conventional commits, but verify entries are meaningful.
+- **Inline docstrings** — new or changed public API methods need accurate docstrings.
+
+When writing issues, include a "Documentation" section listing which docs need updating. When reviewing PRs, verify documentation is included — code without matching docs is incomplete.
+
 ## Key Design Decisions
 
 - Document identity: relative path with `.md` extension
