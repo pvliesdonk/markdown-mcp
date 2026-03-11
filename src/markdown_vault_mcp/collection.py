@@ -287,8 +287,7 @@ class Collection:
         """
         if self._git_strategy is None or self._git_pull_interval_s <= 0:
             return
-        with self.pause_writes():
-            self._git_strategy.sync_once(self._source_dir)
+        self._git_strategy.sync_once(self._source_dir)
 
     def start(self) -> None:
         """Start background tasks for this Collection (e.g. git pull loop)."""

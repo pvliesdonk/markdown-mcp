@@ -342,7 +342,7 @@ class GitWriteStrategy:
                     sanitized_stderr,
                 )
 
-    def _lfs_pull(self) -> None:
+    def _lfs_pull(self, env: dict[str, str] | None = None) -> None:
         """Run ``git lfs pull`` to resolve LFS pointers, if LFS is enabled.
 
         Called during lazy init and after successful ff-only pull ticks
@@ -358,6 +358,7 @@ class GitWriteStrategy:
                 capture_output=True,
                 text=True,
                 check=True,
+                env=env,
             )
             logger.info("Git LFS: pulled from remote")
             if result.stdout.strip():
@@ -402,7 +403,7 @@ class GitWriteStrategy:
                     env=env,
                 )
                 if upstream_check.returncode != 0:
-                    logger.info("Git pull: no upstream configured; skipping pull loop")
+                    logger.info("Git pull: no upstream configured; skipping fetch")
                     return False
 
                 old_head = subprocess.run(
@@ -452,7 +453,7 @@ class GitWriteStrategy:
                 ).stdout.strip()
 
                 # Always attempt LFS pull after a successful fetch+ff-only step.
-                self._lfs_pull()
+                self._lfs_pull(env=env)
 
             return old_head != new_head
         except FileNotFoundError:
@@ -525,15 +526,13 @@ class GitWriteStrategy:
 
         while not self._pull_stop.is_set():
             try:
-                pause = self._pause_writes
-                if pause is None:
-                    did_advance = self.sync_once(repo_path)
-                    if did_advance and self._on_pull is not None:
+                did_advance = self.sync_once(repo_path)
+                if did_advance and self._on_pull is not None:
+                    pause = self._pause_writes
+                    if pause is None:
                         self._on_pull()
-                else:
-                    with pause():
-                        did_advance = self.sync_once(repo_path)
-                        if did_advance and self._on_pull is not None:
+                    else:
+                        with pause():
                             self._on_pull()
             except Exception:
                 logger.exception("Git pull loop tick failed")
@@ -543,15 +542,16 @@ class GitWriteStrategy:
 
     def stop(self) -> None:
         """Stop the pull loop thread if it is running."""
-        thread: threading.Thread | None = None
         with self._lock:
-            if self._pull_thread is None:
+            thread = self._pull_thread
+            if thread is None:
                 return
             self._pull_stop.set()
-            thread = self._pull_thread
-            self._pull_thread = None
         # Do not block indefinitely on shutdown.
         thread.join(timeout=5.0)
+        with self._lock:
+            if self._pull_thread is thread:
+                self._pull_thread = None
 
     def flush(self) -> None:
         """Block until any pending push completes.

@@ -144,6 +144,8 @@ class CollectionConfig:
         }
         git_strategy = None
         if self.git_token is not None or self.git_pull_interval_s > 0:
+            # Periodic pull defaults to enabled, so we create the strategy even
+            # without a token. It will no-op gracefully when git is unavailable.
             from markdown_vault_mcp.git import GitWriteStrategy
 
             git_strategy = GitWriteStrategy(

@@ -87,6 +87,22 @@ class TestLoadConfig:
         assert config.git_token == "ghp_test123"
         assert config.git_pull_interval_s == 300
 
+    def test_invalid_pull_interval_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S", "nope")
+        config = load_config()
+        assert config.git_pull_interval_s == 600
+
+    def test_negative_pull_interval_disables(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S", "-5")
+        config = load_config()
+        assert config.git_pull_interval_s == 0
+
     def test_comma_separated_strips_whitespace(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

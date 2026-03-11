@@ -1246,6 +1246,60 @@ class TestGitSyncOnce:
         assert did_advance is True
         assert "Remote advance" in (work / "README.md").read_text()
 
+    def test_sync_once_passes_env_to_lfs_pull(
+        self, tmp_path: Path, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """sync_once() forwards the auth env to git lfs pull."""
+        import subprocess
+
+        work, bare = git_repo_with_remote
+
+        other = tmp_path / "other"
+        subprocess.run(
+            ["git", "clone", str(bare), str(other)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+        (other / "README.md").write_text("# Remote advance\n")
+        subprocess.run(
+            ["git", "-C", str(other), "add", "."],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "commit", "-m", "remote advance"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "push"],
+            check=True,
+            capture_output=True,
+        )
+
+        strategy = GitWriteStrategy(token="ghp_test", push_delay_s=0)
+        captured: list[dict[str, str] | None] = []
+
+        def fake_lfs_pull(env: dict[str, str] | None = None) -> None:
+            captured.append(env)
+
+        strategy._lfs_pull = fake_lfs_pull  # type: ignore[assignment]
+        did_advance = strategy.sync_once(work)
+        assert did_advance is True
+        assert captured
+        assert captured[-1] is not None
+        assert "GIT_ASKPASS" in captured[-1]
+
     def test_sync_once_diverged_skips(
         self,
         tmp_path: Path,
@@ -1363,6 +1417,50 @@ class TestGitPullLoop:
 
         assert calls
         assert pause_calls
+        assert on_pull_calls
+
+    def test_start_runs_tick_without_pause(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """start() runs a tick when pause_writes is None."""
+        import time
+        from types import SimpleNamespace
+
+        calls: list[str] = []
+
+        strategy = GitWriteStrategy(token=None, push_delay_s=0)
+
+        monkeypatch.setattr(strategy, "_ensure_git_root", lambda _p: tmp_path)
+        monkeypatch.setattr(
+            "markdown_vault_mcp.git.subprocess.run",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                returncode=0, stdout="", stderr=""
+            ),
+        )
+
+        def fake_sync_once(repo_path: Path) -> bool:  # noqa: ARG001
+            calls.append("sync")
+            return True
+
+        monkeypatch.setattr(strategy, "sync_once", fake_sync_once)
+
+        on_pull_calls: list[str] = []
+
+        def on_pull() -> None:
+            on_pull_calls.append("pull")
+
+        strategy.start(
+            repo_path=tmp_path,
+            pull_interval_s=3600,
+            pause_writes=None,
+            on_pull=on_pull,
+        )
+        time.sleep(0.05)
+        strategy.stop()
+
+        assert calls
         assert on_pull_calls
 
     def test_tick_exceptions_do_not_kill_thread(
