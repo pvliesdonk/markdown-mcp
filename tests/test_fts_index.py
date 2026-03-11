@@ -608,7 +608,9 @@ class TestWALMode:
             rows = reader_conn.execute(
                 "SELECT path FROM documents WHERE path = 'seed.md'"
             ).fetchall()
-            assert len(rows) == 1, "Reader should see committed data while writer holds EXCLUSIVE"
+            assert len(rows) == 1, (
+                "Reader should see committed data while writer holds EXCLUSIVE"
+            )
             writer_conn.rollback()
         finally:
             writer_conn.close()
