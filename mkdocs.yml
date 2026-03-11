@@ -34,6 +34,10 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+exclude_docs: |
+  design.md
+  deployment.md
+
 plugins:
   - search
   - mkdocstrings:
@@ -86,5 +90,3 @@ nav:
       - Git Integration: api/git.md
       - Configuration: api/config.md
       - Embedding Providers: api/providers.md
-  - Reference:
-      - Design Spec: design.md
