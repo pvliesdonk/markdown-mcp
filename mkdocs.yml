@@ -76,6 +76,12 @@ nav:
   - Getting Started:
       - Installation: installation.md
       - Configuration: configuration.md
+  - Guides:
+      - Overview: guides/index.md
+      - Claude Desktop: guides/claude-desktop.md
+      - Docker: guides/docker.md
+      - Embeddings: guides/embeddings.md
+      - OIDC Providers: guides/oidc-providers.md
   - MCP Interface:
       - Tools: tools/index.md
       - Resources: resources.md
