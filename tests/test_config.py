@@ -349,3 +349,55 @@ class TestAttachmentConfig:
         kwargs = config.to_collection_kwargs()
         assert kwargs["attachment_extensions"] == ["pdf", "png"]
         assert kwargs["max_attachment_size_mb"] == 5.0
+
+
+class TestGitLfsConfig:
+    """Tests for GIT_LFS env var parsing."""
+
+    def test_git_lfs_default_is_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """load_config() defaults git_lfs to True when GIT_LFS is not set."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_GIT_LFS", raising=False)
+        config = load_config()
+        assert config.git_lfs is True
+
+    def test_git_lfs_disabled_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """load_config() parses GIT_LFS=false as False."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_LFS", "false")
+        config = load_config()
+        assert config.git_lfs is False
+
+    def test_git_lfs_enabled_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """load_config() parses GIT_LFS=true as True."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_LFS", "true")
+        config = load_config()
+        assert config.git_lfs is True
+
+    def test_git_lfs_passed_to_strategy(self, tmp_path: Path) -> None:
+        """to_collection_kwargs() passes git_lfs to GitWriteStrategy."""
+        from markdown_vault_mcp.git import GitWriteStrategy
+
+        config = CollectionConfig(
+            source_dir=tmp_path,
+            git_token="ghp_test",
+            git_lfs=False,
+        )
+        kwargs = config.to_collection_kwargs()
+        strategy = kwargs["on_write"]
+        assert isinstance(strategy, GitWriteStrategy)
+        assert strategy._git_lfs is False
+
+    def test_git_lfs_default_true_in_strategy(self, tmp_path: Path) -> None:
+        """to_collection_kwargs() passes git_lfs=True to strategy by default."""
+        from markdown_vault_mcp.git import GitWriteStrategy
+
+        config = CollectionConfig(
+            source_dir=tmp_path,
+            git_token="ghp_test",
+        )
+        kwargs = config.to_collection_kwargs()
+        strategy = kwargs["on_write"]
+        assert isinstance(strategy, GitWriteStrategy)
+        assert strategy._git_lfs is True

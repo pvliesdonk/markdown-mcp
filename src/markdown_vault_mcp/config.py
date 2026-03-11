@@ -85,6 +85,8 @@ class CollectionConfig:
         exclude_patterns: Glob patterns matched against relative document
             paths to exclude from scanning (e.g. ``[".obsidian/**"]``).
             ``None`` means no files are excluded.
+        git_lfs: When ``True`` (default), run ``git lfs pull`` during git
+            strategy initialisation so LFS pointers are resolved before reads.
 
     Example::
 
@@ -104,6 +106,7 @@ class CollectionConfig:
     git_push_delay_s: float = 30.0
     git_commit_name: str = "markdown-vault-mcp"
     git_commit_email: str = "noreply@markdown-vault-mcp"
+    git_lfs: bool = True
     attachment_extensions: list[str] | None = None
     max_attachment_size_mb: float = 10.0
 
@@ -143,6 +146,7 @@ class CollectionConfig:
                 push_delay_s=self.git_push_delay_s,
                 commit_name=self.git_commit_name,
                 commit_email=self.git_commit_email,
+                git_lfs=self.git_lfs,
             )
         return kwargs
 
@@ -173,6 +177,8 @@ def load_config() -> CollectionConfig:
       auto-commits; default ``markdown-vault-mcp``.
     - ``MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL``: git committer email for
       auto-commits; default ``noreply@markdown-vault-mcp``.
+    - ``MARKDOWN_VAULT_MCP_GIT_LFS``: run ``git lfs pull`` during git strategy
+      init to resolve LFS pointers; default ``true``.
     - ``MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS``: comma-separated list of
       allowed attachment extensions (without dot, e.g. ``pdf,png,jpg``); use
       ``*`` to allow all non-.md files; default: common document and image types.
@@ -265,6 +271,10 @@ def load_config() -> CollectionConfig:
         git_push_delay_s = 30.0
     logger.debug("load_config: git_push_delay_s=%s", git_push_delay_s)
 
+    raw_git_lfs = _env("GIT_LFS")
+    git_lfs: bool = _parse_bool(raw_git_lfs) if raw_git_lfs is not None else True
+    logger.debug("load_config: git_lfs=%s (raw=%r)", git_lfs, raw_git_lfs)
+
     raw_attachment_extensions = (_env("ATTACHMENT_EXTENSIONS") or "").strip()
     attachment_extensions: list[str] | None
     if not raw_attachment_extensions:
@@ -309,6 +319,7 @@ def load_config() -> CollectionConfig:
         git_push_delay_s=git_push_delay_s,
         git_commit_name=git_commit_name,
         git_commit_email=git_commit_email,
+        git_lfs=git_lfs,
         attachment_extensions=attachment_extensions,
         max_attachment_size_mb=max_attachment_size_mb,
     )

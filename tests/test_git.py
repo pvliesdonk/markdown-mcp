@@ -892,6 +892,161 @@ class TestTokenRedactionInLogs:
         assert "***" in log_text
 
 
+class TestGitLfsSupport:
+    """Tests for the git_lfs parameter on GitWriteStrategy."""
+
+    def test_git_lfs_pull_on_init(
+        self, git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When git_lfs=True, git lfs pull is called during first invocation."""
+        import logging
+        from unittest.mock import patch
+
+        strategy = GitWriteStrategy(git_lfs=True)
+        strategy._git_root = git_repo
+        strategy._checked = True  # skip _find_git_root; trigger lfs directly
+
+        recorded_cmds: list[list[str]] = []
+
+        def mock_run(cmd: list[str], **kwargs):  # type: ignore[no-untyped-def]  # noqa: ARG001
+            from unittest.mock import MagicMock
+
+            recorded_cmds.append(list(cmd))
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+
+        with (
+            patch("markdown_vault_mcp.git.subprocess.run", side_effect=mock_run),
+            caplog.at_level(logging.INFO, logger="markdown_vault_mcp.git"),
+        ):
+            strategy._lfs_pull()
+
+        lfs_cmds = [c for c in recorded_cmds if "lfs" in c]
+        assert len(lfs_cmds) == 1
+        assert lfs_cmds[0] == [
+            "git",
+            "-C",
+            str(git_repo),
+            "lfs",
+            "pull",
+        ]
+        assert any("LFS" in r.message for r in caplog.records)
+
+    def test_git_lfs_disabled_skips_pull(self, git_repo: Path) -> None:
+        """When git_lfs=False, no git lfs commands are issued."""
+        from unittest.mock import patch
+
+        strategy = GitWriteStrategy(git_lfs=False)
+        strategy._git_root = git_repo
+
+        recorded_cmds: list[list[str]] = []
+
+        def mock_run(cmd: list[str], **kwargs):  # type: ignore[no-untyped-def]  # noqa: ARG001
+            from unittest.mock import MagicMock
+
+            recorded_cmds.append(list(cmd))
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+
+        with patch("markdown_vault_mcp.git.subprocess.run", side_effect=mock_run):
+            strategy._lfs_pull()
+
+        lfs_cmds = [c for c in recorded_cmds if "lfs" in c]
+        assert lfs_cmds == []
+
+    def test_git_lfs_pull_failure_logged_not_raised(
+        self, git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """LFS pull failure is logged at ERROR but does not propagate."""
+        import logging
+        import subprocess
+        from unittest.mock import patch
+
+        strategy = GitWriteStrategy(git_lfs=True)
+        strategy._git_root = git_repo
+
+        fake_exc = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["git", "-C", str(git_repo), "lfs", "pull"],
+            stderr="error: failed to fetch some/object",
+        )
+
+        with (
+            patch("markdown_vault_mcp.git.subprocess.run", side_effect=fake_exc),
+            caplog.at_level(logging.ERROR, logger="markdown_vault_mcp.git"),
+        ):
+            # Must not raise.
+            strategy._lfs_pull()
+
+        assert any("LFS pull failed" in r.message for r in caplog.records)
+
+    def test_git_lfs_pull_file_not_found_logged_not_raised(
+        self, git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When git-lfs is not on PATH, logs ERROR and does not propagate."""
+        import logging
+        from unittest.mock import patch
+
+        strategy = GitWriteStrategy(git_lfs=True)
+        strategy._git_root = git_repo
+
+        with (
+            patch(
+                "markdown_vault_mcp.git.subprocess.run",
+                side_effect=FileNotFoundError("git not found"),
+            ),
+            caplog.at_level(logging.ERROR, logger="markdown_vault_mcp.git"),
+        ):
+            # Must not raise.
+            strategy._lfs_pull()
+
+        assert any("LFS pull failed" in r.message for r in caplog.records)
+
+    def test_git_lfs_default_is_true(self) -> None:
+        """GitWriteStrategy defaults to git_lfs=True."""
+        strategy = GitWriteStrategy()
+        assert strategy._git_lfs is True
+
+    def test_git_write_strategy_factory_passes_git_lfs(self) -> None:
+        """git_write_strategy() passes git_lfs through to GitWriteStrategy."""
+        strategy = git_write_strategy(git_lfs=False)
+        assert strategy._git_lfs is False
+
+    def test_lfs_pull_triggered_via_call(self, git_repo: Path) -> None:
+        """__call__() triggers _lfs_pull() on first invocation when git_lfs=True."""
+        from unittest.mock import MagicMock, patch
+
+        strategy = GitWriteStrategy(git_lfs=True, push_delay_s=0)
+
+        lfs_pull_mock = MagicMock()
+        commit_mock = MagicMock()
+        push_if_unpushed_mock = MagicMock()
+
+        test_file = git_repo / "note.md"
+        test_file.write_text("# Test\n")
+
+        with (
+            patch.object(strategy, "_lfs_pull", lfs_pull_mock),
+            patch.object(strategy, "_push_if_unpushed", push_if_unpushed_mock),
+            patch("markdown_vault_mcp.git._stage_and_commit", commit_mock),
+        ):
+            # First call — triggers lazy init including _lfs_pull.
+            strategy(test_file, "# Test\n", "write")
+            assert lfs_pull_mock.call_count == 1, (
+                "_lfs_pull must be called on first __call__"
+            )
+
+            # Second call — lazy init is skipped; _lfs_pull not called again.
+            strategy(test_file, "# Test\n", "write")
+            assert lfs_pull_mock.call_count == 1, "_lfs_pull must not be called again"
+
+
 class TestStageAndCommitPathHandling:
     """Edge cases in _stage_and_commit path handling."""
 

@@ -69,6 +69,14 @@ class GitWriteStrategy:
             SSH or pre-configured credentials.
         push_delay_s: Seconds of idle before pushing.  ``0`` disables
             the timer (push only on :meth:`close`).
+        commit_name: Git committer name; defaults to
+            :attr:`DEFAULT_COMMIT_NAME`.
+        commit_email: Git committer email; defaults to
+            :attr:`DEFAULT_COMMIT_EMAIL`.
+        git_lfs: When ``True`` (default), run ``git lfs pull`` during
+            lazy initialisation so LFS pointers are resolved before the
+            first write is committed.  Requires ``git-lfs`` to be on
+            ``PATH``; failures are logged at ERROR and never propagated.
 
     Example::
 
@@ -89,11 +97,13 @@ class GitWriteStrategy:
         push_delay_s: float = 30.0,
         commit_name: str | None = None,
         commit_email: str | None = None,
+        git_lfs: bool = True,
     ) -> None:
         self._token = token
         self._push_delay_s = push_delay_s
         self._commit_name = commit_name or self.DEFAULT_COMMIT_NAME
         self._commit_email = commit_email or self.DEFAULT_COMMIT_EMAIL
+        self._git_lfs = git_lfs
         self._git_root: Path | None = None
         self._checked = False
         self._push_pending = False
@@ -127,6 +137,7 @@ class GitWriteStrategy:
             else:
                 self._check_identity()
                 self._push_if_unpushed()
+                self._lfs_pull()  # runs after lock release; see #118 for concurrent-write race
 
         if self._git_root is None:
             return
@@ -272,6 +283,41 @@ class GitWriteStrategy:
                     sanitized_stderr,
                 )
 
+    def _lfs_pull(self) -> None:
+        """Run ``git lfs pull`` to resolve LFS pointers, if LFS is enabled.
+
+        Called once during lazy init.  There is a timing gap between server
+        start and the first write (when lazy init fires): any LFS pointer
+        files written to the repo in that window are resolved *after* the
+        write, not before.  A future ``start()`` lifecycle method (see #118)
+        will close this gap by running the pull at startup instead.
+        Failures are logged at ERROR and never propagated to the caller.
+        """
+        if not self._git_lfs or self._git_root is None:
+            return
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(self._git_root), "lfs", "pull"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            logger.info("Git LFS: pulled from remote")
+            if result.stdout.strip():
+                logger.debug("Git LFS pull output: %s", result.stdout.strip())
+        except subprocess.CalledProcessError as exc:
+            logger.error(
+                "Git LFS pull failed: command %s returned %d\n%s",
+                exc.cmd,
+                exc.returncode,
+                exc.stderr or "",
+            )
+        except FileNotFoundError:
+            logger.error(
+                "Git LFS pull failed: git not found on PATH. "
+                "Install git or set GIT_LFS=false to suppress this error."
+            )
+
     def flush(self) -> None:
         """Block until any pending push completes.
 
@@ -296,6 +342,7 @@ class GitWriteStrategy:
 def git_write_strategy(
     token: str | None = None,
     push_delay_s: float = 0,
+    git_lfs: bool = True,
 ) -> GitWriteStrategy:
     """Create a :class:`GitWriteStrategy` callback.
 
@@ -322,12 +369,13 @@ def git_write_strategy(
     Args:
         token: PAT for HTTPS push.
         push_delay_s: Push delay in seconds (default 0 = push on close only).
+        git_lfs: When ``True`` (default), run ``git lfs pull`` during init.
 
     Returns:
         A :class:`GitWriteStrategy` instance (also satisfies
         :data:`~markdown_vault_mcp.types.WriteCallback`).
     """
-    return GitWriteStrategy(token=token, push_delay_s=push_delay_s)
+    return GitWriteStrategy(token=token, push_delay_s=push_delay_s, git_lfs=git_lfs)
 
 
 def _stage_and_commit(
