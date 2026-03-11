@@ -26,6 +26,7 @@ from markdown_vault_mcp.exceptions import (
     ReadOnlyError,
 )
 from markdown_vault_mcp.fts_index import FTSIndex, _derive_folder
+from markdown_vault_mcp.hashing import compute_etag
 from markdown_vault_mcp.scanner import (
     ChunkStrategy,
     HeadingChunker,
@@ -107,7 +108,6 @@ _DEFAULT_ATTACHMENT_EXTENSIONS: frozenset[str] = frozenset(
         "ts",
     ]
 )
-
 
 
 def _resolve_chunk_strategy(strategy: str | ChunkStrategy) -> ChunkStrategy:
