@@ -175,9 +175,9 @@ MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH=/path/to/store/embeddings
 ### Verify
 
 ```bash
-# Test your API key
+# Test your API key (replace $OPENAI_API_KEY with your key, or export it first)
 curl https://api.openai.com/v1/embeddings \
-  -H "Authorization: Bearer sk-your-api-key-here" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"input": "test", "model": "text-embedding-3-small"}'
 ```

@@ -2,7 +2,7 @@
 
 This guide walks through three progressive Docker deployments:
 
-1. **Basic** — read-only container with keyword search via stdio
+1. **Basic** — read-only container with keyword search via HTTP
 2. **Git write support** — enable write operations with auto-commit and push
 3. **OIDC authentication** — protect HTTP access with Authelia
 
@@ -32,7 +32,7 @@ MARKDOWN_VAULT_MCP_SERVER_NAME=my-vault
 MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**
 ```
 
-Replace `/home/user/ObsidianVault` with the path to your vault **on the host**.
+Replace `/home/user/ObsidianVault` with the path to your vault **on the host**. Inside the container, the vault is always mounted at `/data/vault` — the `compose.yml` handles this mapping automatically.
 
 ### Start with Docker Compose
 
@@ -132,7 +132,7 @@ git -C /path/to/vault log --oneline -3
 
 **Goal:** Protect the HTTP endpoint with OIDC authentication using Authelia.
 
-**Prerequisites:** Step 1 complete. An [Authelia](https://www.authelia.com/) instance running and accessible. A domain name with TLS (OIDC requires HTTPS).
+**Prerequisites:** Step 1 (or Step 2) complete. An [Authelia](https://www.authelia.com/) instance running and accessible. A domain name with TLS (OIDC requires HTTPS).
 
 ### Register the client in Authelia
 
