@@ -174,7 +174,13 @@ class GitWriteStrategy:
             self._check_identity()
             self._push_if_unpushed()
             # LFS pull runs under the git lock to avoid overlapping git ops.
-            self._lfs_pull()
+            # Forward auth credentials so token-protected LFS backends
+            # authenticate with the same GIT_ASKPASS mechanism used for push.
+            env = self._git_env()
+            try:
+                self._lfs_pull(env=env)
+            finally:
+                self._cleanup_git_env(env)
             self._write_init_done = True
 
     def __call__(
@@ -485,9 +491,13 @@ class GitWriteStrategy:
         if git_root is None:
             return
 
-        # If there is no upstream configured, do not start the loop (avoid
-        # noisy logs on every tick). sync_once() will still log once if called
-        # explicitly during startup.
+        # Guard: do not start the loop if there is no upstream configured.
+        # This check is intentionally independent of the sync_once() call in
+        # sync_from_remote_before_index() — start() may be called even when
+        # the startup sync was skipped (pull_interval_s changed at runtime,
+        # or Collection.start() called directly by library users).  The double
+        # upstream check is harmless (costs one git subprocess) and avoids
+        # noisy "no upstream" logs on every tick.
         env = None
         try:
             env = self._git_env()

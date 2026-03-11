@@ -1056,6 +1056,7 @@ class TestConcurrentWrites:
         class DummyGitStrategy:
             def __init__(self) -> None:
                 self.started: dict[str, object] | None = None
+                self.stopped = False
                 self.closed = False
 
             def start(
@@ -1072,6 +1073,9 @@ class TestConcurrentWrites:
                     "pause_writes": pause_writes,
                     "on_pull": on_pull,
                 }
+
+            def stop(self) -> None:
+                self.stopped = True
 
             def close(self) -> None:
                 self.closed = True
@@ -1091,6 +1095,10 @@ class TestConcurrentWrites:
         assert git_strategy.started is not None
         assert git_strategy.started["repo_path"] == vault_path
         assert git_strategy.started["pull_interval_s"] == 60
+
+        # Verify Collection.stop() delegates to git_strategy.stop() (Option C lifecycle).
+        col.stop()
+        assert git_strategy.stopped is True
 
         col.close()
         assert git_strategy.closed is True

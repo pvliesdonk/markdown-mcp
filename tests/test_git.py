@@ -220,6 +220,14 @@ class TestGitWriteStrategy:
         )
         assert "rename: renamed.md" in result.stdout
 
+        # Verify the old file is not left as an unstaged deletion.
+        status = subprocess.run(
+            ["git", "-C", str(git_repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+        )
+        assert status.stdout.strip() == ""
+
     def test_commit_on_rename_of_untracked_file(self, git_repo: Path) -> None:
         """Rename of a never-committed file: only new path is committed."""
         import subprocess
