@@ -1208,3 +1208,144 @@ class TestPromptVisibility:
         assert "summarize" in names
         assert "related" in names
         assert "compare" in names
+
+
+# ---------------------------------------------------------------------------
+# Optimistic concurrency — if_match on MCP tools
+# ---------------------------------------------------------------------------
+
+
+class TestIfMatchParameter:
+    """MCP tools accept if_match and propagate it to Collection."""
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_write_accepts_if_match_when_correct(self, vault_path: Path) -> None:
+        """write tool succeeds when if_match matches the current file etag."""
+        from markdown_vault_mcp.hashing import compute_file_hash
+
+        server = create_server()
+        current_etag = compute_file_hash(vault_path / "simple.md")
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "write",
+                {
+                    "path": "simple.md",
+                    "content": "# Updated\n\nBody.\n",
+                    "if_match": current_etag,
+                },
+            )
+        data = result.data
+        assert data["path"] == "simple.md"
+        assert data["created"] is False
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_write_rejects_stale_if_match(self) -> None:
+        """write tool returns an error when if_match does not match."""
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "write",
+                {
+                    "path": "simple.md",
+                    "content": "# Bad write\n",
+                    "if_match": "stale-etag-value",
+                },
+            )
+        assert result.isError is True
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_edit_accepts_if_match_when_correct(self, vault_path: Path) -> None:
+        """edit tool succeeds when if_match matches the current file etag."""
+        from markdown_vault_mcp.hashing import compute_file_hash
+
+        server = create_server()
+        current_etag = compute_file_hash(vault_path / "simple.md")
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "edit",
+                {
+                    "path": "simple.md",
+                    "old_text": "Simple Document",
+                    "new_text": "Updated Document",
+                    "if_match": current_etag,
+                },
+            )
+        data = result.data
+        assert data["replacements"] == 1
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_edit_rejects_stale_if_match(self) -> None:
+        """edit tool returns an error when if_match does not match."""
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "edit",
+                {
+                    "path": "simple.md",
+                    "old_text": "Simple Document",
+                    "new_text": "Updated Document",
+                    "if_match": "stale-etag-value",
+                },
+            )
+        assert result.isError is True
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_delete_accepts_if_match_when_correct(self, vault_path: Path) -> None:
+        """delete tool succeeds when if_match matches the current file etag."""
+        from markdown_vault_mcp.hashing import compute_file_hash
+
+        server = create_server()
+        current_etag = compute_file_hash(vault_path / "simple.md")
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "delete",
+                {"path": "simple.md", "if_match": current_etag},
+            )
+        data = result.data
+        assert data["path"] == "simple.md"
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_delete_rejects_stale_if_match(self) -> None:
+        """delete tool returns an error when if_match does not match."""
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "delete",
+                {"path": "simple.md", "if_match": "stale-etag-value"},
+            )
+        assert result.isError is True
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_rename_accepts_if_match_when_correct(self, vault_path: Path) -> None:
+        """rename tool succeeds when if_match matches the current file etag."""
+        from markdown_vault_mcp.hashing import compute_file_hash
+
+        server = create_server()
+        current_etag = compute_file_hash(vault_path / "simple.md")
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "rename",
+                {
+                    "old_path": "simple.md",
+                    "new_path": "renamed_simple.md",
+                    "if_match": current_etag,
+                },
+            )
+        data = result.data
+        assert data["old_path"] == "simple.md"
+        assert data["new_path"] == "renamed_simple.md"
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_rename_rejects_stale_if_match(self) -> None:
+        """rename tool returns an error when if_match does not match."""
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp(
+                "rename",
+                {
+                    "old_path": "simple.md",
+                    "new_path": "renamed_simple.md",
+                    "if_match": "stale-etag-value",
+                },
+            )
+        assert result.isError is True

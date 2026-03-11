@@ -19,3 +19,16 @@ class EditConflictError(MarkdownMCPError):
 
 class DocumentExistsError(MarkdownMCPError):
     """Target path already exists (e.g., rename destination)."""
+
+
+class ConcurrentModificationError(MarkdownMCPError):
+    """Raised when if_match etag does not match the current file state."""
+
+    def __init__(self, path: str, expected: str, actual: str) -> None:
+        self.path = path
+        self.expected = expected
+        self.actual = actual
+        super().__init__(
+            f"Concurrent modification on {path}: "
+            f"expected etag {expected!r}, actual {actual!r}"
+        )

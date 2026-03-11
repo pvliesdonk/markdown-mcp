@@ -3,6 +3,7 @@
 from markdown_vault_mcp.collection import Collection
 from markdown_vault_mcp.config import CollectionConfig, load_config
 from markdown_vault_mcp.exceptions import (
+    ConcurrentModificationError,
     DocumentExistsError,
     DocumentNotFoundError,
     EditConflictError,
@@ -38,6 +39,7 @@ __all__ = [
     "Collection",
     "CollectionConfig",
     "CollectionStats",
+    "ConcurrentModificationError",
     "DeleteResult",
     "DocumentExistsError",
     "DocumentNotFoundError",

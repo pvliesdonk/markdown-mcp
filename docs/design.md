@@ -263,6 +263,7 @@ Two-layer model:
 | `ReadOnlyError` | `write()`, `edit()`, `delete()`, `rename()` | `read_only=True` |
 | `EditConflictError` | `edit()` | `old_text` not found or appears more than once |
 | `DocumentExistsError` | `rename()` | `new_path` already exists |
+| `ConcurrentModificationError` | `write()`, `edit()`, `delete()`, `rename()`, `write_attachment()` | `if_match` provided and current file hash does not match |
 | `ValueError` | `build_embeddings()` | No `embedding_provider` or `embeddings_path` configured |
 | `None` return | `read()` | Path escapes `source_dir` (traversal attempt) or file does not exist on disk |
 | `ValueError` | `edit()` | `old_text` is empty string |
@@ -284,6 +285,24 @@ push) and must not block concurrent writers. The contract is:
 - The `on_write` callback fires **outside the lock** — it must not itself call
   write methods on the same Collection instance (deadlock).
 - Callbacks must not raise; exceptions are the callback's responsibility.
+
+#### Optimistic Concurrency (`if_match`)
+
+All five write methods (`write()`, `edit()`, `delete()`, `rename()`,
+`write_attachment()`) accept an optional `if_match: str | None = None`
+parameter.  When provided, the method computes the SHA-256 hex digest of the
+current file **inside the write lock** and compares it to `if_match`.  If
+the digests differ, `ConcurrentModificationError` is raised and no mutation
+occurs.  Passing `if_match=None` (the default) skips the check and preserves
+pre-existing unconditional-write behavior.
+
+The etag used for comparison is the same value returned in the `etag` field of
+`read()` and `read_attachment()` responses, so the round-trip pattern is:
+
+```python
+note = collection.read("doc.md")
+collection.write("doc.md", new_content, if_match=note.etag)
+```
 
 ### Security: Path Traversal Protection
 
