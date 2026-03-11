@@ -35,8 +35,8 @@ All configuration is via environment variables. Most use the `MARKDOWN_VAULT_MCP
 !!! note "Embedding provider auto-detection"
     When `EMBEDDING_PROVIDER` is not set, the server tries providers in this order:
 
-    1. **Ollama** — if `OLLAMA_HOST` is reachable
-    2. **OpenAI** — if `OPENAI_API_KEY` is set
+    1. **OpenAI** — if `OPENAI_API_KEY` is set
+    2. **Ollama** — if `OLLAMA_HOST` is reachable
     3. **Sentence Transformers** — if the `sentence-transformers` package is installed
 
 ## Git Integration
