@@ -811,12 +811,17 @@ class Collection:
         files have been added, modified, or deleted since the last scan.
         Only changed files are re-parsed and re-indexed.
 
+        Thread-safety: the filesystem scan runs without holding ``_write_lock``
+        (read-only), then the mutation phase acquires the lock to prevent races
+        with concurrent write/edit/delete/rename operations.
+
         Returns:
             :class:`~markdown_vault_mcp.types.ReindexResult` with counts of changes
             applied.
         """
         self._ensure_initialized()
 
+        # Phase 1: scan (outside lock — read-only filesystem walk + hashing).
         changes = self._tracker.detect_changes(self._source_dir)
         logger.info(
             "reindex: %d added, %d modified, %d deleted, %d unchanged",
@@ -826,20 +831,14 @@ class Collection:
             changes.unchanged,
         )
 
-        # Delete removed documents.
-        for path in changes.deleted:
-            self._fts.delete_by_path(path)
-            if self._vectors is not None:
-                self._vectors.delete_by_path(path)
-
-        # Parse and upsert added/modified documents.
-        # Track actually-indexed counts separately from detected-change counts
-        # so that skipped files (parse errors, missing required frontmatter)
-        # are not reported as successfully added or modified.
-        indexed_added = 0
-        indexed_modified = 0
-        added_set = set(changes.added)
-
+        # Pre-parse notes outside the lock to minimise lock hold time.
+        # NOTE: there is an inherent TOCTOU window between detecting a change
+        # in Phase 1 (hash comparison) and re-reading the file for indexing
+        # here.  If the file is modified again in that window, the newly
+        # written content is indexed rather than the version that triggered
+        # the change.  This is acceptable — the next reindex() call will
+        # reconcile the difference.
+        parsed: list[tuple[str, ParsedNote]] = []
         for path in changes.added + changes.modified:
             abs_path = self._source_dir / path
             try:
@@ -867,51 +866,66 @@ class Collection:
                     )
                     continue
 
-            try:
-                self._fts.upsert_note(note)
-            except Exception:
-                logger.warning("reindex: failed to index %s", path, exc_info=True)
-                continue
-            if path in added_set:
-                indexed_added += 1
-            else:
-                indexed_modified += 1
+            parsed.append((path, note))
 
-            # Update vector index for changed notes if loaded.
+        # Phase 2: apply mutations (inside lock — prevents races with writes).
+        with self._write_lock:
+            # Delete removed documents.
+            for path in changes.deleted:
+                self._fts.delete_by_path(path)
+                if self._vectors is not None:
+                    self._vectors.delete_by_path(path)
+
+            # Upsert parsed notes.
+            indexed_added = 0
+            indexed_modified = 0
+            added_set = set(changes.added)
+
+            for path, note in parsed:
+                try:
+                    self._fts.upsert_note(note)
+                except Exception:
+                    logger.warning("reindex: failed to index %s", path, exc_info=True)
+                    continue
+                if path in added_set:
+                    indexed_added += 1
+                else:
+                    indexed_modified += 1
+
+                # Update vector index for changed notes if loaded.
+                if self._vectors is not None and self._embeddings_path is not None:
+                    self._vectors.delete_by_path(note.path)
+                    texts = [c.content for c in note.chunks]
+                    meta = [
+                        {
+                            "path": note.path,
+                            "title": note.title,
+                            "folder": _derive_folder(note.path),
+                            "heading": c.heading,
+                            "content": c.content,
+                        }
+                        for c in note.chunks
+                    ]
+                    if texts:
+                        self._vectors.add(texts, meta)
+
+            # Persist updated vector index.
             if self._vectors is not None and self._embeddings_path is not None:
-                self._vectors.delete_by_path(note.path)
-                texts = [c.content for c in note.chunks]
-                meta = [
-                    {
-                        "path": note.path,
-                        "title": note.title,
-                        "folder": _derive_folder(note.path),
-                        "heading": c.heading,
-                        "content": c.content,
-                    }
-                    for c in note.chunks
-                ]
-                if texts:
-                    self._vectors.add(texts, meta)
+                self._vectors.save(self._embeddings_path)
 
-        # Persist updated vector index.
-        if self._vectors is not None and self._embeddings_path is not None:
-            self._vectors.save(self._embeddings_path)
-
-        # Update tracker state: rebuild from current FTS index contents.
-        # ChangeTracker.update_state needs objects with .path and .content_hash.
-        state_notes: list[ParsedNote] = [
-            ParsedNote(
-                path=r["path"],
-                frontmatter={},
-                title=r["title"],
-                chunks=[],
-                content_hash=r["content_hash"],
-                modified_at=r["modified_at"],
-            )
-            for r in self._fts.list_notes()
-        ]
-        self._tracker.update_state(state_notes)
+            # Update tracker state: rebuild from current FTS index contents.
+            state_notes: list[ParsedNote] = [
+                ParsedNote(
+                    path=r["path"],
+                    frontmatter={},
+                    title=r["title"],
+                    chunks=[],
+                    content_hash=r["content_hash"],
+                    modified_at=r["modified_at"],
+                )
+                for r in self._fts.list_notes()
+            ]
+            self._tracker.update_state(state_notes)
 
         return ReindexResult(
             added=indexed_added,
