@@ -401,6 +401,8 @@ def create_server() -> FastMCP:
             For attachments: dict with path, mime_type (str or null),
             size_bytes (int), content_base64 (str), modified_at (Unix timestamp),
             etag (SHA-256 hex str or null).
+            The 'etag' value can be passed as 'if_match' to write, edit,
+            delete, or rename to guard against concurrent modifications.
 
         Raises:
             ValueError: If no file exists at the given path, the extension is
@@ -642,6 +644,7 @@ def create_server() -> FastMCP:
         content: str = "",
         frontmatter: dict[str, Any] | None = None,
         content_base64: str = "",
+        if_match: str | None = None,
         collection: Collection = Depends(get_collection),
     ) -> dict[str, Any]:
         """Create or overwrite a document or attachment.
@@ -664,6 +667,10 @@ def create_server() -> FastMCP:
                 Ignored for attachments.
             content_base64: Base64-encoded binary content for attachment
                 files. Required when path is not .md.
+            if_match: Optional etag obtained from a previous 'read' call.
+                When provided, the write only proceeds if the file has not
+                been modified since that read (optimistic concurrency).
+                Omit to write unconditionally.
 
         Returns:
             Dict with path (str) and created (bool — true if new file,
@@ -672,6 +679,8 @@ def create_server() -> FastMCP:
         Raises:
             ValueError: If content_base64 is missing/invalid for
                 attachments, or the content exceeds the size limit.
+            McpError: If if_match is provided and the file has been
+                modified (ConcurrentModificationError).
         """
         if not path.endswith(".md"):
             if not content_base64:
@@ -683,11 +692,11 @@ def create_server() -> FastMCP:
             except Exception as exc:
                 raise ValueError(f"Invalid base64 in content_base64: {exc}") from exc
             result = await asyncio.to_thread(
-                collection.write_attachment, path, raw_bytes
+                collection.write_attachment, path, raw_bytes, if_match=if_match
             )
             return asdict(result)
         result = await asyncio.to_thread(
-            collection.write, path, content, frontmatter=frontmatter
+            collection.write, path, content, frontmatter=frontmatter, if_match=if_match
         )
         return asdict(result)
 
@@ -704,6 +713,7 @@ def create_server() -> FastMCP:
         path: str,
         old_text: str,
         new_text: str,
+        if_match: str | None = None,
         collection: Collection = Depends(get_collection),
     ) -> dict[str, Any]:
         """Make a targeted text replacement in an existing document.
@@ -720,11 +730,17 @@ def create_server() -> FastMCP:
             old_text: Exact text to replace. Must appear exactly once in
                 the document (including frontmatter). Get this via 'read'.
             new_text: Replacement text. May be longer or shorter.
+            if_match: Optional etag obtained from a previous 'read' call.
+                When provided, the edit only proceeds if the file has not
+                been modified since that read (optimistic concurrency).
+                Omit to edit unconditionally.
 
         Returns:
             Dict with path (str) and replacements (int, always 1).
         """
-        result = await asyncio.to_thread(collection.edit, path, old_text, new_text)
+        result = await asyncio.to_thread(
+            collection.edit, path, old_text, new_text, if_match=if_match
+        )
         return asdict(result)
 
     @mcp.tool(
@@ -738,6 +754,7 @@ def create_server() -> FastMCP:
     )
     async def delete(
         path: str,
+        if_match: str | None = None,
         collection: Collection = Depends(get_collection),
     ) -> dict[str, Any]:
         """Permanently delete a document or attachment.
@@ -749,11 +766,15 @@ def create_server() -> FastMCP:
 
         Args:
             path: Relative path to the document or attachment to delete.
+            if_match: Optional etag obtained from a previous 'read' call.
+                When provided, the deletion only proceeds if the file has
+                not been modified since that read (optimistic concurrency).
+                Omit to delete unconditionally.
 
         Returns:
             Dict with path (str) of the deleted file.
         """
-        result = await asyncio.to_thread(collection.delete, path)
+        result = await asyncio.to_thread(collection.delete, path, if_match=if_match)
         return asdict(result)
 
     @mcp.tool(
@@ -768,6 +789,7 @@ def create_server() -> FastMCP:
     async def rename(
         old_path: str,
         new_path: str,
+        if_match: str | None = None,
         collection: Collection = Depends(get_collection),
     ) -> dict[str, Any]:
         """Rename a document or attachment, or move it to a different folder.
@@ -781,11 +803,17 @@ def create_server() -> FastMCP:
                 or "assets/old.png").
             new_path: Target relative path (e.g. "projects/idea.md"
                 or "assets/new.png"). Fails if new_path already exists.
+            if_match: Optional etag obtained from a previous 'read' call
+                for old_path. When provided, the rename only proceeds if
+                the file has not been modified since that read (optimistic
+                concurrency). Omit to rename unconditionally.
 
         Returns:
             Dict with old_path (str) and new_path (str).
         """
-        result = await asyncio.to_thread(collection.rename, old_path, new_path)
+        result = await asyncio.to_thread(
+            collection.rename, old_path, new_path, if_match=if_match
+        )
         return asdict(result)
 
     # --- Resources ---

@@ -10,11 +10,13 @@ import pytest
 
 from markdown_vault_mcp.collection import Collection
 from markdown_vault_mcp.exceptions import (
+    ConcurrentModificationError,
     DocumentExistsError,
     DocumentNotFoundError,
     EditConflictError,
     ReadOnlyError,
 )
+from markdown_vault_mcp.hashing import compute_file_hash
 from markdown_vault_mcp.types import (
     AttachmentContent,
     AttachmentInfo,
@@ -2497,3 +2499,212 @@ class TestReindexThreadSafety:
         assert concurrent_note is not None, "reindex should have indexed the new file"
         written = col.read("written_during_reindex.md")
         assert written is not None, "write during reindex must persist"
+
+
+# ---------------------------------------------------------------------------
+# Optimistic concurrency (if_match)
+# ---------------------------------------------------------------------------
+
+
+class TestOptimisticConcurrency:
+    """Tests for the if_match parameter on write operations."""
+
+    # --- write() ---
+
+    def test_write_with_correct_if_match_succeeds(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """write() with a matching if_match etag succeeds."""
+        path = "simple.md"
+        current_etag = compute_file_hash(vault_path / path)
+
+        result = writable.write(path, "# Updated\n\nNew body.\n", if_match=current_etag)
+
+        assert result.created is False
+        assert "Updated" in (vault_path / path).read_text()
+
+    def test_write_with_wrong_if_match_raises(self, writable: Collection) -> None:
+        """write() with a stale etag raises ConcurrentModificationError."""
+        with pytest.raises(ConcurrentModificationError) as exc_info:
+            writable.write("simple.md", "# Body\n", if_match="stale-etag-value")
+
+        assert exc_info.value.path == "simple.md"
+        assert exc_info.value.expected == "stale-etag-value"
+        assert exc_info.value.actual != "stale-etag-value"
+
+    def test_write_with_if_match_on_nonexistent_file_raises(
+        self, writable: Collection
+    ) -> None:
+        """write() with if_match for a nonexistent file raises ConcurrentModificationError."""
+        with pytest.raises(ConcurrentModificationError) as exc_info:
+            writable.write("does_not_exist.md", "# Body\n", if_match="any-etag")
+
+        assert exc_info.value.path == "does_not_exist.md"
+        assert exc_info.value.actual == "(file does not exist)"
+
+    def test_write_without_if_match_works_as_before(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """write() without if_match performs unconditional write (backwards compatible)."""
+        result = writable.write("simple.md", "# New Body\n\nContent.\n")
+
+        assert result.created is False
+        assert "New Body" in (vault_path / "simple.md").read_text()
+
+    # --- edit() ---
+
+    def test_edit_with_correct_if_match_succeeds(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """edit() with a matching if_match etag succeeds."""
+        path = "simple.md"
+        current_etag = compute_file_hash(vault_path / path)
+        file_content = (vault_path / path).read_text()
+        old_text = file_content[:20]
+        new_text = "CHANGED_PREFIX_TEXT_"
+
+        result = writable.edit(path, old_text, new_text, if_match=current_etag)
+
+        assert result.replacements == 1
+
+    def test_edit_with_wrong_if_match_raises(self, writable: Collection) -> None:
+        """edit() with a stale etag raises ConcurrentModificationError."""
+        with pytest.raises(ConcurrentModificationError) as exc_info:
+            writable.edit(
+                "simple.md",
+                "Simple Document",
+                "Updated Document",
+                if_match="stale-etag-value",
+            )
+
+        assert exc_info.value.path == "simple.md"
+        assert exc_info.value.expected == "stale-etag-value"
+
+    # --- delete() ---
+
+    def test_delete_with_correct_if_match_succeeds(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """delete() with a matching if_match etag removes the file."""
+        path = "simple.md"
+        current_etag = compute_file_hash(vault_path / path)
+
+        result = writable.delete(path, if_match=current_etag)
+
+        assert result.path == path
+        assert not (vault_path / path).exists()
+
+    def test_delete_with_wrong_if_match_raises(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """delete() with a stale etag raises ConcurrentModificationError."""
+        with pytest.raises(ConcurrentModificationError) as exc_info:
+            writable.delete("simple.md", if_match="stale-etag-value")
+
+        assert exc_info.value.path == "simple.md"
+        # File must NOT have been deleted.
+        assert (vault_path / "simple.md").exists()
+
+    # --- rename() ---
+
+    def test_rename_with_correct_if_match_succeeds(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """rename() with a matching if_match etag renames the file."""
+        old_path = "simple.md"
+        new_path = "renamed_simple.md"
+        current_etag = compute_file_hash(vault_path / old_path)
+
+        result = writable.rename(old_path, new_path, if_match=current_etag)
+
+        assert result.old_path == old_path
+        assert result.new_path == new_path
+        assert not (vault_path / old_path).exists()
+        assert (vault_path / new_path).exists()
+
+    def test_rename_with_wrong_if_match_raises(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """rename() with a stale etag raises ConcurrentModificationError."""
+        with pytest.raises(ConcurrentModificationError) as exc_info:
+            writable.rename("simple.md", "renamed.md", if_match="stale-etag-value")
+
+        assert exc_info.value.path == "simple.md"
+        # File must NOT have been renamed.
+        assert (vault_path / "simple.md").exists()
+        assert not (vault_path / "renamed.md").exists()
+
+    # --- write_attachment() ---
+
+    def test_write_attachment_with_correct_if_match_succeeds(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """write_attachment() with a matching if_match etag overwrites the file."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        att_path = vault_with_attachment / "assets" / "report.pdf"
+        current_etag = compute_file_hash(att_path)
+        new_content = b"updated PDF bytes"
+
+        result = col.write_attachment(
+            "assets/report.pdf", new_content, if_match=current_etag
+        )
+
+        assert result.created is False
+        assert att_path.read_bytes() == new_content
+
+    def test_write_attachment_with_wrong_if_match_raises(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """write_attachment() with a stale etag raises ConcurrentModificationError."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+
+        with pytest.raises(ConcurrentModificationError) as exc_info:
+            col.write_attachment(
+                "assets/report.pdf", b"new content", if_match="stale-etag-value"
+            )
+
+        assert exc_info.value.path == "assets/report.pdf"
+        assert exc_info.value.expected == "stale-etag-value"
+
+    # --- Round-trip test ---
+
+    def test_read_etag_roundtrip_with_write(self, writable: Collection) -> None:
+        """read() etag can be passed directly to write() as if_match and succeeds."""
+        note = writable.read("simple.md")
+        assert note is not None
+        assert note.etag, "etag must be non-empty"
+
+        result = writable.write(
+            "simple.md", "# Round-trip\n\nBody.\n", if_match=note.etag
+        )
+
+        assert result.created is False
+
+    def test_read_etag_roundtrip_with_edit(
+        self, writable: Collection, vault_path: Path
+    ) -> None:
+        """read() etag can be passed to edit() as if_match and succeeds."""
+        note = writable.read("simple.md")
+        assert note is not None
+        assert note.etag
+        file_content = (vault_path / "simple.md").read_text()
+        old_text = file_content[:15]
+
+        result = writable.edit(
+            "simple.md", old_text, "REPLACED_TEXT_X_", if_match=note.etag
+        )
+
+        assert result.replacements == 1
+
+    def test_read_etag_stale_after_write(self, writable: Collection) -> None:
+        """etag from read() is no longer valid after the file is modified."""
+        note = writable.read("simple.md")
+        assert note is not None
+        stale_etag = note.etag
+
+        # Modify the file.
+        writable.write("simple.md", "# Modified\n\nNew content.\n")
+
+        # Now the stale etag should fail.
+        with pytest.raises(ConcurrentModificationError):
+            writable.write("simple.md", "# Another write\n", if_match=stale_etag)

@@ -20,13 +20,14 @@ from typing import TYPE_CHECKING, Any, Literal
 import frontmatter as fm
 
 from markdown_vault_mcp.exceptions import (
+    ConcurrentModificationError,
     DocumentExistsError,
     DocumentNotFoundError,
     EditConflictError,
     ReadOnlyError,
 )
 from markdown_vault_mcp.fts_index import FTSIndex, _derive_folder
-from markdown_vault_mcp.hashing import compute_etag
+from markdown_vault_mcp.hashing import compute_etag, compute_file_hash
 from markdown_vault_mcp.scanner import (
     ChunkStrategy,
     HeadingChunker,
@@ -1304,18 +1305,27 @@ class Collection:
             etag=etag,
         )
 
-    def write_attachment(self, path: str, content: bytes) -> WriteResult:
+    def write_attachment(
+        self, path: str, content: bytes, if_match: str | None = None
+    ) -> WriteResult:
         """Create or overwrite a non-.md attachment.
 
         Args:
             path: Relative attachment path (e.g. ``"assets/diagram.pdf"``).
             content: Raw bytes to write.
+            if_match: Optional etag from a previous :meth:`read_attachment`
+                call. When provided, the write is only performed if the
+                current file hash matches this value, preventing overwrites
+                of concurrent modifications. Pass ``None`` (default) to skip
+                the check.
 
         Returns:
             :class:`~markdown_vault_mcp.types.WriteResult`.
 
         Raises:
             ReadOnlyError: If the collection is read-only.
+            ConcurrentModificationError: If *if_match* is provided and does
+                not match the current file hash.
             ValueError: If the path escapes the source directory, has an
                 extension not in the allowlist, or the content exceeds the
                 size limit.
@@ -1324,6 +1334,16 @@ class Collection:
         with self._write_lock:
             self._ensure_initialized()
             abs_path = self._validate_attachment_path(path)
+            if if_match is not None:
+                if not abs_path.is_file():
+                    raise ConcurrentModificationError(
+                        path, expected=if_match, actual="(file does not exist)"
+                    )
+                current_hash = compute_file_hash(abs_path)
+                if current_hash != if_match:
+                    raise ConcurrentModificationError(
+                        path, expected=if_match, actual=current_hash
+                    )
             if self._max_attachment_size_mb > 0:
                 limit_bytes = int(self._max_attachment_size_mb * 1024 * 1024)
                 if len(content) > limit_bytes:
@@ -1348,6 +1368,7 @@ class Collection:
         path: str,
         content: str,
         frontmatter: dict | None = None,
+        if_match: str | None = None,
     ) -> WriteResult:
         """Create or overwrite a document.
 
@@ -1358,12 +1379,21 @@ class Collection:
             path: Relative document path.
             content: Markdown body (excluding frontmatter).
             frontmatter: Optional frontmatter dict serialised as YAML header.
+            if_match: Optional etag from a previous :meth:`read` call.
+                When provided, the write is only performed if the current
+                file hash matches this value, preventing overwrites of
+                concurrent modifications. Supplying *if_match* for a file
+                that does not yet exist raises
+                :exc:`~markdown_vault_mcp.exceptions.ConcurrentModificationError`.
+                Pass ``None`` (default) to skip the check.
 
         Returns:
             :class:`~markdown_vault_mcp.types.WriteResult`.
 
         Raises:
             ReadOnlyError: If the collection is read-only.
+            ConcurrentModificationError: If *if_match* is provided and does
+                not match the current file hash (or the file does not exist).
             ValueError: If *path* escapes the source directory.
         """
         self._check_writable()
@@ -1371,6 +1401,16 @@ class Collection:
             self._ensure_initialized()
 
             abs_path = self._validate_path(path)
+            if if_match is not None:
+                if not abs_path.is_file():
+                    raise ConcurrentModificationError(
+                        path, expected=if_match, actual="(file does not exist)"
+                    )
+                current_hash = compute_file_hash(abs_path)
+                if current_hash != if_match:
+                    raise ConcurrentModificationError(
+                        path, expected=if_match, actual=current_hash
+                    )
             created = not abs_path.is_file()
 
             # Create intermediate directories.
@@ -1400,7 +1440,9 @@ class Collection:
 
         return result
 
-    def edit(self, path: str, old_text: str, new_text: str) -> EditResult:
+    def edit(
+        self, path: str, old_text: str, new_text: str, if_match: str | None = None
+    ) -> EditResult:
         """Patch a section of a document.
 
         Reads the file, verifies *old_text* exists exactly once in the
@@ -1411,6 +1453,10 @@ class Collection:
             path: Relative document path.
             old_text: Text to replace (must appear exactly once).
             new_text: Replacement text.
+            if_match: Optional etag from a previous :meth:`read` call.
+                When provided, the edit is only performed if the current
+                file hash matches this value, preventing edits based on
+                stale content. Pass ``None`` (default) to skip the check.
 
         Returns:
             :class:`~markdown_vault_mcp.types.EditResult`.
@@ -1418,6 +1464,8 @@ class Collection:
         Raises:
             ReadOnlyError: If the collection is read-only.
             DocumentNotFoundError: If the file does not exist.
+            ConcurrentModificationError: If *if_match* is provided and does
+                not match the current file hash.
             EditConflictError: If *old_text* is not found or appears
                 more than once.
         """
@@ -1432,6 +1480,13 @@ class Collection:
             abs_path = self._validate_path(path)
             if not abs_path.is_file():
                 raise DocumentNotFoundError(f"Document not found: {path}")
+
+            if if_match is not None:
+                current_hash = compute_file_hash(abs_path)
+                if current_hash != if_match:
+                    raise ConcurrentModificationError(
+                        path, expected=if_match, actual=current_hash
+                    )
 
             file_content = abs_path.read_text(encoding="utf-8")
             count = file_content.count(old_text)
@@ -1459,7 +1514,7 @@ class Collection:
 
         return EditResult(path=path, replacements=1)
 
-    def delete(self, path: str) -> DeleteResult:
+    def delete(self, path: str, if_match: str | None = None) -> DeleteResult:
         """Delete a document or attachment.
 
         Removes the file from disk.  For ``.md`` documents, also removes all
@@ -1468,6 +1523,10 @@ class Collection:
 
         Args:
             path: Relative document or attachment path.
+            if_match: Optional etag from a previous :meth:`read` or
+                :meth:`read_attachment` call. When provided, the deletion is
+                only performed if the current file hash matches this value.
+                Pass ``None`` (default) to skip the check.
 
         Returns:
             :class:`~markdown_vault_mcp.types.DeleteResult`.
@@ -1475,6 +1534,8 @@ class Collection:
         Raises:
             ReadOnlyError: If the collection is read-only.
             DocumentNotFoundError: If the file does not exist.
+            ConcurrentModificationError: If *if_match* is provided and does
+                not match the current file hash.
             ValueError: If the path escapes the source directory, or (for
                 non-.md paths) has an extension not in the attachment allowlist.
         """
@@ -1486,6 +1547,12 @@ class Collection:
                 abs_path = self._validate_path(path)
                 if not abs_path.is_file():
                     raise DocumentNotFoundError(f"Document not found: {path}")
+                if if_match is not None:
+                    current_hash = compute_file_hash(abs_path)
+                    if current_hash != if_match:
+                        raise ConcurrentModificationError(
+                            path, expected=if_match, actual=current_hash
+                        )
                 abs_path.unlink()
                 self._fts.delete_by_path(path)
                 if self._vectors is not None and self._embeddings_path is not None:
@@ -1495,6 +1562,12 @@ class Collection:
                 abs_path = self._validate_attachment_path(path)
                 if not abs_path.is_file():
                     raise DocumentNotFoundError(f"Attachment not found: {path}")
+                if if_match is not None:
+                    current_hash = compute_file_hash(abs_path)
+                    if current_hash != if_match:
+                        raise ConcurrentModificationError(
+                            path, expected=if_match, actual=current_hash
+                        )
                 abs_path.unlink()
 
         # Trigger callback outside lock to prevent deadlock.
@@ -1503,7 +1576,9 @@ class Collection:
 
         return DeleteResult(path=path)
 
-    def rename(self, old_path: str, new_path: str) -> RenameResult:
+    def rename(
+        self, old_path: str, new_path: str, if_match: str | None = None
+    ) -> RenameResult:
         """Rename or move a document or attachment.
 
         Renames the file on disk.  For ``.md`` documents, also updates FTS
@@ -1514,6 +1589,10 @@ class Collection:
         Args:
             old_path: Current relative document or attachment path.
             new_path: Target relative document or attachment path.
+            if_match: Optional etag from a previous :meth:`read` or
+                :meth:`read_attachment` call for *old_path*. When provided,
+                the rename is only performed if the current file hash matches
+                this value. Pass ``None`` (default) to skip the check.
 
         Returns:
             :class:`~markdown_vault_mcp.types.RenameResult`.
@@ -1522,6 +1601,8 @@ class Collection:
             ReadOnlyError: If the collection is read-only.
             DocumentNotFoundError: If *old_path* does not exist.
             DocumentExistsError: If *new_path* already exists.
+            ConcurrentModificationError: If *if_match* is provided and does
+                not match the current hash of *old_path*.
             ValueError: If either path escapes the source directory, or (for
                 non-.md paths) has an extension not in the attachment allowlist.
         """
@@ -1537,6 +1618,12 @@ class Collection:
                     raise DocumentNotFoundError(f"Document not found: {old_path}")
                 if new_abs.is_file():
                     raise DocumentExistsError(f"Target already exists: {new_path}")
+                if if_match is not None:
+                    current_hash = compute_file_hash(old_abs)
+                    if current_hash != if_match:
+                        raise ConcurrentModificationError(
+                            old_path, expected=if_match, actual=current_hash
+                        )
 
                 new_abs.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(old_abs), str(new_abs))
@@ -1558,6 +1645,12 @@ class Collection:
                     raise DocumentNotFoundError(f"Attachment not found: {old_path}")
                 if new_abs.is_file():
                     raise DocumentExistsError(f"Target already exists: {new_path}")
+                if if_match is not None:
+                    current_hash = compute_file_hash(old_abs)
+                    if current_hash != if_match:
+                        raise ConcurrentModificationError(
+                            old_path, expected=if_match, actual=current_hash
+                        )
 
                 new_abs.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(old_abs), str(new_abs))
