@@ -584,6 +584,33 @@ class TestWALMode:
         # WAL pragma is skipped for :memory: databases; SQLite uses 'memory' mode.
         assert mode.lower() == "memory"
 
+    def test_wal_warning_logged_when_pragma_returns_non_wal(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A warning is logged when WAL mode cannot be enabled."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from markdown_vault_mcp.fts_index import _open_connection
+
+        db_path = tmp_path / "nowarn.db"
+
+        mock_conn = MagicMock()
+        # WAL pragma returns "delete" (simulating a filesystem without WAL support).
+        mock_conn.execute.return_value.fetchone.return_value = ["delete"]
+
+        with (
+            patch(
+                "markdown_vault_mcp.fts_index.sqlite3.connect", return_value=mock_conn
+            ),
+            caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.fts_index"),
+        ):
+            _open_connection(db_path)
+
+        assert any(
+            "Could not enable WAL journal mode" in r.message for r in caplog.records
+        )
+
     def test_wal_allows_concurrent_reader_during_write(self, tmp_path: Path) -> None:
         """A reader on a second connection succeeds while the first connection writes."""
         import sqlite3
