@@ -20,14 +20,13 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastmcp import FastMCP
+from fastmcp.dependencies import CurrentContext, Depends
 from fastmcp.server.context import Context
 from fastmcp.server.lifespan import lifespan
 from mcp.types import Icon
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
-from fastmcp.dependencies import CurrentContext, Depends
 
 from markdown_vault_mcp.collection import Collection
 from markdown_vault_mcp.config import _ENV_PREFIX, _parse_bool, load_config
@@ -172,7 +171,7 @@ async def _collection_lifespan(
 # ---------------------------------------------------------------------------
 
 
-async def get_collection(ctx: Context = CurrentContext()) -> Collection:
+def get_collection(ctx: Context = CurrentContext()) -> Collection:
     """Resolve the Collection from lifespan context.
 
     Used as a ``Depends()`` default in tool/resource/prompt signatures.
