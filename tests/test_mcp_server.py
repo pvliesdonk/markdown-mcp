@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from mcp.shared.exceptions import McpError
 
 from markdown_vault_mcp.mcp_server import _build_oidc_auth, create_server
 
@@ -1043,6 +1044,7 @@ class TestResources:
         assert isinstance(data["indexed_fields"], list)
         assert isinstance(data["required_fields"], list)
         assert isinstance(data["exclude_patterns"], list)
+        assert isinstance(data["semantic_search_available"], bool)
         assert isinstance(data["attachment_extensions"], list)
 
     @pytest.mark.usefixtures("_mcp_env_with_fields")
@@ -1099,6 +1101,13 @@ class TestResources:
         assert data[0]["level"] == 1
         assert "heading" in data[0]
         assert data[0]["heading"] == "Simple Document"
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_toc_resource_missing_path(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            with pytest.raises(McpError, match="Document not found"):
+                await client.read_resource("toc://vault/does_not_exist.md")
 
 
 # ---------------------------------------------------------------------------

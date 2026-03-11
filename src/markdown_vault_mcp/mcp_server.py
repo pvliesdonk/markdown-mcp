@@ -16,6 +16,7 @@ import base64
 import json
 import logging
 import os
+import re
 import sys
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Literal
@@ -793,6 +794,7 @@ def create_server() -> FastMCP:
     ) -> str:
         """Vault configuration and runtime state."""
         config = load_config()
+        stats = await asyncio.to_thread(collection.stats)
         return json.dumps(
             {
                 "source_dir": str(config.source_dir),
@@ -800,14 +802,8 @@ def create_server() -> FastMCP:
                 "indexed_fields": config.indexed_frontmatter_fields or [],
                 "required_fields": config.required_frontmatter or [],
                 "exclude_patterns": config.exclude_patterns or [],
-                "embedding_provider": (
-                    type(collection._embedding_provider).__name__
-                    if collection._embedding_provider is not None
-                    else None
-                ),
-                "attachment_extensions": sorted(
-                    collection._effective_attachment_extensions()
-                ),
+                "semantic_search_available": stats.semantic_search_available,
+                "attachment_extensions": stats.attachment_extensions,
             }
         )
 
@@ -824,10 +820,9 @@ def create_server() -> FastMCP:
         collection: Collection = Depends(get_collection),
     ) -> str:
         """All tags grouped by indexed field."""
-        config = load_config()
-        fields = config.indexed_frontmatter_fields or []
+        stats = await asyncio.to_thread(collection.stats)
         grouped: dict[str, list[str]] = {}
-        for field in fields:
+        for field in stats.indexed_frontmatter_fields:
             values = await asyncio.to_thread(collection.list_tags, field)
             grouped[field] = values
         return json.dumps(grouped)
@@ -875,7 +870,7 @@ def create_server() -> FastMCP:
     @mcp.prompt(tags={"write"})
     def research(topic: str) -> str:
         """Research a topic and consolidate findings as a new note."""
-        slug = topic.lower().replace(" ", "-")
+        slug = re.sub(r"[^\w\-]", "-", topic.lower()).strip("-")
         return (
             f"You are building a research note about: {topic!r}\n\n"
             "1. Call `search` with that query. Use mode='hybrid' if available "
