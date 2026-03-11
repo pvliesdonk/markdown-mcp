@@ -129,6 +129,15 @@ def _open_connection(db_path: Path | str) -> sqlite3.Connection:
     # does not guarantee this survives across statement boundaries in all
     # SQLite versions).
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL mode allows concurrent readers during writes — essential for
+    # search queries running while reindex or write operations update the DB.
+    result = conn.execute("PRAGMA journal_mode = WAL").fetchone()
+    if result is None or result[0].lower() != "wal":
+        logger.warning(
+            "Could not enable WAL journal mode (got %s); "
+            "concurrent reads during writes may block",
+            result[0] if result else "no result",
+        )
     conn.commit()
     return conn
 

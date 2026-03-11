@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from pathlib import Path
 
 import pytest
 
@@ -566,3 +567,19 @@ class TestInMemoryMode:
         results = idx.search("memory")
         assert len(results) >= 1
         assert results[0].path == "mem.md"
+
+
+class TestWALMode:
+    def test_file_based_index_uses_wal_journal_mode(self, tmp_path: Path) -> None:
+        """File-based FTSIndex uses WAL journal mode for concurrent reads."""
+        db_path = tmp_path / "test.db"
+        idx = FTSIndex(str(db_path))
+        mode = idx._conn.execute("PRAGMA journal_mode").fetchone()[0]
+        assert mode.lower() == "wal"
+
+    def test_in_memory_index_does_not_crash_on_wal(self) -> None:
+        """In-memory FTSIndex handles WAL pragma gracefully (may be 'memory')."""
+        idx = FTSIndex(":memory:")
+        mode = idx._conn.execute("PRAGMA journal_mode").fetchone()[0]
+        # In-memory databases report 'memory' — WAL is not applicable.
+        assert mode.lower() in ("wal", "memory")
