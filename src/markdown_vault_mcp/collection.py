@@ -608,7 +608,9 @@ class Collection:
             return None
 
         raw_content = abs_path.read_text(encoding="utf-8")
-        etag = note.content_hash  # already computed by parse_note (SHA-256 of raw bytes)
+        etag = (
+            note.content_hash
+        )  # already computed by parse_note (SHA-256 of raw bytes)
         folder = str(Path(path).parent)
         if folder == ".":
             folder = ""
