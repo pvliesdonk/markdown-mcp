@@ -756,10 +756,11 @@ pattern). Each tool is annotated with MCP `ToolAnnotations`:
 to avoid shadowing Python's built-in `list`. The underlying `Collection.list()`
 method is unchanged.
 
-**Conditional registration**: `write`, `edit`, `delete`, `rename` are only
-registered when `read_only=False`. If a client somehow invokes them on a
-read-only server, `ReadOnlyError` is raised (converted to structured error
-response by the MCP layer).
+**Tag-based visibility**: write tools (``write``, ``edit``, ``delete``,
+``rename``) are decorated with ``tags={"write"}``. When ``read_only=True``,
+``mcp.disable(tags={"write"})`` hides them from ``list_tools`` entirely.
+The ``ReadOnlyError`` guard in ``Collection`` remains as a defense-in-depth
+fallback for direct Python API use.
 
 **Dynamic instructions**: the server's MCP `instructions` string varies with
 `read_only` mode. When `read_only=True`, the instructions state this is a
