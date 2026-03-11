@@ -1051,8 +1051,8 @@ startup recovery (`_push_if_unpushed()`), outside the init lock — to resolve
 LFS pointer files before the first write is committed. `_lfs_pull()` runs
 `git lfs pull` in the vault root; failures (including `git lfs` not installed
 or any non-zero exit) are logged at ERROR and never propagated to the caller.
-Set `GIT_LFS=false` for repos that do not use LFS, or when `git-lfs` is not
-available on PATH.
+Set `MARKDOWN_VAULT_MCP_GIT_LFS=false` for repos that do not use LFS, or when
+`git-lfs` is not available on PATH.
 
 > **Known limitation**: there is a small timing gap between server start and
 > the first write (when lazy init fires). LFS pointer files written to the

@@ -315,7 +315,7 @@ class GitWriteStrategy:
         except FileNotFoundError:
             logger.error(
                 "Git LFS pull failed: git not found on PATH. "
-                "Install git or set GIT_LFS=false to suppress this error."
+                "Install git or set MARKDOWN_VAULT_MCP_GIT_LFS=false to suppress this error."
             )
 
     def flush(self) -> None:
