@@ -52,6 +52,26 @@ jobs:
           git_committer_email: "actions@users.noreply.github.com"
           force: ${{ inputs.force }}
 
+      - name: Update server.json to released version
+        if: steps.release.outputs.released == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          jq --arg v "$VERSION" '
+            .version = $v |
+            .packages |= map(
+              if .registryType == "pypi" then .version = $v
+              elif .registryType == "oci" then .identifier = ("ghcr.io/pvliesdonk/markdown-vault-mcp:" + $v)
+              else . end
+            )
+          ' server.json > server.json.tmp
+          mv server.json.tmp server.json
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add server.json
+          git diff --cached --quiet || git commit -m "chore: update server.json to v${VERSION} [skip ci]"
+          git push
+
       - name: Build package
         if: steps.release.outputs.released == 'true'
         run: uv build
