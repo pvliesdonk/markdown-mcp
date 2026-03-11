@@ -326,18 +326,25 @@ resolved path escapes `source_dir`, it returns `None` instead of raising.
 
 `Collection.close()` must be called on shutdown to release resources:
 
-1. Duck-types on `on_write`: if the callback has a `close()` method, calls it (e.g. `GitWriteStrategy.close()` flushes and pushes pending commits).
-2. Closes the SQLite database connection.
+1. Calls `stop()` to halt the background pull loop thread (if running).
+2. Duck-types on `on_write`: if the callback has a `close()` method, calls it (e.g. `GitWriteStrategy.close()` flushes and pushes pending commits).
+3. Closes the SQLite database connection.
 
 This enables `GitWriteStrategy` to flush and push any pending commits before
-the process exits. The contract is:
+the process exits. The full lifecycle contract is:
 
 ```
 Collection(...)
-  → build_index() or lazy init on first use
-  → zero or more write operations
-  → close()          # flush git, release SQLite
+  → sync_from_remote_before_index()   # git fetch + ff-only before first index
+  → build_index()                     # build FTS + vector index
+  → start()                           # launch background pull loop
+  → zero or more read/write operations
+  → close()                           # stop pull loop, flush git, release SQLite
 ```
+
+`stop()` may also be called independently to pause the pull loop without closing
+the collection (e.g. during maintenance or test teardown). It is a no-op if the
+loop was never started.
 
 In the MCP server, `close()` is called in the FastMCP lifespan `finally` block.
 Callers using `Collection` as a Python library must call `close()` explicitly
@@ -1062,8 +1069,8 @@ Set `MARKDOWN_VAULT_MCP_GIT_LFS=false` for repos that do not use LFS, or when
 - Starts a daemon thread that repeats `fetch + ff-only update` every interval.
 - After a successful fast-forward that advanced `HEAD`, triggers
   `Collection.reindex()` to incrementally update the index.
-- Blocks write operations for the duration of each pull tick
-  (`fetch + ff-only update + reindex`) by acquiring the Collection write lock.
+- Blocks write operations during the **reindex phase** of each pull tick
+  (not during fetch/ff-only merge) by acquiring the Collection write lock.
   Read/search operations are not blocked at the Python level (SQLite WAL
   enables concurrent readers during index writes).
 - If `MARKDOWN_VAULT_MCP_GIT_LFS=true`, each successful pull tick ends with

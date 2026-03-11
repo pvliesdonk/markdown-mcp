@@ -32,6 +32,7 @@ print(note.content)
         - pause_writes
         - sync_from_remote_before_index
         - start
+        - stop
         - build_index
         - search
         - read
