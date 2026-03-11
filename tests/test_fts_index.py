@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from pathlib import Path  # noqa: TC003 -- used at runtime in fixtures and test helpers
 
 import pytest
 
@@ -566,3 +567,78 @@ class TestInMemoryMode:
         results = idx.search("memory")
         assert len(results) >= 1
         assert results[0].path == "mem.md"
+
+
+class TestWALMode:
+    def test_file_based_index_uses_wal_journal_mode(self, tmp_path: Path) -> None:
+        """File-based FTSIndex uses WAL journal mode for concurrent reads."""
+        db_path = tmp_path / "test.db"
+        idx = FTSIndex(str(db_path))
+        mode = idx._conn.execute("PRAGMA journal_mode").fetchone()[0]
+        assert mode.lower() == "wal"
+
+    def test_in_memory_index_uses_memory_journal_mode(self) -> None:
+        """In-memory FTSIndex skips WAL and retains SQLite default 'memory' mode."""
+        idx = FTSIndex(":memory:")
+        mode = idx._conn.execute("PRAGMA journal_mode").fetchone()[0]
+        # WAL pragma is skipped for :memory: databases; SQLite uses 'memory' mode.
+        assert mode.lower() == "memory"
+
+    def test_wal_warning_logged_when_pragma_returns_non_wal(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A warning is logged when WAL mode cannot be enabled."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from markdown_vault_mcp.fts_index import _open_connection
+
+        db_path = tmp_path / "nowarn.db"
+
+        mock_conn = MagicMock()
+        # WAL pragma returns "delete" (simulating a filesystem without WAL support).
+        mock_conn.execute.return_value.fetchone.return_value = ["delete"]
+
+        with (
+            patch(
+                "markdown_vault_mcp.fts_index.sqlite3.connect", return_value=mock_conn
+            ),
+            caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.fts_index"),
+        ):
+            _open_connection(db_path)
+
+        assert any(
+            "Could not enable WAL journal mode" in r.message for r in caplog.records
+        )
+
+    def test_wal_allows_concurrent_reader_during_write(self, tmp_path: Path) -> None:
+        """A reader on a second connection succeeds while the first connection writes."""
+        import sqlite3
+
+        db_path = tmp_path / "concurrent.db"
+        idx = FTSIndex(str(db_path))
+        # Seed one document so there is something to read.
+        idx.upsert_note(make_note(path="seed.md"))
+
+        writer_conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        reader_conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        try:
+            # Begin an exclusive write transaction on writer_conn.
+            writer_conn.execute("BEGIN EXCLUSIVE")
+            writer_conn.execute(
+                "INSERT OR REPLACE INTO documents(path, title, folder, "
+                "frontmatter_json, content_hash, modified_at) "
+                "VALUES ('concurrent.md', 'Concurrent', '', '{}', 'abc', 0.0)"
+            )
+            # WAL allows the reader to see the previously committed state
+            # without waiting for the writer to commit.
+            rows = reader_conn.execute(
+                "SELECT path FROM documents WHERE path = 'seed.md'"
+            ).fetchall()
+            assert len(rows) == 1, (
+                "Reader should see committed data while writer holds EXCLUSIVE"
+            )
+            writer_conn.rollback()
+        finally:
+            writer_conn.close()
+            reader_conn.close()
