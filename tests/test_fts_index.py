@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from pathlib import Path
 
 import pytest
 
@@ -566,3 +567,27 @@ class TestInMemoryMode:
         results = idx.search("memory")
         assert len(results) >= 1
         assert results[0].path == "mem.md"
+
+
+class TestWALJournalMode:
+    def test_wal_mode_enabled_on_disk(self, tmp_path: Path) -> None:
+        """WAL journal mode is active for on-disk databases."""
+        db_file = tmp_path / "test.db"
+        idx = FTSIndex(db_file)
+        row = idx._conn.execute("PRAGMA journal_mode").fetchone()
+        assert row[0] == "wal"
+        idx.close()
+
+    def test_wal_mode_enabled_in_memory(self) -> None:
+        """WAL journal mode is requested for in-memory databases.
+
+        In-memory databases report 'memory' as their journal mode
+        regardless of PRAGMA setting, so we just verify the index
+        initialises without error.
+        """
+        idx = FTSIndex(":memory:")
+        row = idx._conn.execute("PRAGMA journal_mode").fetchone()
+        # In-memory DBs always report 'memory'; the important thing is
+        # that the PRAGMA did not raise.
+        assert row[0] == "memory"
+        idx.close()

@@ -129,6 +129,14 @@ def _open_connection(db_path: Path | str) -> sqlite3.Connection:
     # does not guarantee this survives across statement boundaries in all
     # SQLite versions).
     conn.execute("PRAGMA foreign_keys = ON")
+    # Enable WAL journal mode so readers do not block writers and vice-versa.
+    # This prevents "database is locked" errors when search/list operations
+    # overlap with index updates.  Falls back gracefully (e.g. on a read-only
+    # filesystem) so the server can still start.
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.Error as exc:
+        logger.warning("Could not enable WAL journal mode: %s", exc)
     conn.commit()
     return conn
 
