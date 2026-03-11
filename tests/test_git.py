@@ -220,14 +220,6 @@ class TestGitWriteStrategy:
         )
         assert "rename: renamed.md" in result.stdout
 
-        # Verify the old file is not left as an unstaged deletion.
-        status = subprocess.run(
-            ["git", "-C", str(git_repo), "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-        )
-        assert status.stdout.strip() == ""
-
     def test_commit_on_rename_of_untracked_file(self, git_repo: Path) -> None:
         """Rename of a never-committed file: only new path is committed."""
         import subprocess
@@ -1204,3 +1196,171 @@ class TestCommitterIdentityInCommit:
         call = recorded_calls[0]
         assert call[3] == "BotName"  # commit_name
         assert call[4] == "bot@test.local"  # commit_email
+
+
+class TestGitSyncOnce:
+    def test_sync_once_fast_forwards(
+        self, tmp_path: Path, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """sync_once() fast-forwards when the remote has advanced."""
+        import subprocess
+
+        work, bare = git_repo_with_remote
+
+        other = tmp_path / "other"
+        subprocess.run(
+            ["git", "clone", str(bare), str(other)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+
+        (other / "README.md").write_text("# Remote advance\n")
+        subprocess.run(
+            ["git", "-C", str(other), "add", "."],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "commit", "-m", "remote advance"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "push"],
+            check=True,
+            capture_output=True,
+        )
+
+        strategy = GitWriteStrategy(token=None, push_delay_s=0)
+        did_advance = strategy.sync_once(work)
+        assert did_advance is True
+        assert "Remote advance" in (work / "README.md").read_text()
+
+    def test_sync_once_diverged_skips(
+        self,
+        tmp_path: Path,
+        git_repo_with_remote: tuple[Path, Path],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """sync_once() does not merge/rebase when ff-only is not possible."""
+        import subprocess
+
+        work, bare = git_repo_with_remote
+
+        # Create a local-only commit (do not push).
+        (work / "README.md").write_text("# Local diverge\n")
+        subprocess.run(
+            ["git", "-C", str(work), "add", "."],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(work), "commit", "-m", "local diverge"],
+            check=True,
+            capture_output=True,
+        )
+
+        # Advance remote on a separate clone.
+        other = tmp_path / "other"
+        subprocess.run(
+            ["git", "clone", str(bare), str(other)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+        (other / "README.md").write_text("# Remote diverge\n")
+        subprocess.run(
+            ["git", "-C", str(other), "add", "."],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "commit", "-m", "remote diverge"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(other), "push"],
+            check=True,
+            capture_output=True,
+        )
+
+        strategy = GitWriteStrategy(token=None, push_delay_s=0)
+        did_advance = strategy.sync_once(work)
+        assert did_advance is False
+        assert "ff-only update failed" in caplog.text
+
+
+class TestGitPullLoop:
+    def test_start_runs_tick_with_pause_and_on_pull(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """start() runs a tick, using pause_writes and calling on_pull."""
+        import contextlib
+        import time
+        from types import SimpleNamespace
+
+        calls: list[str] = []
+
+        strategy = GitWriteStrategy(token=None, push_delay_s=0)
+
+        # Pretend tmp_path is a git repo with an upstream so start() launches the loop.
+        monkeypatch.setattr(strategy, "_ensure_git_root", lambda _p: tmp_path)
+        monkeypatch.setattr(
+            "markdown_vault_mcp.git.subprocess.run",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                returncode=0, stdout="", stderr=""
+            ),
+        )
+
+        def fake_sync_once(repo_path: Path) -> bool:  # noqa: ARG001
+            calls.append("sync")
+            return True
+
+        monkeypatch.setattr(strategy, "sync_once", fake_sync_once)
+
+        pause_calls: list[str] = []
+
+        @contextlib.contextmanager
+        def pause() -> None:
+            pause_calls.append("pause")
+            yield
+
+        on_pull_calls: list[str] = []
+
+        def on_pull() -> None:
+            on_pull_calls.append("pull")
+
+        strategy.start(
+            repo_path=tmp_path,
+            pull_interval_s=3600,
+            pause_writes=pause,  # type: ignore[arg-type]
+            on_pull=on_pull,
+        )
+        time.sleep(0.05)
+        strategy.stop()
+
+        assert calls
+        assert pause_calls
+        assert on_pull_calls

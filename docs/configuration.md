@@ -41,10 +41,14 @@ All configuration is via environment variables. Most use the `MARKDOWN_VAULT_MCP
 
 ## Git Integration
 
-Enables auto-commit and push on every write. Requires `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
+Git integration supports:
+
+- **Periodic pull** (ff-only): keeps the server's working tree up to date with the remote. Works in read-only mode.
+- **Auto-commit + push on write**: commits each MCP write and pushes after an idle delay. Requires `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
+| `MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S` | int | `600` | Seconds between `git fetch` + ff-only update attempts; `0` disables periodic pull |
 | `MARKDOWN_VAULT_MCP_GIT_TOKEN` | string | — | GitHub/GitLab PAT; when set, every write triggers a git commit and deferred push via `GIT_ASKPASS` |
 | `MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S` | float | `30` | Seconds of write-idle time before pushing; `0` = push only on shutdown |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME` | string | `markdown-vault-mcp` | Git committer name for auto-commits; **set this in Docker** where `git config user.name` is empty |

@@ -45,6 +45,7 @@ class TestLoadConfig:
             "MARKDOWN_VAULT_MCP_REQUIRED_FIELDS",
             "MARKDOWN_VAULT_MCP_EXCLUDE",
             "MARKDOWN_VAULT_MCP_GIT_TOKEN",
+            "MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S",
         ):
             monkeypatch.delenv(var, raising=False)
 
@@ -59,6 +60,7 @@ class TestLoadConfig:
         assert config.required_frontmatter is None
         assert config.exclude_patterns is None
         assert config.git_token is None
+        assert config.git_pull_interval_s == 600
 
     def test_full_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/data/vault")
@@ -70,6 +72,7 @@ class TestLoadConfig:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_REQUIRED_FIELDS", "title,cluster")
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_EXCLUDE", ".obsidian/**, .trash/**")
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_TOKEN", "ghp_test123")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S", "300")
 
         config = load_config()
 
@@ -82,6 +85,7 @@ class TestLoadConfig:
         assert config.required_frontmatter == ["title", "cluster"]
         assert config.exclude_patterns == [".obsidian/**", ".trash/**"]
         assert config.git_token == "ghp_test123"
+        assert config.git_pull_interval_s == 300
 
     def test_comma_separated_strips_whitespace(
         self, monkeypatch: pytest.MonkeyPatch
@@ -130,18 +134,19 @@ class TestToCollectionKwargs:
             exclude_patterns=[".obsidian/**"],
         )
         kwargs = config.to_collection_kwargs()
-        assert kwargs == {
-            "source_dir": Path("/tmp/vault"),
-            "read_only": False,
-            "index_path": Path("/tmp/index.db"),
-            "embeddings_path": Path("/tmp/emb"),
-            "state_path": Path("/tmp/state.json"),
-            "indexed_frontmatter_fields": ["cluster"],
-            "required_frontmatter": ["title"],
-            "exclude_patterns": [".obsidian/**"],
-            "attachment_extensions": None,
-            "max_attachment_size_mb": 10.0,
-        }
+        assert kwargs["source_dir"] == Path("/tmp/vault")
+        assert kwargs["read_only"] is False
+        assert kwargs["index_path"] == Path("/tmp/index.db")
+        assert kwargs["embeddings_path"] == Path("/tmp/emb")
+        assert kwargs["state_path"] == Path("/tmp/state.json")
+        assert kwargs["indexed_frontmatter_fields"] == ["cluster"]
+        assert kwargs["required_frontmatter"] == ["title"]
+        assert kwargs["exclude_patterns"] == [".obsidian/**"]
+        assert kwargs["attachment_extensions"] is None
+        assert kwargs["max_attachment_size_mb"] == 10.0
+        assert kwargs["git_pull_interval_s"] == 600
+        assert "git_strategy" in kwargs
+        assert "on_write" not in kwargs
 
 
 class TestGitCommitterConfig:
@@ -235,6 +240,7 @@ class TestGitCommitterConfig:
         assert "on_write" in kwargs
         strategy = kwargs["on_write"]
         assert isinstance(strategy, GitWriteStrategy)
+        assert kwargs["git_strategy"] is strategy
         assert strategy._commit_name == "TestBot"
         assert strategy._commit_email == "test@example.com"
 

@@ -1028,6 +1028,28 @@ class TestConcurrentWrites:
                 f"Token {i} original text still present after replacement"
             )
 
+    def test_pause_writes_blocks_write(self, vault_path: Path) -> None:
+        """pause_writes() queues write() calls until the context exits."""
+        import threading
+        import time
+
+        col = Collection(source_dir=vault_path, read_only=False)
+
+        finished = threading.Event()
+
+        def do_write() -> None:
+            col.write("paused.md", "# Paused\n")
+            finished.set()
+
+        with col.pause_writes():
+            t = threading.Thread(target=do_write, daemon=True)
+            t.start()
+            time.sleep(0.05)
+            assert not finished.is_set()
+
+        t.join(timeout=2.0)
+        assert finished.is_set()
+
 
 # ---------------------------------------------------------------------------
 # Attachment helpers

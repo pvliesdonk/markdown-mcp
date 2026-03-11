@@ -16,7 +16,10 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -105,11 +108,74 @@ class GitWriteStrategy:
         self._commit_email = commit_email or self.DEFAULT_COMMIT_EMAIL
         self._git_lfs = git_lfs
         self._git_root: Path | None = None
-        self._checked = False
+        self._git_root_checked = False
+        self._write_init_done = False
         self._push_pending = False
         self._timer: threading.Timer | None = None
         self._lock = threading.Lock()
         self._closed = False
+        self._pull_stop = threading.Event()
+        self._pull_thread: threading.Thread | None = None
+        self._pull_interval_s: int = 0
+        self._pull_repo_path: Path | None = None
+        self._pause_writes: (
+            Callable[[], contextlib.AbstractContextManager[None]] | None
+        ) = None
+        self._on_pull: Callable[[], None] | None = None
+
+    def _git_env(self) -> dict[str, str] | None:
+        """Build environment for git subprocess calls.
+
+        When a token is set, reuse the existing GIT_ASKPASS mechanism to avoid
+        prompting interactively. This mirrors the push path and keeps the token
+        out of command-line arguments.
+        """
+        if not self._token:
+            return None
+        fd, script_path_str = tempfile.mkstemp(suffix=".sh", prefix="git_askpass_")
+        script_path = Path(script_path_str)
+        os.close(fd)
+        # The script echoes the token for any prompt. This matches the existing
+        # push behavior and avoids provider-specific username handling.
+        script_path.write_text(f"#!/bin/sh\necho {shlex.quote(self._token)}\n")
+        script_path.chmod(stat.S_IRWXU)
+        # Caller is responsible for unlinking script_path.
+        return {
+            **os.environ,
+            "GIT_ASKPASS": script_path_str,
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+
+    def _cleanup_git_env(self, env: dict[str, str] | None) -> None:
+        if env is None:
+            return
+        script_path_str = env.get("GIT_ASKPASS")
+        if not script_path_str:
+            return
+        with contextlib.suppress(OSError):
+            Path(script_path_str).unlink()
+
+    def _ensure_git_root(self, repo_path: Path) -> Path | None:
+        if self._git_root_checked:
+            return self._git_root
+        with self._lock:
+            if not self._git_root_checked:
+                self._git_root = _find_git_root(repo_path)
+                self._git_root_checked = True
+        return self._git_root
+
+    def _ensure_write_init(self) -> None:
+        """One-time initialisation for the write path (identity/push/LFS)."""
+        if self._write_init_done or self._git_root is None:
+            return
+        with self._lock:
+            if self._write_init_done or self._git_root is None:
+                return
+            self._check_identity()
+            self._push_if_unpushed()
+            # LFS pull runs under the git lock to avoid overlapping git ops.
+            self._lfs_pull()
+            self._write_init_done = True
 
     def __call__(
         self,
@@ -121,35 +187,27 @@ class GitWriteStrategy:
         if self._closed:
             return
 
-        did_init = False
-        if not self._checked:
-            with self._lock:
-                if not self._checked:
-                    self._git_root = _find_git_root(path)
-                    self._checked = True
-                    did_init = True
-        if did_init:
-            if self._git_root is None:
-                logger.warning(
-                    "No git repository found for %s; git operations disabled",
-                    path,
-                )
-            else:
-                self._check_identity()
-                self._push_if_unpushed()
-                self._lfs_pull()  # runs after lock release; see #118 for concurrent-write race
+        self._ensure_git_root(path)
+        if self._git_root is None:
+            logger.debug(
+                "No git repository found for %s; git operations disabled", path
+            )
+            return
+
+        self._ensure_write_init()
 
         if self._git_root is None:
             return
 
         try:
-            _stage_and_commit(
-                self._git_root,
-                path,
-                operation,
-                commit_name=self._commit_name,
-                commit_email=self._commit_email,
-            )
+            with self._lock:
+                _stage_and_commit(
+                    self._git_root,
+                    path,
+                    operation,
+                    commit_name=self._commit_name,
+                    commit_email=self._commit_email,
+                )
             self._schedule_push()
         except subprocess.CalledProcessError as exc:
             sanitized_stderr = exc.stderr or ""
@@ -212,8 +270,9 @@ class GitWriteStrategy:
                 return
             self._push_pending = False
 
-        _push(self._git_root, self._token)
-        logger.info("Git: pushed to remote")
+        with self._lock:
+            _push(self._git_root, self._token)
+            logger.info("Git: pushed to remote")
 
     def _check_identity(self) -> None:
         """Warn once at startup if no git committer identity is configured.
@@ -318,6 +377,181 @@ class GitWriteStrategy:
                 "Install git or set MARKDOWN_VAULT_MCP_GIT_LFS=false to suppress this error."
             )
 
+    def sync_once(self, repo_path: Path) -> bool:
+        """Fetch + ff-only update once, returning True if HEAD advanced."""
+        if self._closed:
+            return False
+
+        git_root = self._ensure_git_root(repo_path)
+        if git_root is None:
+            return False
+
+        env = None
+        try:
+            env = self._git_env()
+            with self._lock:
+                upstream_check = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(git_root),
+                        "rev-parse",
+                        "--verify",
+                        "@{upstream}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+                if upstream_check.returncode != 0:
+                    logger.info("Git pull: no upstream configured; skipping pull loop")
+                    return False
+
+                old_head = subprocess.run(
+                    ["git", "-C", str(git_root), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=env,
+                ).stdout.strip()
+
+                subprocess.run(
+                    ["git", "-C", str(git_root), "fetch"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=env,
+                )
+
+                try:
+                    subprocess.run(
+                        [
+                            "git",
+                            "-C",
+                            str(git_root),
+                            "merge",
+                            "--ff-only",
+                            "@{upstream}",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        env=env,
+                    )
+                except subprocess.CalledProcessError as exc:
+                    logger.warning(
+                        "Git pull: ff-only update failed (diverged?), skipping: %s",
+                        (exc.stderr or "").strip(),
+                    )
+                    return False
+
+                new_head = subprocess.run(
+                    ["git", "-C", str(git_root), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=env,
+                ).stdout.strip()
+
+                # Always attempt LFS pull after a successful fetch+ff-only step.
+                self._lfs_pull()
+
+            return old_head != new_head
+        except FileNotFoundError:
+            logger.info("Git pull: git not found on PATH; pull loop disabled")
+            return False
+        except subprocess.CalledProcessError as exc:
+            logger.warning(
+                "Git pull: git command failed, skipping: %s",
+                (exc.stderr or "").strip(),
+            )
+            return False
+        finally:
+            self._cleanup_git_env(env)
+
+    def start(
+        self,
+        *,
+        repo_path: Path,
+        pull_interval_s: int,
+        pause_writes: Callable[[], contextlib.AbstractContextManager[None]]
+        | None = None,
+        on_pull: Callable[[], None] | None = None,
+    ) -> None:
+        """Start a periodic fetch + ff-only update loop in a daemon thread."""
+        if self._closed or pull_interval_s <= 0:
+            return
+
+        git_root = self._ensure_git_root(repo_path)
+        if git_root is None:
+            return
+
+        # If there is no upstream configured, do not start the loop (avoid
+        # noisy logs on every tick). sync_once() will still log once if called
+        # explicitly during startup.
+        env = None
+        try:
+            env = self._git_env()
+            upstream_check = subprocess.run(
+                ["git", "-C", str(git_root), "rev-parse", "--verify", "@{upstream}"],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            if upstream_check.returncode != 0:
+                logger.info("Git pull: no upstream configured; pull loop disabled")
+                return
+        except FileNotFoundError:
+            logger.info("Git pull: git not found on PATH; pull loop disabled")
+            return
+        finally:
+            self._cleanup_git_env(env)
+
+        with self._lock:
+            if self._pull_thread is not None and self._pull_thread.is_alive():
+                return
+            self._pull_repo_path = repo_path
+            self._pull_interval_s = pull_interval_s
+            self._pause_writes = pause_writes
+            self._on_pull = on_pull
+            self._pull_stop.clear()
+            self._pull_thread = threading.Thread(
+                target=self._pull_loop, name="GitPullLoop", daemon=True
+            )
+            self._pull_thread.start()
+
+    def _pull_loop(self) -> None:
+        repo_path = self._pull_repo_path
+        if repo_path is None:
+            return
+
+        while not self._pull_stop.is_set():
+            pause = self._pause_writes
+            if pause is None:
+                did_advance = self.sync_once(repo_path)
+                if did_advance and self._on_pull is not None:
+                    self._on_pull()
+            else:
+                with pause():
+                    did_advance = self.sync_once(repo_path)
+                    if did_advance and self._on_pull is not None:
+                        self._on_pull()
+            # Wait until the next interval, or stop early.
+            if self._pull_stop.wait(timeout=self._pull_interval_s):
+                break
+
+    def stop(self) -> None:
+        """Stop the pull loop thread if it is running."""
+        thread: threading.Thread | None = None
+        with self._lock:
+            if self._pull_thread is None:
+                return
+            self._pull_stop.set()
+            thread = self._pull_thread
+            self._pull_thread = None
+        # Do not block indefinitely on shutdown.
+        thread.join(timeout=5.0)
+
     def flush(self) -> None:
         """Block until any pending push completes.
 
@@ -336,6 +570,7 @@ class GitWriteStrategy:
     def close(self) -> None:
         """Cancel timer, flush pending push, mark strategy as closed."""
         self._closed = True
+        self.stop()
         self.flush()
 
 

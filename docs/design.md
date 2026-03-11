@@ -1054,11 +1054,22 @@ or any non-zero exit) are logged at ERROR and never propagated to the caller.
 Set `MARKDOWN_VAULT_MCP_GIT_LFS=false` for repos that do not use LFS, or when
 `git-lfs` is not available on PATH.
 
-> **Known limitation**: there is a small timing gap between server start and
-> the first write (when lazy init fires). LFS pointer files written to the
-> repo in that window are resolved *after* the write. A future `start()`
-> lifecycle method (tracked in #118) will close this gap by running the pull
-> at server startup instead.
+**Periodic pull (ff-only)**: when `MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S > 0`
+(default `600`), the server:
+
+- Runs one `git fetch` + ff-only update **before** the initial `build_index()`
+  so the index scans the freshest working tree.
+- Starts a daemon thread that repeats `fetch + ff-only update` every interval.
+- After a successful fast-forward that advanced `HEAD`, triggers
+  `Collection.reindex()` to incrementally update the index.
+- Blocks write operations for the duration of each pull tick
+  (`fetch + ff-only update + reindex`) by acquiring the Collection write lock.
+  Read/search operations are not blocked at the Python level (SQLite WAL
+  enables concurrent readers during index writes).
+- If `MARKDOWN_VAULT_MCP_GIT_LFS=true`, each successful pull tick ends with
+  `git lfs pull` so LFS pointer files are resolved before reads and indexing.
+
+Safety branch mode for push failures is tracked separately (see #119).
 
 ### Future Work
 
