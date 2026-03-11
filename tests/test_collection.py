@@ -2391,3 +2391,38 @@ class TestCollectionGetToc:
         """get_toc() raises ValueError for a path not in the index."""
         with pytest.raises(ValueError, match="Document not found"):
             collection_with_long_doc.get_toc("does_not_exist.md")
+
+
+class TestReindexThreadSafety:
+    """Verify that reindex() and write() do not corrupt the index when concurrent."""
+
+    def test_reindex_and_write_concurrent(
+        self, tmp_path: Path, vault_path: Path
+    ) -> None:
+        """Concurrent reindex + write does not crash or corrupt the FTS index."""
+        state_path = tmp_path / "state.json"
+        col = _make_collection(vault_path, state_path=state_path, read_only=False)
+        col.build_index()
+
+        # Add a file that reindex will discover.
+        (vault_path / "concurrent_new.md").write_text(
+            "# Concurrent\n\nNew file for reindex.\n"
+        )
+
+        def do_reindex() -> None:
+            col.reindex()
+
+        def do_write() -> None:
+            col.write("written_during_reindex.md", "# Written\n\nBody.\n")
+
+        # Run reindex and write concurrently — should not raise.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(do_reindex), pool.submit(do_write)]
+            for f in concurrent.futures.as_completed(futures):
+                f.result()  # raises if the thread raised
+
+        # Both documents should be in the index.
+        results = col.search("concurrent")
+        assert len(results) >= 1
+        written = col.read("written_during_reindex.md")
+        assert written is not None
