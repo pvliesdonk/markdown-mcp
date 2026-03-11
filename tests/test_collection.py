@@ -2421,8 +2421,8 @@ class TestReindexThreadSafety:
             for f in concurrent.futures.as_completed(futures):
                 f.result()  # raises if the thread raised
 
-        # Both documents should be in the index.
-        results = col.search("concurrent")
-        assert len(results) >= 1
+        # Both documents must be readable — index is not corrupted.
+        concurrent_note = col.read("concurrent_new.md")
+        assert concurrent_note is not None, "reindex should have indexed the new file"
         written = col.read("written_during_reindex.md")
-        assert written is not None
+        assert written is not None, "write during reindex must persist"

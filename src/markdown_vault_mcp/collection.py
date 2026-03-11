@@ -832,15 +832,19 @@ class Collection:
         )
 
         # Pre-parse notes outside the lock to minimise lock hold time.
+        # NOTE: there is an inherent TOCTOU window between detecting a change
+        # in Phase 1 (hash comparison) and re-reading the file for indexing
+        # here.  If the file is modified again in that window, the newly
+        # written content is indexed rather than the version that triggered
+        # the change.  This is acceptable — the next reindex() call will
+        # reconcile the difference.
         parsed: list[tuple[str, ParsedNote]] = []
-        skipped = 0
         for path in changes.added + changes.modified:
             abs_path = self._source_dir / path
             try:
                 note = parse_note(abs_path, self._source_dir, self._chunk_strategy)
             except (UnicodeDecodeError, OSError) as exc:
                 logger.warning("reindex: skipping %s — %s", path, exc)
-                skipped += 1
                 continue
             except Exception as exc:
                 logger.warning(
@@ -849,7 +853,6 @@ class Collection:
                     exc,
                     exc_info=True,
                 )
-                skipped += 1
                 continue
 
             # Apply required_frontmatter filter.
@@ -861,7 +864,6 @@ class Collection:
                     logger.info(
                         "reindex: skipping %s — missing frontmatter: %s", path, missing
                     )
-                    skipped += 1
                     continue
 
             parsed.append((path, note))
