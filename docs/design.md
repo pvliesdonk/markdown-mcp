@@ -756,11 +756,12 @@ pattern). Each tool is annotated with MCP `ToolAnnotations`:
 to avoid shadowing Python's built-in `list`. The underlying `Collection.list()`
 method is unchanged.
 
-**Tag-based visibility**: write tools (``write``, ``edit``, ``delete``,
-``rename``) are decorated with ``tags={"write"}``. When ``read_only=True``,
-``mcp.disable(tags={"write"})`` hides them from ``list_tools`` entirely.
-The ``ReadOnlyError`` guard in ``Collection`` remains as a defense-in-depth
-fallback for direct Python API use.
+**Tag-based visibility**: `write`, `edit`, `delete`, `rename` are always
+registered but tagged with ``tags={"write"}``. When ``read_only=True``, the
+server calls ``mcp.disable(tags={"write"})`` to hide them from clients.
+This also hides any prompts sharing the ``write`` tag (e.g. ``research``,
+``discuss``). The Collection still raises ``ReadOnlyError`` as a defence-in-depth
+guard if a write method is somehow called on a read-only instance.
 
 **Dynamic instructions**: the server's MCP `instructions` string varies with
 `read_only` mode. When `read_only=True`, the instructions state this is a
@@ -777,6 +778,37 @@ This signals capability status to clients and reduces irrelevant prompting.
 These semantics are intentionally close to Claude Code's file tools for
 familiarity. LLMs that know how to read/write/edit files can use these tools
 without special prompting.
+
+**Dependency injection**: tools, resources, and prompts use FastMCP's
+``Depends(get_collection)`` to access the Collection instance from
+lifespan context, eliminating module-level globals.
+
+**Resources**: the server exposes 6 read-only MCP resources:
+
+| URI | Source | Description |
+|-----|--------|-------------|
+| ``config://vault`` | ``CollectionConfig`` | Source dir, read-only flag, indexed fields, extensions |
+| ``stats://vault`` | ``Collection.stats()`` | Document/chunk/folder counts, capabilities |
+| ``tags://vault`` | ``Collection.list_tags()`` | All tags grouped by indexed field |
+| ``tags://vault/{field}`` | ``Collection.list_tags(field)`` | Flat list for one field (template) |
+| ``folders://vault`` | ``Collection.list_folders()`` | Sorted folder path list |
+| ``toc://vault/{path}`` | ``Collection.get_toc(path)`` | Document headings with synthetic H1 title |
+
+Resources return JSON (``mime_type="application/json"``). The ToC resource
+queries the existing ``sections`` table — no file I/O.
+
+**Prompts**: 5 built-in prompt templates:
+
+| Prompt | Parameters | Tags | Description |
+|--------|-----------|------|-------------|
+| ``summarize`` | ``path`` | — | Summarize a document |
+| ``research`` | ``topic`` | ``write`` | Search and consolidate as new note |
+| ``discuss`` | ``path`` | ``write`` | Analyze and suggest improvements |
+| ``related`` | ``path`` | — | Find related notes, suggest cross-references |
+| ``compare`` | ``path1, path2`` | — | Compare two documents |
+
+Write-tagged prompts are hidden in read-only mode by the same
+``mcp.disable(tags={"write"})`` call that hides write tools.
 
 ## Configuration
 

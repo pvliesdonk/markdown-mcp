@@ -864,44 +864,76 @@ def create_server() -> FastMCP:
     def summarize(path: str) -> str:
         """Summarize a document."""
         return (
-            f"Read the document at '{path}' and provide a concise summary "
-            "covering its main points, key arguments, and conclusions."
+            f"Call the `read` tool with path='{path}'. "
+            "The result contains a `content` field (the markdown body) and a "
+            "`frontmatter` field (metadata). "
+            "Write a concise summary covering the document's main topics and "
+            "key points. "
+            "If `read` returns an error, report it and stop."
         )
 
     @mcp.prompt(tags={"write"})
     def research(topic: str) -> str:
         """Research a topic and consolidate findings as a new note."""
+        slug = topic.lower().replace(" ", "-")
         return (
-            f"Search for '{topic}' in the vault, read the most relevant results, "
-            "and consolidate your findings into a well-structured new note. "
-            "Include references to the source documents."
+            f"You are building a research note about: {topic!r}\n\n"
+            "1. Call `search` with that query. Use mode='hybrid' if available "
+            "(check `stats` first), otherwise mode='keyword'. Examine the top "
+            "results; call `read` on the 3-5 highest-scoring paths.\n"
+            "2. Write a structured markdown summary of what you found. Link "
+            "each source as [document title](its/relative/path.md).\n"
+            f"3. Choose a path like Research/{slug}.md. "
+            "Call `write` with that path, your content, and "
+            "frontmatter={'title': ..., 'tags': ['research']}.\n"
+            "If no results are found, tell the user and stop — do not write "
+            "an empty note."
         )
 
     @mcp.prompt(tags={"write"})
     def discuss(path: str) -> str:
         """Analyze a document and suggest improvements."""
         return (
-            f"Read the document at '{path}', analyze its contents, "
-            "suggest improvements or corrections, and update the note "
-            "with your changes."
+            f"Step 1: Call `read` with path='{path}'. Review the document.\n"
+            "Step 2: Identify specific improvements: factual corrections, "
+            "clarity, structure, completeness.\n"
+            "Step 3: Present your proposed changes to the user before editing. "
+            "Then apply each change using `edit`. "
+            "`edit` requires an exact `old_text` substring from the document "
+            "returned in Step 1 — do not paraphrase. Each `edit` call changes "
+            "one location; use multiple calls for multiple changes.\n"
+            "Do not use `write` — it overwrites the entire file including "
+            "frontmatter.\n"
+            "If `read` fails, report the error and stop."
         )
 
     @mcp.prompt
     def related(path: str) -> str:
         """Find related notes and suggest cross-references."""
         return (
-            f"Read the document at '{path}', search for related notes "
-            "in the vault, and suggest cross-references or links that "
-            "would improve navigation between related content."
+            f"Step 1: Call `read` with path='{path}'. Extract the main topics "
+            "and key terms.\n"
+            "Step 2: Call `search` using those terms. Use mode='semantic' if "
+            "available, otherwise mode='keyword'.\n"
+            "Step 3: Present a list of the most relevant related documents. "
+            "For each, include: the document title, its path, and one sentence "
+            "explaining the connection.\n"
+            "Format suggested cross-references as: [title](relative/path.md)\n"
+            "Do not edit any documents — this prompt is read-only."
         )
 
     @mcp.prompt
     def compare(path1: str, path2: str) -> str:
         """Compare two documents."""
         return (
-            f"Read both '{path1}' and '{path2}', then compare their contents. "
-            "Identify similarities, differences, contradictions, and "
-            "complementary information."
+            f"Call `read` for both '{path1}' and '{path2}'. "
+            "Use the `content` field from each result for comparison. "
+            "Present your comparison covering:\n"
+            "- What both documents agree on\n"
+            "- Where they differ or contradict\n"
+            "- Information present in one but absent from the other\n"
+            "If either `read` call fails, report which path was not found "
+            "and stop."
         )
 
     # --- Visibility: hide write-tagged components in read-only mode ---

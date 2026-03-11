@@ -1116,6 +1116,7 @@ class TestPrompts:
             result = await client.get_prompt("summarize", {"path": "simple.md"})
         text = result.messages[0].content.text
         assert "simple.md" in text
+        assert "`read`" in text
 
     @pytest.mark.usefixtures("_mcp_env_writable")
     async def test_research_prompt(self) -> None:
@@ -1124,6 +1125,8 @@ class TestPrompts:
             result = await client.get_prompt("research", {"topic": "horror fiction"})
         text = result.messages[0].content.text
         assert "horror fiction" in text
+        assert "`search`" in text
+        assert "`write`" in text
 
     @pytest.mark.usefixtures("_mcp_env_writable")
     async def test_discuss_prompt(self) -> None:
@@ -1132,6 +1135,8 @@ class TestPrompts:
             result = await client.get_prompt("discuss", {"path": "simple.md"})
         text = result.messages[0].content.text
         assert "simple.md" in text
+        assert "`edit`" in text
+        assert "Do not use `write`" in text
 
     @pytest.mark.usefixtures("_mcp_env")
     async def test_related_prompt(self) -> None:
@@ -1140,6 +1145,8 @@ class TestPrompts:
             result = await client.get_prompt("related", {"path": "simple.md"})
         text = result.messages[0].content.text
         assert "simple.md" in text
+        assert "`search`" in text
+        assert "read-only" in text
 
     @pytest.mark.usefixtures("_mcp_env")
     async def test_compare_prompt(self) -> None:
@@ -1151,6 +1158,7 @@ class TestPrompts:
         text = result.messages[0].content.text
         assert "simple.md" in text
         assert "no_frontmatter.md" in text
+        assert "`read`" in text
 
 
 # ---------------------------------------------------------------------------
