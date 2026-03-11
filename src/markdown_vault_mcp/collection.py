@@ -301,6 +301,16 @@ class Collection:
             on_pull=self.reindex,
         )
 
+    def stop(self) -> None:
+        """Stop background tasks (e.g. git pull loop) without closing the collection.
+
+        Safe to call multiple times.  A no-op if no pull loop was started.
+        The SQLite connection and write callback remain open; only the pull
+        loop thread is signalled to stop.
+        """
+        if self._git_strategy is not None:
+            self._git_strategy.stop()
+
     def close(self) -> None:
         """Release resources held by the collection.
 
