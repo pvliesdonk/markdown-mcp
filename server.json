@@ -16,14 +16,6 @@
       "transport": {
         "type": "stdio"
       }
-    },
-    {
-      "registryType": "oci",
-      "identifier": "ghcr.io/pvliesdonk/markdown-vault-mcp:1.5.0",
-      "transport": {
-        "type": "streamable-http",
-        "url": "http://localhost:8000/mcp"
-      }
     }
   ]
 }
