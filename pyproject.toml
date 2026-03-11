@@ -35,13 +35,17 @@ dev = [
     "mypy>=1.0",
     "pre-commit>=3.0",
 ]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+]
 
 [project.scripts]
 markdown-vault-mcp = "markdown_vault_mcp.cli:main"
 
 [project.urls]
 Repository = "https://github.com/pvliesdonk/markdown-vault-mcp"
-Documentation = "https://github.com/pvliesdonk/markdown-vault-mcp/blob/main/README.md"
+Documentation = "https://pvliesdonk.github.io/markdown-vault-mcp/"
 Issues = "https://github.com/pvliesdonk/markdown-vault-mcp/issues"
 Changelog = "https://github.com/pvliesdonk/markdown-vault-mcp/blob/main/CHANGELOG.md"
 
