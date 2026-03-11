@@ -1,0 +1,9 @@
+# Gitleaks configuration
+# https://github.com/gitleaks/gitleaks
+
+[allowlist]
+  # Example placeholder tokens in documentation are not real secrets
+  paths = [
+    '''docs/guides/.*\.md''',
+    '''examples/.*\.env''',
+  ]
