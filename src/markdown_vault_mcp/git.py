@@ -345,11 +345,9 @@ class GitWriteStrategy:
     def _lfs_pull(self) -> None:
         """Run ``git lfs pull`` to resolve LFS pointers, if LFS is enabled.
 
-        Called once during lazy init.  There is a timing gap between server
-        start and the first write (when lazy init fires): any LFS pointer
-        files written to the repo in that window are resolved *after* the
-        write, not before.  A future ``start()`` lifecycle method (see #118)
-        will close this gap by running the pull at startup instead.
+        Called during lazy init and after successful ff-only pull ticks
+        (:meth:`sync_once`) so LFS pointer files are resolved before reads,
+        indexing, and git commits.
         Failures are logged at ERROR and never propagated to the caller.
         """
         if not self._git_lfs or self._git_root is None:
