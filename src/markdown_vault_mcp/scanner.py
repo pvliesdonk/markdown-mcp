@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import fnmatch
-import hashlib
 import logging
 import re
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -11,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 import frontmatter
 import yaml
 
+from markdown_vault_mcp.hashing import compute_etag
 from markdown_vault_mcp.types import Chunk, ParsedNote
 
 if TYPE_CHECKING:
@@ -229,7 +229,7 @@ def parse_note(
         chunk_strategy = HeadingChunker()
 
     raw_bytes = path.read_bytes()
-    content_hash = hashlib.sha256(raw_bytes).hexdigest()
+    content_hash = compute_etag(raw_bytes)
     modified_at = path.stat().st_mtime
 
     # May raise UnicodeDecodeError — propagated to caller.

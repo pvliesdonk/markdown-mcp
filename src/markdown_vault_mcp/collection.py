@@ -26,6 +26,7 @@ from markdown_vault_mcp.exceptions import (
     ReadOnlyError,
 )
 from markdown_vault_mcp.fts_index import FTSIndex, _derive_folder
+from markdown_vault_mcp.hashing import compute_etag
 from markdown_vault_mcp.scanner import (
     ChunkStrategy,
     HeadingChunker,
@@ -607,6 +608,9 @@ class Collection:
             return None
 
         raw_content = abs_path.read_text(encoding="utf-8")
+        etag = (
+            note.content_hash
+        )  # already computed by parse_note (SHA-256 of raw bytes)
         folder = str(Path(path).parent)
         if folder == ".":
             folder = ""
@@ -618,6 +622,7 @@ class Collection:
             content=raw_content,
             frontmatter=note.frontmatter,
             modified_at=note.modified_at,
+            etag=etag,
         )
 
     def list(
@@ -1289,12 +1294,14 @@ class Collection:
         mime_type, _ = mimetypes.guess_type(path)
         raw = abs_path.read_bytes()
         content_base64 = base64.b64encode(raw).decode("ascii")
+        etag = compute_etag(raw)
         return AttachmentContent(
             path=path,
             mime_type=mime_type,
             size_bytes=size_bytes,
             content_base64=content_base64,
             modified_at=stat.st_mtime,
+            etag=etag,
         )
 
     def write_attachment(self, path: str, content: bytes) -> WriteResult:

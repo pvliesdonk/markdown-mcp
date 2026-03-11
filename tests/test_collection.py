@@ -368,6 +368,44 @@ class TestRead:
 
         assert result is None
 
+    def test_read_returns_etag(self, collection: Collection, vault_path: Path) -> None:
+        """read() returns an etag field containing the SHA256 hex digest."""
+        import hashlib
+
+        result = collection.read("full_frontmatter.md")
+
+        assert result is not None
+        expected = hashlib.sha256(
+            (vault_path / "full_frontmatter.md").read_bytes()
+        ).hexdigest()
+        assert result.etag == expected
+
+    def test_read_etag_is_stable(self, collection: Collection) -> None:
+        """read() returns the same etag on repeated reads of unchanged content."""
+        result1 = collection.read("full_frontmatter.md")
+        result2 = collection.read("full_frontmatter.md")
+
+        assert result1 is not None
+        assert result2 is not None
+        assert result1.etag is not None
+        assert result1.etag == result2.etag
+        assert len(result1.etag) == 64  # SHA256 hex is 64 chars
+
+    def test_read_etag_changes_after_write(self, vault_path: Path) -> None:
+        """read() etag changes when file content changes."""
+        col = _make_collection(vault_path, read_only=False)
+        col.build_index()
+
+        result_before = col.read("full_frontmatter.md")
+        assert result_before is not None
+        etag_before = result_before.etag
+
+        col.write("full_frontmatter.md", "# Updated\n\nNew content.\n")
+
+        result_after = col.read("full_frontmatter.md")
+        assert result_after is not None
+        assert result_after.etag != etag_before
+
 
 # ---------------------------------------------------------------------------
 # List tests
@@ -1110,6 +1148,39 @@ class TestReadAttachment:
         col = Collection(source_dir=vault_with_attachment)
         result = col.read_attachment("assets/image.png")
         assert result.mime_type == "image/png"
+
+    def test_read_attachment_returns_etag(self, vault_with_attachment: Path) -> None:
+        """read_attachment() returns an etag field containing the SHA256 hex digest."""
+        from markdown_vault_mcp.hashing import compute_file_hash
+
+        col = Collection(source_dir=vault_with_attachment)
+        result = col.read_attachment("assets/report.pdf")
+
+        expected = compute_file_hash(vault_with_attachment / "assets" / "report.pdf")
+        assert result.etag == expected
+
+    def test_read_attachment_etag_is_stable(self, vault_with_attachment: Path) -> None:
+        """read_attachment() returns the same etag on repeated reads."""
+        col = Collection(source_dir=vault_with_attachment)
+        result1 = col.read_attachment("assets/report.pdf")
+        result2 = col.read_attachment("assets/report.pdf")
+
+        assert result1.etag is not None
+        assert result1.etag == result2.etag
+        assert len(result1.etag) == 64  # SHA256 hex is 64 chars
+
+    def test_read_attachment_etag_changes_after_write(
+        self, vault_with_attachment: Path
+    ) -> None:
+        """read_attachment() etag changes when file content changes."""
+        col = Collection(source_dir=vault_with_attachment, read_only=False)
+        result_before = col.read_attachment("assets/report.pdf")
+        etag_before = result_before.etag
+
+        col.write_attachment("assets/report.pdf", b"new content")
+
+        result_after = col.read_attachment("assets/report.pdf")
+        assert result_after.etag != etag_before
 
 
 class TestWriteAttachment:
