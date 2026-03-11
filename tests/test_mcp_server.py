@@ -13,7 +13,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from markdown_vault_mcp.mcp_server import _build_oidc_auth, create_server
+from markdown_vault_mcp.mcp_server import _build_oidc_auth, create_server, get_collection
 
 if TYPE_CHECKING:
     from pathlib import Path

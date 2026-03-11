@@ -67,6 +67,10 @@ ignore = ["E501"]
 # Phase 1 write stubs: method signatures define the public API but bodies are
 # not yet implemented. ARG002 fires because parameters are unused.
 "src/markdown_vault_mcp/collection.py" = ["ARG002"]
+# Depends() and CurrentContext() calls in argument defaults are the standard
+# FastMCP dependency injection pattern — B008 is a false positive here.
+# Context import must stay runtime (not TYPE_CHECKING) for DI resolution — TC002.
+"src/markdown_vault_mcp/mcp_server.py" = ["B008", "TCH002"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["markdown_vault_mcp"]

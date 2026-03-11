@@ -16,15 +16,18 @@ import base64
 import logging
 import os
 import sys
-from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastmcp import FastMCP
+from fastmcp.server.context import Context
+from fastmcp.server.lifespan import lifespan
 from mcp.types import Icon
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+from fastmcp.dependencies import CurrentContext, Depends
 
 from markdown_vault_mcp.collection import Collection
 from markdown_vault_mcp.config import _ENV_PREFIX, _parse_bool, load_config
@@ -116,22 +119,17 @@ _TOOL_ICONS: dict[str, list[Icon]] = {
 
 logger = logging.getLogger(__name__)
 
-# Module-level state set during lifespan.
-_collection: Collection | None = None
-
 
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 
 
-@asynccontextmanager
+@lifespan
 async def _collection_lifespan(
     server: FastMCP,  # noqa: ARG001
 ) -> AsyncIterator[dict[str, Any]]:
     """Build the Collection at server startup, tear down on shutdown."""
-    global _collection
-
     config = load_config()
     logger.info("Initialising collection from %s", config.source_dir)
 
@@ -153,7 +151,6 @@ async def _collection_lifespan(
     if embedding_provider is not None:
         kwargs["embedding_provider"] = embedding_provider
     collection = Collection(**kwargs)
-    _collection = collection
 
     # Build index eagerly so first tool call is fast.
     stats = await asyncio.to_thread(collection.build_index)
@@ -164,24 +161,30 @@ async def _collection_lifespan(
     )
 
     try:
-        yield {}
+        yield {"collection": collection}
     finally:
         collection.close()
-        _collection = None
         logger.info("Collection shut down")
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Dependency injection
 # ---------------------------------------------------------------------------
 
 
-def _get_collection() -> Collection:
-    """Return the module-level Collection, raising if not initialised."""
-    if _collection is None:
+async def get_collection(ctx: Context = CurrentContext()) -> Collection:
+    """Resolve the Collection from lifespan context.
+
+    Used as a ``Depends()`` default in tool/resource/prompt signatures.
+
+    Raises:
+        RuntimeError: If the server lifespan has not run.
+    """
+    collection: Collection | None = ctx.lifespan_context.get("collection")
+    if collection is None:
         msg = "Collection not initialised — server lifespan has not run"
         raise RuntimeError(msg)
-    return _collection
+    return collection
 
 
 # ---------------------------------------------------------------------------
@@ -271,8 +274,8 @@ def create_server() -> FastMCP:
     """Create and configure the FastMCP server.
 
     Reads configuration from environment variables via :func:`load_config`.
-    Tools are registered based on the ``MARKDOWN_VAULT_MCP_READ_ONLY`` setting:
-    write tools are only registered when ``MARKDOWN_VAULT_MCP_READ_ONLY=false``.
+    Write tools are tagged with ``{"write"}`` and hidden via
+    ``mcp.disable(tags={"write"})`` when ``READ_ONLY=true``.
 
     Server identity is configurable via:
 
@@ -306,7 +309,7 @@ def create_server() -> FastMCP:
         auth=auth,
     )
 
-    # --- Read-only tools (always registered) ---
+    # --- Read-only tools (always visible) ---
 
     @mcp.tool(
         icons=_TOOL_ICONS["search"],
@@ -322,6 +325,7 @@ def create_server() -> FastMCP:
         mode: Literal["keyword", "semantic", "hybrid"] = "keyword",
         folder: str | None = None,
         filters: dict[str, str] | None = None,
+        collection: Collection = Depends(get_collection),
     ) -> list[dict[str, Any]]:
         """Find documents matching a query using full-text or semantic search.
 
@@ -353,7 +357,6 @@ def create_server() -> FastMCP:
             ValueError: If mode is "semantic" or "hybrid" and no embedding
                 provider is configured.
         """
-        collection = _get_collection()
         results = await asyncio.to_thread(
             collection.search,
             query,
@@ -372,7 +375,10 @@ def create_server() -> FastMCP:
             "idempotentHint": True,
         },
     )
-    async def read(path: str) -> dict[str, Any]:
+    async def read(
+        path: str,
+        collection: Collection = Depends(get_collection),
+    ) -> dict[str, Any]:
         """Read the full content of a document or attachment by path.
 
         For .md documents: returns markdown body, frontmatter, title, folder.
@@ -398,7 +404,6 @@ def create_server() -> FastMCP:
                 not in the attachment allowlist, or the file exceeds the size
                 limit.
         """
-        collection = _get_collection()
         if not path.endswith(".md"):
             attachment = await asyncio.to_thread(collection.read_attachment, path)
             return asdict(attachment)
@@ -419,6 +424,7 @@ def create_server() -> FastMCP:
         folder: str | None = None,
         pattern: str | None = None,
         include_attachments: bool = False,
+        collection: Collection = Depends(get_collection),
     ) -> list[dict[str, Any]]:
         """List documents (and optionally attachments) in the collection.
 
@@ -442,7 +448,6 @@ def create_server() -> FastMCP:
             mime_type, size_bytes, modified_at, kind="attachment".
             Body content is not included in either case.
         """
-        collection = _get_collection()
         results = await asyncio.to_thread(
             collection.list,
             folder=folder,
@@ -459,7 +464,9 @@ def create_server() -> FastMCP:
             "idempotentHint": True,
         },
     )
-    async def list_folders() -> list[str]:
+    async def list_folders(
+        collection: Collection = Depends(get_collection),
+    ) -> list[str]:
         """List all folder paths that contain documents.
 
         Call this to discover valid folder names before filtering 'search' or
@@ -471,7 +478,6 @@ def create_server() -> FastMCP:
             Pass any of these as the 'folder' argument to 'search' or
             'list_documents'.
         """
-        collection = _get_collection()
         return await asyncio.to_thread(collection.list_folders)
 
     @mcp.tool(
@@ -482,7 +488,10 @@ def create_server() -> FastMCP:
             "idempotentHint": True,
         },
     )
-    async def list_tags(field: str = "tags") -> list[str]:
+    async def list_tags(
+        field: str = "tags",
+        collection: Collection = Depends(get_collection),
+    ) -> list[str]:
         """List all distinct values for a frontmatter field across the collection.
 
         Use this to discover valid filter values before calling 'search' with
@@ -498,7 +507,6 @@ def create_server() -> FastMCP:
             ["craft", "pacing", "worldbuilding"]. Use these as values in the
             'filters' dict when calling 'search'.
         """
-        collection = _get_collection()
         return await asyncio.to_thread(collection.list_tags, field)
 
     @mcp.tool(
@@ -509,7 +517,9 @@ def create_server() -> FastMCP:
             "idempotentHint": True,
         },
     )
-    async def stats() -> dict[str, Any]:
+    async def stats(
+        collection: Collection = Depends(get_collection),
+    ) -> dict[str, Any]:
         """Get an overview of the collection's size, capabilities, and configuration.
 
         Call this at the start of a session to understand what the collection
@@ -523,7 +533,6 @@ def create_server() -> FastMCP:
             (list of field names usable as 'filters' in 'search' and as
             'field' in 'list_tags').
         """
-        collection = _get_collection()
         result = await asyncio.to_thread(collection.stats)
         return asdict(result)
 
@@ -535,7 +544,9 @@ def create_server() -> FastMCP:
             "idempotentHint": True,
         },
     )
-    async def embeddings_status() -> dict[str, Any]:
+    async def embeddings_status(
+        collection: Collection = Depends(get_collection),
+    ) -> dict[str, Any]:
         """Check the embedding provider configuration and vector index status.
 
         Use this to diagnose why semantic search is unavailable. Compare
@@ -549,7 +560,6 @@ def create_server() -> FastMCP:
             e.g. "OllamaProvider"), chunk_count (int — embedded chunks in the
             vector index), and path (str — vector index file path).
         """
-        collection = _get_collection()
         return await asyncio.to_thread(collection.embeddings_status)
 
     # --- Index management tools ---
@@ -562,7 +572,9 @@ def create_server() -> FastMCP:
             "idempotentHint": True,
         },
     )
-    async def reindex() -> dict[str, Any]:
+    async def reindex(
+        collection: Collection = Depends(get_collection),
+    ) -> dict[str, Any]:
         """Incrementally update the full-text search index to reflect file changes.
 
         Call this when documents have been added, edited, or deleted on disk
@@ -577,7 +589,6 @@ def create_server() -> FastMCP:
         Returns:
             Dict with counts: added, modified, deleted, unchanged.
         """
-        collection = _get_collection()
         result = await asyncio.to_thread(collection.reindex)
         return asdict(result)
 
@@ -589,7 +600,10 @@ def create_server() -> FastMCP:
             "idempotentHint": True,
         },
     )
-    async def build_embeddings(force: bool = False) -> dict[str, Any]:
+    async def build_embeddings(
+        force: bool = False,
+        collection: Collection = Depends(get_collection),
+    ) -> dict[str, Any]:
         """Build vector embeddings to enable semantic and hybrid search.
 
         This can be slow for large collections — it calls the embedding
@@ -606,168 +620,176 @@ def create_server() -> FastMCP:
         Returns:
             Dict with chunks_embedded: number of chunks newly embedded.
         """
-        collection = _get_collection()
         count = await asyncio.to_thread(collection.build_embeddings, force=force)
         return {"chunks_embedded": count}
 
-    # --- Write tools (conditionally registered) ---
+    # --- Write tools (tag-based visibility) ---
 
-    if not is_read_only:
+    @mcp.tool(
+        tags={"write"},
+        icons=_TOOL_ICONS["write"],
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    )
+    async def write(
+        path: str,
+        content: str = "",
+        frontmatter: dict[str, Any] | None = None,
+        content_base64: str = "",
+        collection: Collection = Depends(get_collection),
+    ) -> dict[str, Any]:
+        """Create or overwrite a document or attachment.
 
-        @mcp.tool(
-            icons=_TOOL_ICONS["write"],
-            annotations={
-                "readOnlyHint": False,
-                "destructiveHint": False,
-                "idempotentHint": True,
-            },
-        )
-        async def write(
-            path: str,
-            content: str = "",
-            frontmatter: dict[str, Any] | None = None,
-            content_base64: str = "",
-        ) -> dict[str, Any]:
-            """Create or overwrite a document or attachment.
+        For .md documents: uses 'content' (markdown body) and optional
+        'frontmatter'. WARNING: replaces the entire file — use 'edit'
+        for targeted changes.
 
-            For .md documents: uses 'content' (markdown body) and optional
-            'frontmatter'. WARNING: replaces the entire file — use 'edit'
-            for targeted changes.
+        For attachments (pdf, png, etc.): uses 'content_base64' (base64-
+        encoded binary). 'content' and 'frontmatter' are ignored.
+        Parent directories are created automatically for both.
 
-            For attachments (pdf, png, etc.): uses 'content_base64' (base64-
-            encoded binary). 'content' and 'frontmatter' are ignored.
-            Parent directories are created automatically for both.
+        Args:
+            path: Relative path (e.g. "Journal/note.md" or
+                "assets/photo.png"). Extension determines handling.
+            content: Full markdown body for .md files (excluding
+                frontmatter). Ignored for attachments.
+            frontmatter: Optional YAML frontmatter dict for .md files,
+                e.g. {"title": "My Note", "tags": ["draft"]}.
+                Ignored for attachments.
+            content_base64: Base64-encoded binary content for attachment
+                files. Required when path is not .md.
 
-            Args:
-                path: Relative path (e.g. "Journal/note.md" or
-                    "assets/photo.png"). Extension determines handling.
-                content: Full markdown body for .md files (excluding
-                    frontmatter). Ignored for attachments.
-                frontmatter: Optional YAML frontmatter dict for .md files,
-                    e.g. {"title": "My Note", "tags": ["draft"]}.
-                    Ignored for attachments.
-                content_base64: Base64-encoded binary content for attachment
-                    files. Required when path is not .md.
+        Returns:
+            Dict with path (str) and created (bool — true if new file,
+            false if overwrite).
 
-            Returns:
-                Dict with path (str) and created (bool — true if new file,
-                false if overwrite).
-
-            Raises:
-                ValueError: If content_base64 is missing/invalid for
-                    attachments, or the content exceeds the size limit.
-            """
-            collection = _get_collection()
-            if not path.endswith(".md"):
-                if not content_base64:
-                    raise ValueError(
-                        f"content_base64 is required for non-.md attachments: {path}"
-                    )
-                try:
-                    raw_bytes = base64.b64decode(content_base64)
-                except Exception as exc:
-                    raise ValueError(
-                        f"Invalid base64 in content_base64: {exc}"
-                    ) from exc
-                result = await asyncio.to_thread(
-                    collection.write_attachment, path, raw_bytes
+        Raises:
+            ValueError: If content_base64 is missing/invalid for
+                attachments, or the content exceeds the size limit.
+        """
+        if not path.endswith(".md"):
+            if not content_base64:
+                raise ValueError(
+                    f"content_base64 is required for non-.md attachments: {path}"
                 )
-                return asdict(result)
+            try:
+                raw_bytes = base64.b64decode(content_base64)
+            except Exception as exc:
+                raise ValueError(
+                    f"Invalid base64 in content_base64: {exc}"
+                ) from exc
             result = await asyncio.to_thread(
-                collection.write, path, content, frontmatter=frontmatter
+                collection.write_attachment, path, raw_bytes
             )
             return asdict(result)
-
-        @mcp.tool(
-            icons=_TOOL_ICONS["edit"],
-            annotations={
-                "readOnlyHint": False,
-                "destructiveHint": False,
-                "idempotentHint": False,
-            },
+        result = await asyncio.to_thread(
+            collection.write, path, content, frontmatter=frontmatter
         )
-        async def edit(
-            path: str,
-            old_text: str,
-            new_text: str,
-        ) -> dict[str, Any]:
-            """Make a targeted text replacement in an existing document.
+        return asdict(result)
 
-            Always call 'read' first to get the exact current text, then pass
-            a portion of it as old_text. The match is exact and must appear
-            only once — if not found the call fails (text changed or wrong);
-            if found multiple times the call fails (use a longer, unique
-            excerpt). Frontmatter can be edited: old_text may span the YAML
-            block.
+    @mcp.tool(
+        tags={"write"},
+        icons=_TOOL_ICONS["edit"],
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+        },
+    )
+    async def edit(
+        path: str,
+        old_text: str,
+        new_text: str,
+        collection: Collection = Depends(get_collection),
+    ) -> dict[str, Any]:
+        """Make a targeted text replacement in an existing document.
 
-            Args:
-                path: Relative path to the document.
-                old_text: Exact text to replace. Must appear exactly once in
-                    the document (including frontmatter). Get this via 'read'.
-                new_text: Replacement text. May be longer or shorter.
+        Always call 'read' first to get the exact current text, then pass
+        a portion of it as old_text. The match is exact and must appear
+        only once — if not found the call fails (text changed or wrong);
+        if found multiple times the call fails (use a longer, unique
+        excerpt). Frontmatter can be edited: old_text may span the YAML
+        block.
 
-            Returns:
-                Dict with path (str) and replacements (int, always 1).
-            """
-            collection = _get_collection()
-            result = await asyncio.to_thread(collection.edit, path, old_text, new_text)
-            return asdict(result)
+        Args:
+            path: Relative path to the document.
+            old_text: Exact text to replace. Must appear exactly once in
+                the document (including frontmatter). Get this via 'read'.
+            new_text: Replacement text. May be longer or shorter.
 
-        @mcp.tool(
-            icons=_TOOL_ICONS["delete"],
-            annotations={
-                "readOnlyHint": False,
-                "destructiveHint": True,
-                "idempotentHint": True,
-            },
-        )
-        async def delete(path: str) -> dict[str, Any]:
-            """Permanently delete a document or attachment.
+        Returns:
+            Dict with path (str) and replacements (int, always 1).
+        """
+        result = await asyncio.to_thread(collection.edit, path, old_text, new_text)
+        return asdict(result)
 
-            For .md documents: also removes from all search indices.
-            For attachments: only the file is deleted (no index to update).
-            IRREVERSIBLE unless git history exists. Confirm the path with
-            the user before calling.
+    @mcp.tool(
+        tags={"write"},
+        icons=_TOOL_ICONS["delete"],
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+        },
+    )
+    async def delete(
+        path: str,
+        collection: Collection = Depends(get_collection),
+    ) -> dict[str, Any]:
+        """Permanently delete a document or attachment.
 
-            Args:
-                path: Relative path to the document or attachment to delete.
+        For .md documents: also removes from all search indices.
+        For attachments: only the file is deleted (no index to update).
+        IRREVERSIBLE unless git history exists. Confirm the path with
+        the user before calling.
 
-            Returns:
-                Dict with path (str) of the deleted file.
-            """
-            collection = _get_collection()
-            result = await asyncio.to_thread(collection.delete, path)
-            return asdict(result)
+        Args:
+            path: Relative path to the document or attachment to delete.
 
-        @mcp.tool(
-            icons=_TOOL_ICONS["rename"],
-            annotations={
-                "readOnlyHint": False,
-                "destructiveHint": False,
-                "idempotentHint": False,
-            },
-        )
-        async def rename(
-            old_path: str,
-            new_path: str,
-        ) -> dict[str, Any]:
-            """Rename a document or attachment, or move it to a different folder.
+        Returns:
+            Dict with path (str) of the deleted file.
+        """
+        result = await asyncio.to_thread(collection.delete, path)
+        return asdict(result)
 
-            For .md documents: the file and its search index entries are updated.
-            For attachments: only the file is moved (no index update needed).
-            Parent directories for new_path are created automatically.
+    @mcp.tool(
+        tags={"write"},
+        icons=_TOOL_ICONS["rename"],
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+        },
+    )
+    async def rename(
+        old_path: str,
+        new_path: str,
+        collection: Collection = Depends(get_collection),
+    ) -> dict[str, Any]:
+        """Rename a document or attachment, or move it to a different folder.
 
-            Args:
-                old_path: Current relative path (e.g. "drafts/idea.md"
-                    or "assets/old.png").
-                new_path: Target relative path (e.g. "projects/idea.md"
-                    or "assets/new.png"). Fails if new_path already exists.
+        For .md documents: the file and its search index entries are updated.
+        For attachments: only the file is moved (no index update needed).
+        Parent directories for new_path are created automatically.
 
-            Returns:
-                Dict with old_path (str) and new_path (str).
-            """
-            collection = _get_collection()
-            result = await asyncio.to_thread(collection.rename, old_path, new_path)
-            return asdict(result)
+        Args:
+            old_path: Current relative path (e.g. "drafts/idea.md"
+                or "assets/old.png").
+            new_path: Target relative path (e.g. "projects/idea.md"
+                or "assets/new.png"). Fails if new_path already exists.
+
+        Returns:
+            Dict with old_path (str) and new_path (str).
+        """
+        result = await asyncio.to_thread(collection.rename, old_path, new_path)
+        return asdict(result)
+
+    # --- Visibility: hide write-tagged components in read-only mode ---
+
+    if is_read_only:
+        mcp.disable(tags={"write"})
 
     return mcp
