@@ -1,5 +1,5 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.pvliesdonk/markdown-vault-mcp",
   "title": "Markdown Vault MCP",
   "description": "Generic markdown vault MCP server with FTS5 + semantic search",
@@ -16,6 +16,22 @@
       "transport": {
         "type": "stdio"
       }
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/pvliesdonk/markdown-vault-mcp:1.5.0",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:{--port}/mcp"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--port",
+          "default": 8000,
+          "description": "Port for the HTTP transport"
+        }
+      ]
     }
   ]
 }
