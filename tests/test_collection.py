@@ -2380,7 +2380,9 @@ class TestCollectionGetToc:
         toc = collection_with_long_doc.get_toc("long_doc.md")
 
         h1_entries = [e for e in toc if e["level"] == 1]
-        assert len(h1_entries) == 1, f"Expected 1 H1, got {len(h1_entries)}: {h1_entries}"
+        assert len(h1_entries) == 1, (
+            f"Expected 1 H1, got {len(h1_entries)}: {h1_entries}"
+        )
         assert h1_entries[0]["heading"] == "Long Document Title"
 
     def test_get_toc_raises_for_nonexistent_document(

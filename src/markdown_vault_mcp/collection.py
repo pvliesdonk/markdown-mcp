@@ -1084,8 +1084,7 @@ class Collection:
         # real H1 that duplicates it (common when docs start with ``# Title``).
         toc: list[dict[str, Any]] = [{"heading": title, "level": 1}]
         toc.extend(
-            h for h in headings
-            if not (h["level"] == 1 and h["heading"] == title)
+            h for h in headings if not (h["level"] == 1 and h["heading"] == title)
         )
         return toc
 
