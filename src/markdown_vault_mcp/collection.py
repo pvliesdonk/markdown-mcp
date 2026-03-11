@@ -1080,9 +1080,13 @@ class Collection:
         title: str = row["title"]
         headings = self._fts.get_toc(path)
 
-        # Prepend a synthetic H1 for the document title.
+        # Prepend a synthetic H1 for the document title, filtering out any
+        # real H1 that duplicates it (common when docs start with ``# Title``).
         toc: list[dict[str, Any]] = [{"heading": title, "level": 1}]
-        toc.extend(headings)
+        toc.extend(
+            h for h in headings
+            if not (h["level"] == 1 and h["heading"] == title)
+        )
         return toc
 
     def stats(self) -> CollectionStats:

@@ -2373,6 +2373,16 @@ class TestCollectionGetToc:
         assert toc[0]["level"] == 1
         assert toc[0]["heading"] == "Long Document Title"
 
+    def test_get_toc_no_duplicate_h1(
+        self, collection_with_long_doc: Collection
+    ) -> None:
+        """Synthetic H1 title must not duplicate a real H1 heading."""
+        toc = collection_with_long_doc.get_toc("long_doc.md")
+
+        h1_entries = [e for e in toc if e["level"] == 1]
+        assert len(h1_entries) == 1, f"Expected 1 H1, got {len(h1_entries)}: {h1_entries}"
+        assert h1_entries[0]["heading"] == "Long Document Title"
+
     def test_get_toc_raises_for_nonexistent_document(
         self, collection_with_long_doc: Collection
     ) -> None:

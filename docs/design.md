@@ -779,9 +779,10 @@ These semantics are intentionally close to Claude Code's file tools for
 familiarity. LLMs that know how to read/write/edit files can use these tools
 without special prompting.
 
-**Dependency injection**: tools, resources, and prompts use FastMCP's
+**Dependency injection**: tools and resources use FastMCP's
 ``Depends(get_collection)`` to access the Collection instance from
-lifespan context, eliminating module-level globals.
+lifespan context, eliminating module-level globals. Prompts are pure
+template functions with no collection dependency.
 
 **Resources**: the server exposes 6 read-only MCP resources:
 
