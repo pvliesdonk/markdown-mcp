@@ -26,7 +26,6 @@ from markdown_vault_mcp.exceptions import (
     ReadOnlyError,
 )
 from markdown_vault_mcp.fts_index import FTSIndex, _derive_folder
-from markdown_vault_mcp.hashing import compute_etag
 from markdown_vault_mcp.scanner import (
     ChunkStrategy,
     HeadingChunker,
@@ -608,14 +607,8 @@ class Collection:
             logger.warning("read(%s): could not parse file — %s", path, exc)
             return None
 
-        try:
-            raw_bytes = abs_path.read_bytes()
-        except OSError as exc:
-            logger.warning("read(%s): could not read file bytes — %s", path, exc)
-            return None
-
-        raw_content = raw_bytes.decode("utf-8")
-        etag = compute_etag(raw_bytes)
+        raw_content = abs_path.read_text(encoding="utf-8")
+        etag = note.content_hash  # already computed by parse_note (SHA-256 of raw bytes)
         folder = str(Path(path).parent)
         if folder == ".":
             folder = ""

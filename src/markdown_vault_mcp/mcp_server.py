@@ -396,9 +396,11 @@ def create_server() -> FastMCP:
 
         Returns:
             For .md: dict with path, title, folder, content (markdown body),
-            frontmatter (dict), modified_at (Unix timestamp).
+            frontmatter (dict), modified_at (Unix timestamp),
+            etag (SHA-256 hex str or null).
             For attachments: dict with path, mime_type (str or null),
-            size_bytes (int), content_base64 (str), modified_at (Unix timestamp).
+            size_bytes (int), content_base64 (str), modified_at (Unix timestamp),
+            etag (SHA-256 hex str or null).
 
         Raises:
             ValueError: If no file exists at the given path, the extension is
