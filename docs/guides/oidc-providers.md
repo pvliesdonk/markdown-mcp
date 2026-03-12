@@ -8,6 +8,161 @@ This guide covers configuring markdown-vault-mcp with specific OIDC providers. F
 !!! note "Subpath deployments"
     If your reverse proxy mounts the server under a prefix (for example `https://mcp.example.com/vault`), set `MARKDOWN_VAULT_MCP_BASE_URL` to that prefixed URL and register callback URI `https://mcp.example.com/vault/auth/callback`.
 
+## Authelia
+
+Use Authelia as your OIDC identity provider to authenticate users with local users, LDAP, or upstream providers.
+
+!!! note
+    Authelia does not support Dynamic Client Registration (RFC 7591). Register clients manually in `configuration.yml`.
+
+For architecture details and a full Docker Compose deployment, see [OIDC Authentication](../deployment/oidc.md).
+
+### 1. Register client in `configuration.yml`
+
+Add this under `identity_providers.oidc.clients` in your Authelia config:
+
+```yaml
+identity_providers:
+  oidc:
+    clients:
+      - client_id: markdown-vault-mcp
+        client_name: markdown-vault-mcp
+        client_secret: '$pbkdf2-sha512$...'  # generated in step 2
+        public: false
+        authorization_policy: two_factor
+        redirect_uris:
+          - https://mcp.example.com/auth/callback
+        grant_types:
+          - authorization_code
+        response_types:
+          - code
+        scopes:
+          - openid
+          - profile
+          - email
+        userinfo_signed_response_alg: none
+        token_endpoint_auth_method: client_secret_basic
+        pkce_challenge_method: S256
+```
+
+### 2. Generate and hash a client secret
+
+Generate a secret (example):
+
+```bash
+openssl rand -base64 32
+```
+
+Hash the secret for Authelia:
+
+```bash
+authelia crypto hash generate pbkdf2 --password 'your-client-secret'
+```
+
+Set the hashed value in `configuration.yml` as `client_secret`. Keep the plain-text secret for `MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET`.
+
+### 3. Generate JWT signing key
+
+```bash
+openssl rand -hex 32
+```
+
+### 4. Configure environment variables
+
+```bash
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com
+MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/.well-known/openid-configuration
+MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
+MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
+MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-64-char-hex-key
+MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES=openid,profile,email
+```
+
+### 5. Start the server
+
+```bash
+markdown-vault-mcp serve --transport http --port 8000
+```
+
+Or in Docker — see [Docker OIDC setup](docker.md#step-3-add-oidc-authentication).
+
+### Verify
+
+1. Open `https://mcp.example.com` in a browser
+2. Confirm redirect to Authelia login
+3. Sign in and confirm redirect back to markdown-vault-mcp
+4. Confirm authenticated requests succeed from your MCP client
+
+If login fails:
+
+- **"invalid_client"**: Check client ID/secret values and confirm the Authelia hash was generated from the same plain-text secret.
+- **Redirect mismatch**: Ensure redirect URI matches exactly (`BASE_URL` + `/auth/callback`).
+
+---
+
+## Keycloak
+
+Use Keycloak directly as your OIDC provider for username/password (or federated) authentication.
+
+### 1. Create a realm
+
+1. Open the Keycloak admin console
+2. Create a new realm (for example `vault`)
+3. Switch to the new realm before creating clients
+
+### 2. Create a client with redirect URI
+
+1. Go to **Clients** and click **Create client**
+2. Set **Client ID** to `markdown-vault-mcp`
+3. Set **Valid redirect URIs** to `https://mcp.example.com/auth/callback`
+4. Enable **Client authentication** for a confidential client
+5. Save and copy the client secret from the **Credentials** tab
+
+Keycloak discovery URL format:
+
+```text
+https://auth.example.com/realms/{realm}/.well-known/openid-configuration
+```
+
+### 3. Configure environment variables
+
+```bash
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com
+MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/realms/vault/.well-known/openid-configuration
+MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
+MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-keycloak-client-secret
+MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-64-char-hex-key
+MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES=openid,email
+```
+
+Generate JWT signing key if needed:
+
+```bash
+openssl rand -hex 32
+```
+
+### 4. Start the server
+
+```bash
+markdown-vault-mcp serve --transport http --port 8000
+```
+
+Or in Docker — see [Docker OIDC setup](docker.md#step-3-add-oidc-authentication).
+
+### Verify
+
+1. Open `https://mcp.example.com` in a browser
+2. Confirm redirect to the Keycloak login page
+3. Sign in and confirm redirect back to markdown-vault-mcp
+4. Confirm your MCP client can access tools after login
+
+If login fails:
+
+- **"invalid_client"**: Verify Client ID/secret from the Keycloak client.
+- **Redirect mismatch**: Ensure `BASE_URL` + `/auth/callback` exactly matches Keycloak client settings.
+
+---
+
 ## Google
 
 Use Google as your OIDC identity provider to authenticate users with their Google accounts.
@@ -72,83 +227,26 @@ Check server logs for successful OIDC initialization. If you see errors:
 
 ## GitHub
 
-Use GitHub as your OIDC identity provider to authenticate users with their GitHub accounts.
+Use GitHub as an authentication backend through an OIDC-compliant broker.
 
 !!! warning "GitHub OAuth is not standard OIDC"
-    GitHub OAuth Apps implement OAuth 2.0 but do **not** provide a standard OIDC discovery endpoint (`.well-known/openid-configuration`). This means GitHub cannot be used directly with markdown-vault-mcp's OIDC integration, which requires a compliant OIDC provider.
+    GitHub OAuth Apps implement OAuth 2.0 but do **not** provide a standard OIDC discovery endpoint (`.well-known/openid-configuration`). GitHub cannot be used directly with markdown-vault-mcp's OIDC integration.
 
-    **Recommended approach:** Use an OIDC-compliant identity broker that supports GitHub as a social login backend:
+### Recommended approach
 
-    - **[Authelia](https://www.authelia.com/)** — configure GitHub as an upstream identity provider
-    - **[Keycloak](https://www.keycloak.org/)** — add GitHub as an Identity Provider under "Social" in the admin console
-    - **[Authentik](https://goauthentik.io/)** — add a GitHub OAuth Source
+Use Keycloak as the OIDC broker and GitHub as a social login provider:
 
-    These brokers provide a compliant OIDC discovery endpoint that markdown-vault-mcp can use, while delegating actual authentication to GitHub.
+1. Complete [Keycloak](#keycloak) setup first (realm, client, env vars, server startup)
+2. In Keycloak, add **Identity Providers** > **GitHub** with your GitHub OAuth App credentials
+3. Login at Keycloak and choose GitHub as the upstream identity provider
 
-### Example: Keycloak with GitHub social login
-
-This example uses Keycloak as the OIDC broker with GitHub as the authentication backend.
-
-#### 1. Create a GitHub OAuth App
-
-1. Go to [GitHub Settings > Developer settings > OAuth Apps](https://github.com/settings/developers)
-2. Click **New OAuth App**
-3. Fill in:
-    - **Application name:** `markdown-vault-mcp` (or any name)
-    - **Homepage URL:** `https://auth.example.com`
-    - **Authorization callback URL:** `https://auth.example.com/realms/your-realm/broker/github/endpoint`
-4. Click **Register application**
-5. Note the **Client ID** and generate a **Client Secret**
-
-#### 2. Configure GitHub in Keycloak
-
-1. In the Keycloak admin console, go to **Identity Providers** > **Add provider** > **GitHub**
-2. Enter the GitHub OAuth App Client ID and Client Secret
-3. Save
-
-#### 3. Register a client for markdown-vault-mcp in Keycloak
-
-1. Go to **Clients** > **Create client**
-2. Set **Client ID** to `markdown-vault-mcp`
-3. Set **Valid redirect URIs** to `https://mcp.example.com/auth/callback`
-4. Enable **Client authentication** and note the client secret from the Credentials tab
-
-#### 4. Configure environment variables
-
-```bash
-MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com
-MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/realms/your-realm/.well-known/openid-configuration
-MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
-MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-keycloak-client-secret
-MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-64-char-hex-key
-MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES=openid,email
-```
-
-Generate the JWT signing key:
-
-```bash
-openssl rand -hex 32
-```
-
-#### 5. Start the server
-
-```bash
-markdown-vault-mcp serve --transport http --port 8000
-```
-
-Or in Docker — see [Docker OIDC setup](docker.md#step-3-add-oidc-authentication).
+This keeps Keycloak as the OIDC provider for markdown-vault-mcp while delegating user auth to GitHub.
 
 ### Verify
 
 1. Open `https://mcp.example.com` in a browser
-2. You should be redirected to Keycloak's login page, which shows a "GitHub" social login button
-3. Click GitHub, authorize the app, and you should be redirected back to the server
-
-Check server logs for successful authentication. If you see errors:
-
-- **"invalid_client"** — verify the Client ID and Secret match the Keycloak client, not the GitHub OAuth App
-- **"redirect_uri_mismatch"** — the callback URL in Keycloak must exactly match `BASE_URL` + `/auth/callback`
-- For prefixed deployments, set Keycloak redirect URI to `https://mcp.example.com/vault/auth/callback` and `BASE_URL=https://mcp.example.com/vault`.
+2. You should be redirected to Keycloak's login page with a GitHub option
+3. Click GitHub, authorize, and confirm redirect back to markdown-vault-mcp
 
 ---
 

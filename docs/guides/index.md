@@ -13,9 +13,12 @@ Step-by-step walkthroughs for common deployment scenarios. Each guide takes you 
 | Run the server in a Docker container | [Docker](docker.md) |
 | Add git write support to a container | [Docker](docker.md#step-2-add-git-write-support) |
 | Protect my server with OIDC authentication | [Docker](docker.md#step-3-add-oidc-authentication) |
+| Access my vault from desktop, mobile, AND Claude | [Obsidian Everywhere](obsidian-everywhere.md) |
 | Use FastEmbed for local embeddings | [Embeddings](embeddings.md#fastembed) |
 | Use Ollama for embeddings (CPU-only) | [Embeddings](embeddings.md#ollama) |
 | Use OpenAI for embeddings | [Embeddings](embeddings.md#openai) |
+| Set up OIDC with Authelia | [OIDC Providers](oidc-providers.md#authelia) |
+| Set up OIDC with Keycloak | [OIDC Providers](oidc-providers.md#keycloak) |
 | Set up OIDC with Google | [OIDC Providers](oidc-providers.md#google) |
 | Set up OIDC with GitHub (via Keycloak) | [OIDC Providers](oidc-providers.md#github) |
 
