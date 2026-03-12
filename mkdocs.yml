@@ -58,7 +58,8 @@ plugins:
           - guides/claude-desktop.md: Claude Desktop setup (read-only, git write, semantic search)
           - guides/docker.md: Docker deployment (basic, git write, OIDC)
           - guides/embeddings.md: Embedding providers (Ollama, sentence-transformers, OpenAI)
-          - guides/oidc-providers.md: OIDC provider setup (Google, GitHub via Keycloak)
+          - guides/oidc-providers.md: OIDC provider setup (Authelia, Keycloak, Google, GitHub via broker)
+          - guides/obsidian-everywhere.md: Reference architecture for desktop + mobile + Claude on one vault
         MCP Interface:
           - tools/index.md: All 13 MCP tools with parameters and examples
           - resources.md: All 6 MCP resources with URI patterns
@@ -116,6 +117,7 @@ nav:
       - Docker: guides/docker.md
       - Embeddings: guides/embeddings.md
       - OIDC Providers: guides/oidc-providers.md
+      - Obsidian Everywhere: guides/obsidian-everywhere.md
   - MCP Interface:
       - Tools: tools/index.md
       - Resources: resources.md
