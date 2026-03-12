@@ -133,6 +133,7 @@ All configuration is via environment variables with the `MARKDOWN_VAULT_MCP_` pr
 |----------|---------|-------------|
 | `MARKDOWN_VAULT_MCP_SERVER_NAME` | `markdown-vault-mcp` | MCP server name shown to clients; useful for multi-instance setups |
 | `MARKDOWN_VAULT_MCP_INSTRUCTIONS` | (auto) | System-level instructions injected into LLM context; defaults to a description that reflects read-only vs read-write state |
+| `MARKDOWN_VAULT_MCP_HTTP_PATH` | `/mcp` | HTTP endpoint path for streamable HTTP transport (used by `serve --transport http`) |
 
 ### Search and embeddings
 
@@ -186,7 +187,7 @@ Optional token-based authentication for HTTP deployments. OIDC activates when al
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MARKDOWN_VAULT_MCP_BASE_URL` | Yes | Public base URL of the server (e.g. `https://mcp.example.com`) |
+| `MARKDOWN_VAULT_MCP_BASE_URL` | Yes | Public base URL of the server (e.g. `https://mcp.example.com`; include prefix if mounted under subpath, e.g. `https://mcp.example.com/vault`) |
 | `MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL` | Yes | OIDC discovery endpoint (e.g. `https://auth.example.com/.well-known/openid-configuration`) |
 | `MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID` | Yes | OIDC client ID registered with your provider |
 | `MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET` | Yes | OIDC client secret |
@@ -205,7 +206,7 @@ markdown-vault-mcp <command> [options]
 Start the MCP server.
 
 ```bash
-markdown-vault-mcp serve [--transport {stdio|sse|http}] [--host HOST] [--port PORT]
+markdown-vault-mcp serve [--transport {stdio|sse|http}] [--host HOST] [--port PORT] [--path PATH]
 ```
 
 | Flag | Default | Description |
@@ -213,6 +214,38 @@ markdown-vault-mcp serve [--transport {stdio|sse|http}] [--host HOST] [--port PO
 | `--transport` | `stdio` | MCP transport: `stdio` (stdin/stdout, default), `sse` (Server-Sent Events), `http` (streamable-HTTP). Use `http` for Docker with a reverse proxy or when OIDC is enabled. |
 | `--host` | `0.0.0.0` | Bind host for the `http` transport (ignored for `stdio` and `sse`) |
 | `--port` | `8000` | Port for the `http` transport (ignored for `stdio` and `sse`) |
+| `--path` | env `MARKDOWN_VAULT_MCP_HTTP_PATH` or `/mcp` | MCP HTTP path for `http` transport; useful for reverse-proxy subpath mounting (e.g. `/vault/mcp`) |
+
+### Reverse Proxy Subpath Mounts
+
+By default, HTTP transport serves MCP on `/mcp`. You can run it under a subpath:
+
+```bash
+markdown-vault-mcp serve --transport http --path /vault/mcp
+```
+
+Equivalent env-based config:
+
+```bash
+MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+```
+
+For reverse proxies, you can either:
+
+- Keep app path at `/mcp` and use proxy rewrite/strip-prefix middleware.
+- Set app path directly to the public path (`/vault/mcp`) and route without rewrite.
+
+When OIDC is enabled and you deploy under a prefix, include that prefix in `MARKDOWN_VAULT_MCP_BASE_URL`. Example:
+
+```bash
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
+```
+
+Then your redirect URI is:
+
+```text
+https://mcp.example.com/vault/auth/callback
+```
 
 ### `index`
 
@@ -354,6 +387,7 @@ OIDC authentication is optional and activates automatically when all four requir
            client_secret: '$pbkdf2-sha512$...'   # authelia crypto hash generate
            redirect_uris:
              - https://mcp.example.com/auth/callback
+             - https://mcp.example.com/vault/auth/callback   # when mounted under /vault
            grant_types: [authorization_code]
            response_types: [code]
            pkce_challenge_method: S256
@@ -368,6 +402,13 @@ OIDC authentication is optional and activates automatically when all four requir
    MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
    MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
    MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=$(openssl rand -hex 32)
+   ```
+
+   For subpath deployments (example MCP endpoint `/vault/mcp`):
+
+   ```bash
+   MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+   MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
    ```
 
 3. Start with HTTP transport:

@@ -92,6 +92,34 @@ Set `MARKDOWN_VAULT_MCP_HOST` in your `.env`:
 MARKDOWN_VAULT_MCP_HOST=vault.example.com
 ```
 
+### Mounting Under a Subpath
+
+To serve MCP at `https://mcp.example.com/vault/mcp`, set:
+
+```bash
+MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+```
+
+And use a path-aware Traefik rule:
+
+```yaml
+labels:
+  - "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`) && PathPrefix(`/vault/mcp`)"
+  - "traefik.http.services.markdown-vault-mcp.loadbalancer.server.port=8000"
+```
+
+If OIDC is enabled, include the prefix in `MARKDOWN_VAULT_MCP_BASE_URL`:
+
+```bash
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
+```
+
+Then register callback URI:
+
+```text
+https://mcp.example.com/vault/auth/callback
+```
+
 ### TLS with Let's Encrypt
 
 Add a `certificatesResolvers` block to your Traefik static config and these labels to the service:

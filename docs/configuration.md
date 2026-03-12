@@ -21,6 +21,7 @@ All configuration is via environment variables. Most use the `MARKDOWN_VAULT_MCP
 |----------|------|---------|-------------|
 | `MARKDOWN_VAULT_MCP_SERVER_NAME` | string | `markdown-vault-mcp` | MCP server name shown to clients; useful for multi-instance setups |
 | `MARKDOWN_VAULT_MCP_INSTRUCTIONS` | string | (auto) | System-level instructions injected into LLM context; defaults to a description that reflects read-only vs read-write state |
+| `MARKDOWN_VAULT_MCP_HTTP_PATH` | path | `/mcp` | HTTP endpoint path for streamable HTTP transport (`serve --transport http`) |
 
 ## Search and Embeddings
 
@@ -86,7 +87,7 @@ Optional token-based authentication for HTTP deployments. OIDC activates when al
 
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
-| `MARKDOWN_VAULT_MCP_BASE_URL` | url | Yes | Public base URL of the server (e.g. `https://mcp.example.com`) |
+| `MARKDOWN_VAULT_MCP_BASE_URL` | url | Yes | Public base URL of the server (e.g. `https://mcp.example.com` or `https://mcp.example.com/vault` when mounted under a prefix) |
 | `MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL` | url | Yes | OIDC discovery endpoint (e.g. `https://auth.example.com/.well-known/openid-configuration`) |
 | `MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID` | string | Yes | OIDC client ID registered with your provider |
 | `MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET` | string | Yes | OIDC client secret |

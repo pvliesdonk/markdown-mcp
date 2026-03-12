@@ -21,6 +21,25 @@ from markdown_vault_mcp.config import _ENV_PREFIX, load_config
 logger = logging.getLogger(__name__)
 
 _PROG = "markdown-vault-mcp"
+_DEFAULT_HTTP_PATH = "/mcp"
+
+
+def _normalise_http_path(path: str | None) -> str:
+    """Normalise an HTTP endpoint path for FastMCP streamable HTTP transport.
+
+    Ensures a leading slash and removes a trailing slash (except for root ``/``).
+    Empty values fall back to ``/mcp``.
+    """
+    if path is None:
+        return _DEFAULT_HTTP_PATH
+    normalised = path.strip()
+    if not normalised:
+        return _DEFAULT_HTTP_PATH
+    if not normalised.startswith("/"):
+        normalised = f"/{normalised}"
+    if len(normalised) > 1:
+        normalised = normalised.rstrip("/")
+    return normalised
 
 
 def _build_collection(args: argparse.Namespace) -> Collection:
@@ -84,10 +103,14 @@ def _cmd_serve(args: argparse.Namespace) -> None:
 
     server = create_server()
     transport = args.transport
-    if transport != "http" and (args.host != "0.0.0.0" or args.port != 8000):
-        logger.warning("--host and --port are only used with --transport http")
+    env_http_path = os.environ.get(f"{_ENV_PREFIX}_HTTP_PATH")
+    http_path = _normalise_http_path(args.path or env_http_path)
+    if transport != "http" and (
+        args.host != "0.0.0.0" or args.port != 8000 or args.path is not None
+    ):
+        logger.warning("--host, --port and --path are only used with --transport http")
     if transport == "http":
-        server.run(transport="http", host=args.host, port=args.port)
+        server.run(transport="http", host=args.host, port=args.port, path=http_path)
     else:
         server.run(transport=transport)
 
@@ -167,6 +190,14 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=8000,
         help="port for http transport (default: 8000)",
+    )
+    serve_parser.add_argument(
+        "--path",
+        default=None,
+        help=(
+            "mount path for http transport (default: "
+            "$MARKDOWN_VAULT_MCP_HTTP_PATH or /mcp)"
+        ),
     )
 
     # index

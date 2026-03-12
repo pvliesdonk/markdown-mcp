@@ -9,7 +9,7 @@ Optional token-based authentication for HTTP deployments. OIDC activates automat
 
 | Variable | Description |
 |----------|-------------|
-| `MARKDOWN_VAULT_MCP_BASE_URL` | Public base URL of the server (e.g. `https://mcp.example.com`) |
+| `MARKDOWN_VAULT_MCP_BASE_URL` | Public base URL of the server (e.g. `https://mcp.example.com`; include prefix when mounted under subpath, e.g. `https://mcp.example.com/vault`) |
 | `MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL` | OIDC discovery endpoint (e.g. `https://auth.example.com/.well-known/openid-configuration`) |
 | `MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID` | OIDC client ID registered with your provider |
 | `MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET` | OIDC client secret |
@@ -63,6 +63,19 @@ MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/.well-known/openid-c
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
 MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=$(openssl rand -hex 32)
+```
+
+For subpath deployments (example: MCP endpoint at `/vault/mcp`), use:
+
+```bash
+MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
+```
+
+And register this callback URI in your provider:
+
+```text
+https://mcp.example.com/vault/auth/callback
 ```
 
 See also `examples/obsidian-oidc.env`.
@@ -129,4 +142,17 @@ MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/.well-known/openid-c
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
 MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-stable-hex-key
+```
+
+For a prefixed deployment (example: `https://mcp.example.com/vault/mcp`), use:
+
+```bash
+MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
+```
+
+And use a matching router rule, for example:
+
+```yaml
+- "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`) && PathPrefix(`/vault/mcp`)"
 ```
