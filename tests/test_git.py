@@ -1513,3 +1513,85 @@ class TestGitPullLoop:
         assert strategy._pull_thread.is_alive()
 
         strategy.stop()
+
+
+class TestCheckRemoteProtocol:
+    """Tests for SSH remote validation when token auth is enabled."""
+
+    @staticmethod
+    def _make_run(url: str):
+        from types import SimpleNamespace
+
+        def fake_run(cmd, **_kwargs):
+            if "get-url" in cmd:
+                return SimpleNamespace(returncode=0, stdout=url + "\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        return fake_run
+
+    def test_ssh_git_at_raises_with_token(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from markdown_vault_mcp.exceptions import ConfigurationError
+
+        strategy = GitWriteStrategy(token="ghp_secret")
+        strategy._git_root = tmp_path
+
+        monkeypatch.setattr(
+            "markdown_vault_mcp.git.subprocess.run",
+            self._make_run("git@github.com:owner/repo.git"),
+        )
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            strategy._check_remote_protocol(tmp_path)
+
+        msg = str(exc_info.value)
+        assert "SSH transport" in msg
+        assert "remote set-url origin https://github.com/owner/repo.git" in msg
+
+    def test_https_remote_does_not_raise(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        strategy = GitWriteStrategy(token="ghp_secret")
+        strategy._git_root = tmp_path
+
+        monkeypatch.setattr(
+            "markdown_vault_mcp.git.subprocess.run",
+            self._make_run("https://github.com/owner/repo.git"),
+        )
+
+        strategy._check_remote_protocol(tmp_path)
+
+    def test_no_token_does_not_raise_for_ssh_remote(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        strategy = GitWriteStrategy(token=None)
+        strategy._git_root = tmp_path
+
+        monkeypatch.setattr(
+            "markdown_vault_mcp.git.subprocess.run",
+            self._make_run("git@github.com:owner/repo.git"),
+        )
+
+        strategy._check_remote_protocol(tmp_path)
+
+    def test_startup_validation_raises_in_constructor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from markdown_vault_mcp.exceptions import ConfigurationError
+
+        monkeypatch.setattr(
+            "markdown_vault_mcp.git._find_git_root",
+            lambda _repo_path: tmp_path,
+        )
+        monkeypatch.setattr(
+            "markdown_vault_mcp.git.subprocess.run",
+            self._make_run("ssh://git@github.com/owner/repo.git"),
+        )
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            GitWriteStrategy(token="ghp_secret", repo_path=tmp_path)
+
+        msg = str(exc_info.value)
+        assert "SSH transport" in msg
+        assert "https://github.com/owner/repo.git" in msg

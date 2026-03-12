@@ -150,6 +150,9 @@ Git integration supports:
 
 - **Periodic pull** (ff-only): keeps the server's working tree up to date with the remote. Works in read-only mode.
 - **Auto-commit + push on write**: commits each MCP write and pushes after an idle delay. Requires `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
+- When `MARKDOWN_VAULT_MCP_GIT_TOKEN` is set, `origin` must use an HTTPS remote URL.
+  SSH remotes (for example `git@github.com:owner/repo.git`) are rejected at startup.
+  Fix with: `git -C /path/to/vault remote set-url origin https://github.com/owner/repo.git`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
