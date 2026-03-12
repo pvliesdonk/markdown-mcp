@@ -5,6 +5,9 @@ This guide covers configuring markdown-vault-mcp with specific OIDC providers. F
 !!! note "Transport requirement"
     OIDC requires HTTP transport (`--transport http`). It has no effect with stdio transport.
 
+!!! note "Subpath deployments"
+    If your reverse proxy mounts the server under a prefix (for example `https://mcp.example.com/vault`), set `MARKDOWN_VAULT_MCP_BASE_URL` to that prefixed URL and register callback URI `https://mcp.example.com/vault/auth/callback`.
+
 ## Google
 
 Use Google as your OIDC identity provider to authenticate users with their Google accounts.
@@ -63,6 +66,7 @@ Check server logs for successful OIDC initialization. If you see errors:
 
 - **"invalid_client"** — verify the Client ID and Client Secret match the Google console
 - **"redirect_uri_mismatch"** — the `BASE_URL` + `/auth/callback` must exactly match the authorized redirect URI in Google console (including the scheme and trailing path)
+- For prefixed deployments, this means `BASE_URL` should include the prefix, e.g. `https://mcp.example.com/vault`.
 
 ---
 
@@ -144,6 +148,7 @@ Check server logs for successful authentication. If you see errors:
 
 - **"invalid_client"** — verify the Client ID and Secret match the Keycloak client, not the GitHub OAuth App
 - **"redirect_uri_mismatch"** — the callback URL in Keycloak must exactly match `BASE_URL` + `/auth/callback`
+- For prefixed deployments, set Keycloak redirect URI to `https://mcp.example.com/vault/auth/callback` and `BASE_URL=https://mcp.example.com/vault`.
 
 ---
 

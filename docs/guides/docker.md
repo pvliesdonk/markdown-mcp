@@ -44,6 +44,16 @@ docker compose up -d
 
 This mounts your vault at `/data/vault` inside the container and creates named volumes for the index and embeddings.
 
+### Optional: run under a reverse-proxy subpath
+
+If you want a public MCP URL like `https://mcp.example.com/vault/mcp`, add:
+
+```bash
+MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+```
+
+Then configure Traefik with a matching `PathPrefix` rule (shown in Step 3).
+
 ### Verify it works
 
 ```bash
@@ -148,7 +158,7 @@ identity_providers:
       - client_id: markdown-vault-mcp
         client_secret: '$pbkdf2-sha512$...'   # authelia crypto hash generate
         redirect_uris:
-          - https://mcp.example.com/auth/callback
+          - https://mcp.example.com/vault/auth/callback
         grant_types: [authorization_code]
         response_types: [code]
         pkce_challenge_method: S256
@@ -174,10 +184,11 @@ Save the output — you'll need it in the next step.
 
 ### Update the env file
 
-```bash hl_lines="3-9"
+```bash hl_lines="3-10"
 # .env
 MARKDOWN_VAULT_MCP_SOURCE_DIR=/home/user/ObsidianVault
-MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com
+MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
 MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/.well-known/openid-configuration
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
@@ -200,7 +211,7 @@ services:
   markdown-vault-mcp:
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`)"
+      - "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`) && PathPrefix(`/vault/mcp`)"
       - "traefik.http.routers.markdown-vault-mcp.tls.certresolver=letsencrypt"
       - "traefik.http.services.markdown-vault-mcp.loadbalancer.server.port=8000"
     networks:
@@ -219,9 +230,15 @@ docker compose up -d
 
 Test the OIDC flow:
 
-1. Navigate to `https://mcp.example.com` in a browser
+1. Navigate to `https://mcp.example.com/vault` in a browser
 2. You should be redirected to your Authelia login page
 3. After authentication, you should be redirected back with a valid session
+
+Callback URI for this setup:
+
+```text
+https://mcp.example.com/vault/auth/callback
+```
 
 Check the container logs for OIDC initialization:
 

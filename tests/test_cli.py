@@ -39,6 +39,7 @@ class TestBuildParser:
         assert args.transport == "http"
         assert args.host == "0.0.0.0"
         assert args.port == 8000
+        assert args.path is None
 
     def test_serve_http_custom_host_port(self) -> None:
         parser = _build_parser()
@@ -48,6 +49,14 @@ class TestBuildParser:
         assert args.transport == "http"
         assert args.host == "127.0.0.1"
         assert args.port == 9000
+
+    def test_serve_http_custom_path(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(
+            ["serve", "--transport", "http", "--path", "/vault/mcp"]
+        )
+        assert args.transport == "http"
+        assert args.path == "/vault/mcp"
 
     def test_index_command(self) -> None:
         parser = _build_parser()
@@ -167,7 +176,7 @@ class TestCmdServe:
 
     @patch("markdown_vault_mcp.mcp_server.create_server")
     def test_serve_http_calls_run_with_host_port(self, mock_create: MagicMock) -> None:
-        """_cmd_serve passes host/port to server.run for http transport."""
+        """_cmd_serve passes host/port/path to server.run for http transport."""
         mock_server = MagicMock()
         mock_create.return_value = mock_server
         args = _build_parser().parse_args(
@@ -175,7 +184,59 @@ class TestCmdServe:
         )
         _cmd_serve(args)
         mock_server.run.assert_called_once_with(
-            transport="http", host="127.0.0.1", port=9000
+            transport="http", host="127.0.0.1", port=9000, path="/mcp"
+        )
+
+    @patch("markdown_vault_mcp.mcp_server.create_server")
+    def test_serve_http_custom_path(self, mock_create: MagicMock) -> None:
+        """_cmd_serve passes custom --path to server.run for http transport."""
+        mock_server = MagicMock()
+        mock_create.return_value = mock_server
+        args = _build_parser().parse_args(
+            ["serve", "--transport", "http", "--path", "/vault/mcp"]
+        )
+        _cmd_serve(args)
+        mock_server.run.assert_called_once_with(
+            transport="http", host="0.0.0.0", port=8000, path="/vault/mcp"
+        )
+
+    @patch("markdown_vault_mcp.mcp_server.create_server")
+    def test_serve_http_custom_path_normalised(self, mock_create: MagicMock) -> None:
+        """_cmd_serve normalises --path by adding leading slash and trimming tail."""
+        mock_server = MagicMock()
+        mock_create.return_value = mock_server
+        args = _build_parser().parse_args(
+            ["serve", "--transport", "http", "--path", "vault/mcp/"]
+        )
+        _cmd_serve(args)
+        mock_server.run.assert_called_once_with(
+            transport="http", host="0.0.0.0", port=8000, path="/vault/mcp"
+        )
+
+    @patch("markdown_vault_mcp.mcp_server.create_server")
+    def test_serve_http_path_env_fallback(self, mock_create: MagicMock) -> None:
+        """_cmd_serve uses MARKDOWN_VAULT_MCP_HTTP_PATH when --path is omitted."""
+        mock_server = MagicMock()
+        mock_create.return_value = mock_server
+        with patch.dict("os.environ", {"MARKDOWN_VAULT_MCP_HTTP_PATH": "/vault/mcp"}):
+            args = _build_parser().parse_args(["serve", "--transport", "http"])
+            _cmd_serve(args)
+        mock_server.run.assert_called_once_with(
+            transport="http", host="0.0.0.0", port=8000, path="/vault/mcp"
+        )
+
+    @patch("markdown_vault_mcp.mcp_server.create_server")
+    def test_serve_http_path_cli_overrides_env(self, mock_create: MagicMock) -> None:
+        """_cmd_serve --path takes precedence over MARKDOWN_VAULT_MCP_HTTP_PATH."""
+        mock_server = MagicMock()
+        mock_create.return_value = mock_server
+        with patch.dict("os.environ", {"MARKDOWN_VAULT_MCP_HTTP_PATH": "/from-env"}):
+            args = _build_parser().parse_args(
+                ["serve", "--transport", "http", "--path", "/from-cli"]
+            )
+            _cmd_serve(args)
+        mock_server.run.assert_called_once_with(
+            transport="http", host="0.0.0.0", port=8000, path="/from-cli"
         )
 
     @patch("markdown_vault_mcp.mcp_server.create_server")

@@ -124,6 +124,30 @@ Or edit the label directly in `compose.yml`:
 - "traefik.http.routers.markdown-vault-mcp.rule=Host(`vault.example.com`)"
 ```
 
+**Mounting under a subpath (`/vault/mcp`):**
+
+Set the server path directly and match on both host and path prefix:
+
+```yaml
+environment:
+  MARKDOWN_VAULT_MCP_HTTP_PATH: /vault/mcp
+labels:
+  - "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`) && PathPrefix(`/vault/mcp`)"
+  - "traefik.http.services.markdown-vault-mcp.loadbalancer.server.port=8000"
+```
+
+If you use OIDC under a prefix, set:
+
+```bash
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
+```
+
+So the callback becomes:
+
+```text
+https://mcp.example.com/vault/auth/callback
+```
+
 **Example Traefik static config** (`traefik.yml`):
 
 ```yaml
