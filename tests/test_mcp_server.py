@@ -1279,6 +1279,37 @@ class TestPromptVisibility:
 
 
 # ---------------------------------------------------------------------------
+# Prompt/resource icons
+# ---------------------------------------------------------------------------
+
+
+class TestPromptAndResourceIcons:
+    """Verify prompts and resources expose icon metadata."""
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_prompts_have_icons(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            prompts = await client.list_prompts()
+
+        for prompt in prompts:
+            assert prompt.icons is not None
+            assert len(prompt.icons) > 0
+            assert prompt.icons[0].mimeType == "image/svg+xml"
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_resources_have_icons(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            resources = await client.list_resources()
+
+        for resource in resources:
+            assert resource.icons is not None
+            assert len(resource.icons) > 0
+            assert resource.icons[0].mimeType == "image/svg+xml"
+
+
+# ---------------------------------------------------------------------------
 # Optimistic concurrency — if_match on MCP tools
 # ---------------------------------------------------------------------------
 

@@ -828,7 +828,9 @@ def create_server() -> FastMCP:
 
     # --- Resources ---
 
-    @mcp.resource("config://vault", mime_type="application/json")
+    @mcp.resource(
+        "config://vault", mime_type="application/json", icons=_TOOL_ICONS["stats"]
+    )
     async def vault_config(
         collection: Collection = Depends(get_collection),
     ) -> str:
@@ -848,7 +850,9 @@ def create_server() -> FastMCP:
             }
         )
 
-    @mcp.resource("stats://vault", mime_type="application/json")
+    @mcp.resource(
+        "stats://vault", mime_type="application/json", icons=_TOOL_ICONS["stats"]
+    )
     async def vault_stats(
         collection: Collection = Depends(get_collection),
     ) -> str:
@@ -856,7 +860,9 @@ def create_server() -> FastMCP:
         result = await asyncio.to_thread(collection.stats)
         return json.dumps(asdict(result))
 
-    @mcp.resource("tags://vault", mime_type="application/json")
+    @mcp.resource(
+        "tags://vault", mime_type="application/json", icons=_TOOL_ICONS["list_tags"]
+    )
     async def vault_tags(
         collection: Collection = Depends(get_collection),
     ) -> str:
@@ -868,7 +874,11 @@ def create_server() -> FastMCP:
             grouped[field] = values
         return json.dumps(grouped)
 
-    @mcp.resource("tags://vault/{field}", mime_type="application/json")
+    @mcp.resource(
+        "tags://vault/{field}",
+        mime_type="application/json",
+        icons=_TOOL_ICONS["list_tags"],
+    )
     async def vault_tags_by_field(
         field: str,
         collection: Collection = Depends(get_collection),
@@ -877,7 +887,11 @@ def create_server() -> FastMCP:
         values = await asyncio.to_thread(collection.list_tags, field)
         return json.dumps(values)
 
-    @mcp.resource("folders://vault", mime_type="application/json")
+    @mcp.resource(
+        "folders://vault",
+        mime_type="application/json",
+        icons=_TOOL_ICONS["list_folders"],
+    )
     async def vault_folders(
         collection: Collection = Depends(get_collection),
     ) -> str:
@@ -885,7 +899,7 @@ def create_server() -> FastMCP:
         folders = await asyncio.to_thread(collection.list_folders)
         return json.dumps(folders)
 
-    @mcp.resource("toc://vault/{path}", mime_type="application/json")
+    @mcp.resource("toc://vault/{path}", mime_type="application/json", icons=_TOOL_ICONS["read"])
     async def vault_toc(
         path: str,
         collection: Collection = Depends(get_collection),
@@ -896,7 +910,7 @@ def create_server() -> FastMCP:
 
     # --- Prompts ---
 
-    @mcp.prompt
+    @mcp.prompt(icons=_TOOL_ICONS["read"])
     def summarize(path: str) -> str:
         """Summarize a document."""
         return (
@@ -908,7 +922,7 @@ def create_server() -> FastMCP:
             "If `read` returns an error, report it and stop."
         )
 
-    @mcp.prompt(tags={"write"})
+    @mcp.prompt(tags={"write"}, icons=_TOOL_ICONS["write"])
     def research(topic: str) -> str:
         """Research a topic and consolidate findings as a new note."""
         slug = re.sub(r"[^\w\-]", "-", topic.lower()).strip("-")
@@ -926,7 +940,7 @@ def create_server() -> FastMCP:
             "an empty note."
         )
 
-    @mcp.prompt(tags={"write"})
+    @mcp.prompt(tags={"write"}, icons=_TOOL_ICONS["edit"])
     def discuss(path: str) -> str:
         """Analyze a document and suggest improvements."""
         return (
@@ -943,7 +957,7 @@ def create_server() -> FastMCP:
             "If `read` fails, report the error and stop."
         )
 
-    @mcp.prompt(tags={"write"})
+    @mcp.prompt(tags={"write"}, icons=_TOOL_ICONS["write"])
     def create_from_template(template_name: str | None = None) -> str:
         """Create a new note by adapting a template from the templates folder."""
         template_hint = "None" if template_name is None else repr(template_name)
@@ -979,7 +993,7 @@ def create_server() -> FastMCP:
             "- Repeat: discover -> read -> fill -> write.\n"
         )
 
-    @mcp.prompt
+    @mcp.prompt(icons=_TOOL_ICONS["search"])
     def related(path: str) -> str:
         """Find related notes and suggest cross-references."""
         return (
@@ -994,7 +1008,7 @@ def create_server() -> FastMCP:
             "Do not edit any documents — this prompt is read-only."
         )
 
-    @mcp.prompt
+    @mcp.prompt(icons=_TOOL_ICONS["read"])
     def compare(path1: str, path2: str) -> str:
         """Compare two documents."""
         return (
