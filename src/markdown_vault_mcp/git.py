@@ -10,7 +10,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import shlex
 import stat
 import subprocess
 import tempfile
@@ -43,13 +42,9 @@ def _build_askpass_env(token: str, username: str) -> dict[str, str]:
     os.close(fd)
     script_path.write_text(
         "#!/bin/sh\n"
-        "case \"$1\" in\n"
-        "  *sername*) echo "
-        + shlex.quote(username)
-        + " ;;\n"
-        "  *) echo "
-        + shlex.quote(token)
-        + " ;;\n"
+        'case "$1" in\n'
+        "  *sername*) printf '%s\\n' \"${MVMCP_GIT_USERNAME:-}\" ;;\n"
+        "  *) printf '%s\\n' \"${MVMCP_GIT_TOKEN:-}\" ;;\n"
         "esac\n"
     )
     script_path.chmod(stat.S_IRWXU)
@@ -57,6 +52,8 @@ def _build_askpass_env(token: str, username: str) -> dict[str, str]:
         **os.environ,
         "GIT_ASKPASS": script_path_str,
         "GIT_TERMINAL_PROMPT": "0",
+        "MVMCP_GIT_USERNAME": username,
+        "MVMCP_GIT_TOKEN": token,
     }
 
 
@@ -200,6 +197,8 @@ class GitWriteStrategy:
     def _cleanup_git_env(self, env: dict[str, str] | None) -> None:
         if env is None:
             return
+        env.pop("MVMCP_GIT_USERNAME", None)
+        env.pop("MVMCP_GIT_TOKEN", None)
         script_path_str = env.get("GIT_ASKPASS")
         if not script_path_str:
             return
@@ -260,7 +259,9 @@ class GitWriteStrategy:
                     env=env,
                 )
             except FileNotFoundError as exc:
-                raise ConfigurationError("git is not installed or not on PATH.") from exc
+                raise ConfigurationError(
+                    "git is not installed or not on PATH."
+                ) from exc
             except subprocess.CalledProcessError as exc:
                 raise ConfigurationError(
                     f"Failed to clone managed git repo {self._repo_url!r} into {path}: "
@@ -440,7 +441,11 @@ class GitWriteStrategy:
         or on the next startup via ``_push_if_unpushed()``.
         """
         with self._lock:
-            if not self._enable_push or not self._push_pending or self._git_root is None:
+            if (
+                not self._enable_push
+                or not self._push_pending
+                or self._git_root is None
+            ):
                 return
             self._push_pending = False
 

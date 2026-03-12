@@ -552,12 +552,14 @@ class TestGitWriteStrategyClass:
                 capture_output=True,
                 text=True,
                 check=True,
+                env=env,
             ).stdout.strip()
             password = subprocess.run(
                 [script, "Password for 'https://example.com':"],
                 capture_output=True,
                 text=True,
                 check=True,
+                env=env,
             ).stdout.strip()
             assert username == "oauth2"
             assert password == "topsecret"
@@ -1616,9 +1618,87 @@ class TestManagedGitMode:
         vault.mkdir()
         (vault / "notes.md").write_text("# Notes\n")
 
-        with pytest.raises(
-            ConfigurationError, match="empty or a git repository"
-        ):
+        with pytest.raises(ConfigurationError, match="empty or a git repository"):
+            GitWriteStrategy(
+                repo_url="https://github.com/acme/vault.git",
+                managed=True,
+                repo_path=vault,
+            )
+
+    def test_managed_mode_requires_directory_path(self, tmp_path: Path) -> None:
+        """Managed mode rejects SOURCE_DIR that points to an existing file."""
+        from markdown_vault_mcp.exceptions import ConfigurationError
+
+        target = tmp_path / "vault"
+        target.write_text("not a directory")
+
+        with pytest.raises(ConfigurationError, match="to be a directory"):
+            GitWriteStrategy(
+                repo_url="https://github.com/acme/vault.git",
+                managed=True,
+                repo_path=target,
+            )
+
+    def test_managed_mode_rejects_ssh_repo_url_with_token(self, tmp_path: Path) -> None:
+        """Managed mode rejects SSH repo URLs when token auth is configured."""
+        from markdown_vault_mcp.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="requires HTTPS"):
+            GitWriteStrategy(
+                repo_url="git@github.com:owner/repo.git",
+                token="ghp_secret",
+                managed=True,
+                repo_path=tmp_path / "vault",
+            )
+
+    def test_managed_mode_clone_file_not_found_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Managed clone raises ConfigurationError when git is unavailable."""
+        from markdown_vault_mcp.exceptions import ConfigurationError
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        def fake_run(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+            raise FileNotFoundError("git not found")
+
+        monkeypatch.setattr("markdown_vault_mcp.git.subprocess.run", fake_run)
+
+        with pytest.raises(ConfigurationError, match="git is not installed"):
+            GitWriteStrategy(
+                repo_url="https://github.com/acme/vault.git",
+                managed=True,
+                repo_path=vault,
+            )
+
+    def test_managed_mode_requires_origin_remote(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Managed mode errors when an existing git repo has no origin remote."""
+        import subprocess
+        from types import SimpleNamespace
+
+        from markdown_vault_mcp.exceptions import ConfigurationError
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        subprocess.run(["git", "init", str(vault)], check=True, capture_output=True)
+
+        original_run = subprocess.run
+
+        def fake_run(cmd, **_kwargs):  # type: ignore[no-untyped-def]
+            if cmd[:3] == ["git", "-C", str(vault)] and cmd[3:] == [
+                "remote",
+                "get-url",
+                "origin",
+            ]:
+                return SimpleNamespace(returncode=2, stdout="", stderr="no origin")
+            return original_run(cmd, **_kwargs)
+
+        monkeypatch.setattr("markdown_vault_mcp.git.subprocess.run", fake_run)
+
+        with pytest.raises(ConfigurationError, match="requires an 'origin'"):
             GitWriteStrategy(
                 repo_url="https://github.com/acme/vault.git",
                 managed=True,
