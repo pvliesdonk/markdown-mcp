@@ -135,7 +135,7 @@ MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-64-char-hex-key
 MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES=openid,email
 ```
 
-Generate JWT signing key if needed:
+Generate the JWT signing key:
 
 ```bash
 openssl rand -hex 32

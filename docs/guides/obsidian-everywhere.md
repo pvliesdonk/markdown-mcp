@@ -88,16 +88,14 @@ This setup gives you one vault, accessible everywhere:
 
 Follow [Docker](docker.md) for deployment details. For this topology, enable git write and server-side pull automation.
 
-Git sync environment variables from issue #89:
+Current stable pull setting:
 
 ```bash
 MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S=600
-MARKDOWN_VAULT_MCP_GIT_PULL_ON_STARTUP=true
-MARKDOWN_VAULT_MCP_GIT_SAFETY_BRANCH=sync-conflicts
 ```
 
 !!! note "Requires v1.5+"
-    Automated periodic pull and safety-branch behavior require the git sync mode work from #89.
+    The issue #89 sync-mode variables `MARKDOWN_VAULT_MCP_GIT_PULL_ON_STARTUP` and `MARKDOWN_VAULT_MCP_GIT_SAFETY_BRANCH` are planned for v1.5+ and are not active in current releases.
 
 Recommended related variables:
 
