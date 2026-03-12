@@ -106,6 +106,14 @@ class TestLoadConfig:
         config = load_config()
         assert config.git_username == "x-access-token"
 
+    def test_templates_folder_trailing_slash_normalized(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER", "Templates/")
+        config = load_config()
+        assert config.templates_folder == "Templates"
+
     def test_token_without_repo_url_logs_deprecation(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:

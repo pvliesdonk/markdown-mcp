@@ -965,7 +965,11 @@ def create_server() -> FastMCP:
     def create_from_template(template_name: str | None = None) -> str:
         """Create a new note by adapting a template from the templates folder."""
         template_hint = "None" if template_name is None else repr(template_name)
-        template_name_clean = (template_name or "").strip()
+        template_name_clean = (template_name or "").strip().lstrip("/")
+        if template_name_clean:
+            raw_parts = PurePosixPath(template_name_clean).parts
+            safe_parts = [part for part in raw_parts if part not in ("", ".", "..")]
+            template_name_clean = str(PurePosixPath(*safe_parts)) if safe_parts else ""
         template_path = (
             str(PurePosixPath(templates_folder) / template_name_clean)
             if template_name_clean

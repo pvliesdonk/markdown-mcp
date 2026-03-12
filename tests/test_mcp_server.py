@@ -1212,6 +1212,18 @@ class TestPrompts:
         assert "`write`" in text
 
     @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_create_from_template_prompt_sanitizes_template_name(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt(
+                "create_from_template",
+                {"template_name": "/../notes/meeting.md"},
+            )
+        text = result.messages[0].content.text
+        assert "read(path='_templates/notes/meeting.md')" in text
+        assert "read(path='/../notes/meeting.md')" not in text
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
     async def test_create_from_template_prompt_discovery_mode(self) -> None:
         server = create_server()
         async with Client(server) as client:
