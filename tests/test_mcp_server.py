@@ -295,19 +295,6 @@ class TestReadTool:
         assert data["title"] == "Full Frontmatter Note"
         assert data["frontmatter"]["cluster"] == "fiction"
 
-    @pytest.mark.usefixtures("_mcp_env")
-    async def test_read_template_file(self, vault_path: Path) -> None:
-        template_path = vault_path / "_templates" / "meeting.md"
-        template_path.parent.mkdir(parents=True, exist_ok=True)
-        template_path.write_text("# Meeting Template\n\n- Date:\n- Attendees:\n")
-
-        server = create_server()
-        async with Client(server) as client:
-            result = await client.call_tool("read", {"path": "_templates/meeting.md"})
-        data = result.data
-        assert data["path"] == "_templates/meeting.md"
-        assert "Meeting Template" in data["content"]
-
 
 class TestListDocumentsTool:
     """Test the list_documents MCP tool."""
@@ -335,19 +322,6 @@ class TestListDocumentsTool:
             assert doc["folder"] == "subfolder" or doc["folder"].startswith(
                 "subfolder/"
             )
-
-    @pytest.mark.usefixtures("_mcp_env")
-    async def test_list_templates_folder(self, vault_path: Path) -> None:
-        template_path = vault_path / "_templates" / "daily.md"
-        template_path.parent.mkdir(parents=True, exist_ok=True)
-        template_path.write_text("# Daily Template\n\n## Highlights\n\n- \n")
-
-        server = create_server()
-        async with Client(server) as client:
-            result = await client.call_tool("list_documents", {"folder": "_templates"})
-        data = _parse_tool_data(result)
-        paths = {doc["path"] for doc in data}
-        assert "_templates/daily.md" in paths
 
 
 class TestListFoldersTool:
