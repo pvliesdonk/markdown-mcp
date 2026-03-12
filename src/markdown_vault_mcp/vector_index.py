@@ -21,6 +21,10 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+class VectorIndexCompatibilityError(RuntimeError):
+    """Raised when a persisted vector index is incompatible with current provider."""
+
+
 class VectorIndex:
     """Cosine-similarity vector index backed by numpy.
 
@@ -31,7 +35,7 @@ class VectorIndex:
     The index is serialised as two sidecar files:
 
     - ``{path}.npy`` — the embedding matrix.
-    - ``{path}.json`` — the metadata list.
+    - ``{path}.json`` — row metadata plus index metadata.
 
     Args:
         provider: Initialised :class:`~markdown_vault_mcp.providers.EmbeddingProvider`
@@ -92,7 +96,33 @@ class VectorIndex:
 
         embeddings: np.ndarray = np.load(str(npy_path))
         with json_path.open("r", encoding="utf-8") as fh:
-            metadata: list[dict] = json.load(fh)
+            payload = json.load(fh)
+
+        metadata: list[dict]
+        expected_provider = provider.provider_name
+        expected_model = provider.model_name
+        if isinstance(payload, list):
+            metadata = payload
+            logger.warning(
+                "VectorIndex.load: legacy metadata format at %s without provider/model identity",
+                path,
+            )
+        else:
+            metadata = payload.get("rows", [])
+            index_meta = payload.get("index_metadata", {})
+            persisted_provider = index_meta.get("provider")
+            persisted_model = index_meta.get("model")
+            if (
+                persisted_provider != expected_provider
+                or persisted_model != expected_model
+            ):
+                raise VectorIndexCompatibilityError(
+                    "Embedding provider/model mismatch for persisted index at "
+                    f"{path}: stored provider={persisted_provider!r}, "
+                    f"stored model={persisted_model!r}, "
+                    f"current provider={expected_provider!r}, "
+                    f"current model={expected_model!r}."
+                )
 
         index = cls(provider)
         index._embeddings = embeddings
@@ -277,8 +307,19 @@ class VectorIndex:
         else:
             np.save(str(npy_path), self._embeddings)
 
+        payload = {
+            "rows": self._metadata,
+            "index_metadata": {
+                "provider": self._provider.provider_name,
+                "model": self._provider.model_name,
+                "dimension": (
+                    int(self._embeddings.shape[1]) if self._embeddings.ndim == 2 else 0
+                ),
+            },
+        }
+
         with json_path.open("w", encoding="utf-8") as fh:
-            json.dump(self._metadata, fh, ensure_ascii=False)
+            json.dump(payload, fh, ensure_ascii=False)
 
         logger.info(
             "VectorIndex.save: saved %d vectors to %s",

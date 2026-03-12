@@ -7,7 +7,7 @@ Point it at a directory of Markdown files — an Obsidian vault, a docs folder, 
 ## Features
 
 - **Full-text search** — SQLite FTS5 with BM25 scoring, porter stemming
-- **Semantic search** — cosine similarity over embedding vectors (Ollama, OpenAI, or Sentence Transformers)
+- **Semantic search** — cosine similarity over embedding vectors (FastEmbed, Ollama, or OpenAI)
 - **Hybrid search** — Reciprocal Rank Fusion combining FTS5 and vector results
 - **Frontmatter-aware** — indexes YAML frontmatter fields, supports required field enforcement
 - **Incremental reindexing** — hash-based change detection, only re-processes modified files

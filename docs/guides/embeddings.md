@@ -5,7 +5,7 @@ This guide covers configuring each supported embedding provider for semantic sea
 | Provider | Runs locally | Requires GPU | Internet required | Install size |
 |----------|-------------|-------------|-------------------|-------------|
 | [Ollama](#ollama) | Yes | No (CPU works fine) | No | ~2 GB (model) |
-| [Sentence Transformers](#sentence-transformers) | Yes | No (CPU works, GPU faster) | No | ~1.5 GB (PyTorch + model) |
+| [FastEmbed](#fastembed) | Yes | No | First run only (model download) | Small runtime + model |
 | [OpenAI](#openai) | No (API call) | N/A | Yes | Minimal |
 
 All three providers produce embeddings that enable the `semantic` and `hybrid` search modes in the `search` tool.
@@ -107,36 +107,37 @@ If embeddings are working, hybrid and semantic search modes will return results 
 
 ---
 
-## Sentence Transformers
+## FastEmbed
 
-[Sentence Transformers](https://www.sbert.net/) runs models directly in Python — no separate server needed. Requires the `[all-local]` install extra (includes PyTorch).
+[FastEmbed](https://github.com/qdrant/fastembed) runs ONNX embedding models directly in Python — no separate server needed.
 
 ### Install
 
 ```bash
-pip install markdown-vault-mcp[all-local]
+pip install markdown-vault-mcp[embeddings]
 ```
 
 Or with uv:
 
 ```bash
-uv pip install markdown-vault-mcp[all-local]
+uv pip install markdown-vault-mcp[embeddings]
 ```
 
-!!! warning "Large install"
-    The `[all-local]` extra installs PyTorch (~1.5 GB). The `[all]` extra does **not** include sentence-transformers. The Docker image uses `[all]` and does not include PyTorch — build from source with `[all-local]` if you need it in Docker.
+The `[all]` extra includes FastEmbed as well.
 
 ### Configure
 
 ```bash
-EMBEDDING_PROVIDER=sentence-transformers
+EMBEDDING_PROVIDER=fastembed
+MARKDOWN_VAULT_MCP_FASTEMBED_MODEL=nomic-ai/nomic-embed-text-v1.5
+MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR=/path/to/store/fastembed-cache
 MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH=/path/to/store/embeddings
 ```
 
-That's it — no host URL or API key needed. The default model (`all-MiniLM-L6-v2`) downloads automatically on first use (~80 MB).
+That's it — no host URL or API key needed. The model downloads automatically on first use and is reused from cache after that.
 
 !!! note "First startup downloads the model"
-    The first time sentence-transformers runs, it downloads the model from Hugging Face. Subsequent starts use the cached model.
+    Set `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` to a persistent location. In Docker, mount it as a named volume (for example `/data/fastembed`) to avoid re-downloading on container recreation.
 
 ### Verify
 
@@ -144,7 +145,7 @@ Start the server and test with a search:
 
 > Search for "meeting notes" using semantic mode
 
-If sentence-transformers is working, you'll get results ranked by semantic similarity even if the exact phrase doesn't appear in the documents.
+If FastEmbed is working, you'll get results ranked by semantic similarity even if the exact phrase doesn't appear in the documents.
 
 ---
 
@@ -167,7 +168,7 @@ MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH=/path/to/store/embeddings
 ```
 
 !!! warning "Privacy"
-    Document content (titles, headings, body text) is sent to OpenAI for embedding. Do not use this provider if your vault contains sensitive data you don't want to share with OpenAI. Use Ollama or sentence-transformers for fully local, private embeddings.
+    Document content (titles, headings, body text) is sent to OpenAI for embedding. Do not use this provider if your vault contains sensitive data you don't want to share with OpenAI. Use Ollama or FastEmbed for fully local, private embeddings.
 
 !!! tip "Cost"
     OpenAI embeddings are inexpensive. `text-embedding-3-small` costs $0.02 per million tokens. A vault of 1,000 notes (~500K tokens) costs about $0.01 to embed. Reindexing only processes changed documents.
@@ -194,7 +195,7 @@ If you don't set `EMBEDDING_PROVIDER`, the server tries providers in this order:
 
 1. **OpenAI** — if `OPENAI_API_KEY` is set
 2. **Ollama** — if `OLLAMA_HOST` is reachable
-3. **Sentence Transformers** — if the package is installed
+3. **FastEmbed** — if the package is installed
 
 Set `EMBEDDING_PROVIDER` explicitly to avoid surprises when your environment changes (e.g., setting `OPENAI_API_KEY` for another tool will cause the server to switch from Ollama to OpenAI).
 

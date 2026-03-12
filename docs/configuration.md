@@ -27,18 +27,20 @@ All configuration is via environment variables. Most use the `MARKDOWN_VAULT_MCP
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `EMBEDDING_PROVIDER` | string | auto-detect | Embedding provider: `ollama`, `openai`, or `sentence-transformers`. **Not** `MARKDOWN_VAULT_MCP_`-prefixed |
+| `EMBEDDING_PROVIDER` | string | auto-detect | Embedding provider: `openai`, `ollama`, or `fastembed`. **Not** `MARKDOWN_VAULT_MCP_`-prefixed |
 | `OLLAMA_HOST` | url | `http://localhost:11434` | Ollama server URL. **Not** `MARKDOWN_VAULT_MCP_`-prefixed |
 | `OPENAI_API_KEY` | string | — | OpenAI API key for the OpenAI embedding provider. **Not** `MARKDOWN_VAULT_MCP_`-prefixed |
 | `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | string | `nomic-embed-text` | Ollama embedding model name |
 | `MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY` | bool | `false` | Force Ollama to use CPU only |
+| `MARKDOWN_VAULT_MCP_FASTEMBED_MODEL` | string | `nomic-ai/nomic-embed-text-v1.5` | FastEmbed model name |
+| `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` | path | FastEmbed default | FastEmbed model cache directory (set this to a persistent Docker volume) |
 
 !!! note "Embedding provider auto-detection"
     When `EMBEDDING_PROVIDER` is not set, the server tries providers in this order:
 
     1. **OpenAI** — if `OPENAI_API_KEY` is set
     2. **Ollama** — if `OLLAMA_HOST` is reachable
-    3. **Sentence Transformers** — if the `sentence-transformers` package is installed
+    3. **FastEmbed** — if the `fastembed` package is installed
 
 ## Git Integration
 

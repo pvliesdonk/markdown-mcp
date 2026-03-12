@@ -4,7 +4,7 @@ Provides an :class:`EmbeddingProvider` ABC and three concrete implementations:
 
 - :class:`OllamaProvider` — HTTP client to Ollama REST API.
 - :class:`OpenAIProvider` — HTTP client to OpenAI Embeddings API.
-- :class:`SentenceTransformersProvider` — local sentence-transformers library.
+- :class:`FastEmbedProvider` — local fastembed/ONNX runtime embeddings.
 
 Use :func:`get_embedding_provider` to auto-detect and return the best
 available provider based on environment variables.
@@ -44,6 +44,18 @@ class EmbeddingProvider(ABC):
         Returns:
             Integer dimension of each embedding vector.
         """
+        ...
+
+    @property
+    @abstractmethod
+    def provider_name(self) -> str:
+        """Stable provider identifier for index compatibility metadata."""
+        ...
+
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """Stable model identifier for index compatibility metadata."""
         ...
 
 
@@ -141,6 +153,14 @@ class OllamaProvider(EmbeddingProvider):
                 "cannot determine dimension."
             )
         return self._dimension
+
+    @property
+    def provider_name(self) -> str:
+        return "ollama"
+
+    @property
+    def model_name(self) -> str:
+        return self._model
 
 
 class OpenAIProvider(EmbeddingProvider):
@@ -243,39 +263,63 @@ class OpenAIProvider(EmbeddingProvider):
             )
         return self._dimension
 
+    @property
+    def provider_name(self) -> str:
+        return "openai"
 
-class SentenceTransformersProvider(EmbeddingProvider):
-    """Embedding provider backed by the local sentence-transformers library.
+    @property
+    def model_name(self) -> str:
+        return self._MODEL
 
-    The ``sentence_transformers`` package is imported lazily at instantiation
+
+class FastEmbedProvider(EmbeddingProvider):
+    """Embedding provider backed by the local fastembed library.
+
+    The ``fastembed`` package is imported lazily at instantiation
     time so that it does not need to be installed unless this provider is used.
-
-    Default model: ``all-MiniLM-L6-v2``.
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
-        """Load the sentence-transformers model.
+    def __init__(
+        self,
+        model_name: str | None = None,
+        cache_dir: str | None = None,
+    ) -> None:
+        """Initialise FastEmbed model.
 
         Args:
-            model_name: Hugging Face model identifier to load.
-                Defaults to ``all-MiniLM-L6-v2``.
+            model_name: FastEmbed model identifier.
+            cache_dir: Optional model cache directory.
 
         Raises:
-            ImportError: If ``sentence_transformers`` is not installed.
+            ImportError: If ``fastembed`` is not installed.
         """
         try:
-            from sentence_transformers import SentenceTransformer
+            from fastembed import TextEmbedding
         except ImportError as exc:
             raise ImportError(
-                "SentenceTransformersProvider requires 'sentence-transformers'. "
+                "FastEmbedProvider requires 'fastembed'. "
                 "Install it with: pip install 'markdown-vault-mcp[embeddings]'"
             ) from exc
 
-        self._model = SentenceTransformer(model_name)
-        logger.debug("SentenceTransformersProvider initialised: model=%s", model_name)
+        self._model_name = model_name or os.environ.get(
+            f"{_ENV_PREFIX}_FASTEMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5"
+        )
+        self._cache_dir = cache_dir or os.environ.get(
+            f"{_ENV_PREFIX}_FASTEMBED_CACHE_DIR"
+        )
+        kwargs: dict[str, object] = {"model_name": self._model_name}
+        if self._cache_dir:
+            kwargs["cache_dir"] = self._cache_dir
+        self._model = TextEmbedding(**kwargs)
+        self._dimension: int | None = None
+        logger.debug(
+            "FastEmbedProvider initialised: model=%s cache_dir=%s",
+            self._model_name,
+            self._cache_dir,
+        )
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed a batch of texts using the local sentence-transformers model.
+        """Embed a batch of texts using the local fastembed model.
 
         Args:
             texts: List of strings to embed.
@@ -283,7 +327,10 @@ class SentenceTransformersProvider(EmbeddingProvider):
         Returns:
             List of embedding vectors, one per input text.
         """
-        return self._model.encode(texts).tolist()  # type: ignore[return-value]
+        vectors = [vector.tolist() for vector in self._model.embed(texts)]
+        if self._dimension is None and vectors:
+            self._dimension = len(vectors[0])
+        return vectors
 
     @property
     def dimension(self) -> int:
@@ -292,13 +339,22 @@ class SentenceTransformersProvider(EmbeddingProvider):
         Returns:
             Integer dimension of each embedding vector.
         """
-        dim: int | None = self._model.get_sentence_embedding_dimension()
-        if dim is None:
+        if self._dimension is None:
+            self.embed(["dimension probe"])
+        if self._dimension is None:
             raise RuntimeError(
-                "SentenceTransformer.get_sentence_embedding_dimension() returned None; "
-                "the model may not have been loaded correctly."
+                "FastEmbedProvider.embed() returned no embeddings; "
+                "cannot determine dimension."
             )
-        return dim
+        return self._dimension
+
+    @property
+    def provider_name(self) -> str:
+        return "fastembed"
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
 
 
 def get_embedding_provider() -> EmbeddingProvider:
@@ -309,8 +365,8 @@ def get_embedding_provider() -> EmbeddingProvider:
 
     1. If ``OPENAI_API_KEY`` is set → :class:`OpenAIProvider`.
     2. If Ollama is reachable at ``OLLAMA_HOST`` → :class:`OllamaProvider`.
-    3. If ``sentence_transformers`` can be imported →
-       :class:`SentenceTransformersProvider`.
+    3. If ``fastembed`` can be imported →
+       :class:`FastEmbedProvider`.
     4. Raises :class:`RuntimeError` with installation instructions.
 
     Returns:
@@ -332,17 +388,17 @@ def get_embedding_provider() -> EmbeddingProvider:
         logger.info("Using OllamaProvider (EMBEDDING_PROVIDER=ollama)")
         return OllamaProvider()
 
-    if explicit in ("sentence-transformers", "sentence_transformers"):
+    if explicit == "fastembed":
         logger.info(
-            "Using SentenceTransformersProvider (EMBEDDING_PROVIDER=%s)",
+            "Using FastEmbedProvider (EMBEDDING_PROVIDER=%s)",
             explicit,
         )
-        return SentenceTransformersProvider()
+        return FastEmbedProvider()
 
     if explicit:
         raise ValueError(
             f"Unrecognised EMBEDDING_PROVIDER value: {explicit!r}. "
-            "Valid values: 'openai', 'ollama', 'sentence-transformers'."
+            "Valid values: 'openai', 'ollama', 'fastembed'."
         )
 
     # Auto-detect: OpenAI API key present?
@@ -363,19 +419,19 @@ def get_embedding_provider() -> EmbeddingProvider:
     except Exception:
         logger.debug("Ollama not reachable at %s, skipping", host)
 
-    # Auto-detect: sentence_transformers importable?
+    # Auto-detect: fastembed importable?
     try:
-        import sentence_transformers  # noqa: F401
+        import fastembed  # noqa: F401
 
-        logger.info("Auto-detected SentenceTransformersProvider")
-        return SentenceTransformersProvider()
+        logger.info("Auto-detected FastEmbedProvider")
+        return FastEmbedProvider()
     except ImportError:
-        logger.debug("sentence_transformers not available, skipping")
+        logger.debug("fastembed not available, skipping")
 
     raise RuntimeError(
         "No embedding provider is available. Install one of:\n"
         "  pip install 'markdown-vault-mcp[embeddings-api]'  # httpx for Ollama or OpenAI\n"
-        "  pip install 'markdown-vault-mcp[embeddings]'       # sentence-transformers (local)\n"
+        "  pip install 'markdown-vault-mcp[embeddings]'       # fastembed (local)\n"
         "Or set OPENAI_API_KEY for the OpenAI provider, "
         "or start an Ollama server for the Ollama provider."
     )

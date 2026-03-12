@@ -403,17 +403,25 @@ class Collection:
         if self._vectors is not None:
             return self._vectors
 
-        from markdown_vault_mcp.vector_index import VectorIndex
+        from markdown_vault_mcp.vector_index import (
+            VectorIndex,
+            VectorIndexCompatibilityError,
+        )
 
         assert self._embeddings_path is not None
         assert self._embedding_provider is not None
 
         npy_path = Path(str(self._embeddings_path) + ".npy")
         if npy_path.exists():
-            self._vectors = VectorIndex.load(
-                self._embeddings_path, self._embedding_provider
-            )
-            logger.info("Loaded vector index from %s", self._embeddings_path)
+            try:
+                self._vectors = VectorIndex.load(
+                    self._embeddings_path, self._embedding_provider
+                )
+                logger.info("Loaded vector index from %s", self._embeddings_path)
+            except VectorIndexCompatibilityError as exc:
+                logger.warning("%s Rebuilding embeddings.", exc)
+                self.build_embeddings(force=True)
+                assert self._vectors is not None
         else:
             self._vectors = VectorIndex(self._embedding_provider)
             logger.info("No vector index on disk; created empty VectorIndex")
@@ -1097,7 +1105,10 @@ class Collection:
                     try:
                         with json_path.open(encoding="utf-8") as fh:
                             loaded_meta = json.load(fh)
-                        count = len(loaded_meta)
+                        if isinstance(loaded_meta, list):
+                            count = len(loaded_meta)
+                        else:
+                            count = len(loaded_meta.get("rows", []))
                     except (OSError, json.JSONDecodeError):
                         pass
 

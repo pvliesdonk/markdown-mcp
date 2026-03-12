@@ -882,10 +882,12 @@ For MCP server deployment:
 | `MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES` | Comma-separated OAuth scopes to request | `openid` |
 | `MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS` | Comma-separated allowlist of non-.md extensions (without dot), e.g. `pdf,png,docx`; use `*` to allow all non-.md files | common list (pdf, png, jpg, docx, …) |
 | `MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB` | Maximum attachment size in MB enforced on both read and write; `0` disables the limit | `10.0` |
-| `EMBEDDING_PROVIDER` | `ollama`, `openai`, `sentence-transformers` | auto-detect |
+| `EMBEDDING_PROVIDER` | `openai`, `ollama`, `fastembed` | auto-detect |
 | `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
 | `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | Ollama embedding model | `nomic-embed-text` |
 | `MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY` | Force CPU-only inference | `false` |
+| `MARKDOWN_VAULT_MCP_FASTEMBED_MODEL` | FastEmbed model | `nomic-ai/nomic-embed-text-v1.5` |
+| `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` | FastEmbed model cache directory | FastEmbed default |
 | `OPENAI_API_KEY` | OpenAI API key | none |
 
 #### Example Configurations
@@ -995,9 +997,8 @@ dependencies = [
 [project.optional-dependencies]
 mcp = ["fastmcp>=3.0,<4"]
 embeddings-api = ["httpx>=0.25", "numpy>=1.20"]
-embeddings = ["sentence-transformers>=2.0", "numpy>=1.20"]
-all = ["fastmcp>=3.0,<4", "httpx>=0.25", "numpy>=1.20"]
-all-local = ["fastmcp>=3.0,<4", "httpx>=0.25", "numpy>=1.20", "sentence-transformers>=2.0"]
+embeddings = ["fastembed>=0.3", "numpy>=1.20"]
+all = ["fastmcp>=3.0,<4", "httpx>=0.25", "fastembed>=0.3", "numpy>=1.20"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.1", "mypy>=1.0"]
 
 [project.scripts]

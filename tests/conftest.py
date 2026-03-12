@@ -48,6 +48,14 @@ class MockEmbeddingProvider(EmbeddingProvider):
         """
         return self._dim
 
+    @property
+    def provider_name(self) -> str:
+        return "mock"
+
+    @property
+    def model_name(self) -> str:
+        return f"mock-dim-{self._dim}"
+
 
 @pytest.fixture
 def fixtures_path() -> Path:

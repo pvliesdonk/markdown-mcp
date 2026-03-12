@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -1745,6 +1746,48 @@ class TestSemanticSearch:
         vectors = col2._load_vectors()
 
         assert vectors.count == chunk_count
+
+    def test_load_vectors_provider_mismatch_rebuilds(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """_load_vectors() rebuilds when persisted provider/model metadata differs."""
+        embeddings_path = tmp_path / "embeddings"
+
+        col1 = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col1.build_index()
+        expected_count = col1.build_embeddings()
+        assert expected_count > 0
+
+        class AlternateProvider(type(mock_provider)):
+            @property
+            def provider_name(self) -> str:
+                return "alternate-mock"
+
+            @property
+            def model_name(self) -> str:
+                return "alternate-model-v1"
+
+        col2 = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=AlternateProvider(),
+        )
+        col2.build_index()
+
+        vectors = col2._load_vectors()
+        assert vectors.count == expected_count
+
+        with (tmp_path / "embeddings.json").open(encoding="utf-8") as fh:
+            payload = json.load(fh)
+        assert payload["index_metadata"]["provider"] == "alternate-mock"
+        assert payload["index_metadata"]["model"] == "alternate-model-v1"
 
     def test_require_vectors_raises_when_unconfigured(self, vault_path: Path) -> None:
         """_require_vectors() raises ValueError when provider/path are absent."""

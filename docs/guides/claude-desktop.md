@@ -153,7 +153,7 @@ You should see a commit from `markdown-vault-mcp`. Delete the test note when don
 
 **Goal:** Enable embedding-based search alongside keyword search for better recall on conceptual queries.
 
-**Prerequisites:** Step 1 complete. One of: [Ollama](https://ollama.com) running locally, an OpenAI API key, or `sentence-transformers` installed (see [Embeddings guide](embeddings.md) for details on each).
+**Prerequisites:** Step 1 complete. One of: FastEmbed installed (`pip install markdown-vault-mcp[embeddings]`), [Ollama](https://ollama.com) running locally, or an OpenAI API key (see [Embeddings guide](embeddings.md) for details).
 
 This example uses Ollama — the easiest option for local, private embeddings.
 

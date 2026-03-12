@@ -31,10 +31,12 @@ services:
       - ${MARKDOWN_VAULT_MCP_SOURCE_DIR:?Set MARKDOWN_VAULT_MCP_SOURCE_DIR}:/data/vault
       - index-data:/data/index
       - embeddings-data:/data/embeddings
+      - fastembed-data:/data/fastembed
     environment:
       MARKDOWN_VAULT_MCP_SOURCE_DIR: /data/vault
       MARKDOWN_VAULT_MCP_INDEX_PATH: /data/index/index.db
       MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/embeddings/embeddings
+      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/fastembed
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
@@ -44,6 +46,7 @@ services:
 volumes:
   index-data:
   embeddings-data:
+  fastembed-data:
 ```
 
 ### Volume Mounts
@@ -53,8 +56,9 @@ volumes:
 | `/data/vault` | Bind mount | Your Markdown vault (from `MARKDOWN_VAULT_MCP_SOURCE_DIR`) |
 | `/data/index` | Named volume | SQLite FTS5 index (persists across restarts) |
 | `/data/embeddings` | Named volume | Numpy embedding vectors |
+| `/data/fastembed` | Named volume | FastEmbed model cache (prevents re-downloads) |
 
-The index and embeddings volumes are automatically created on first run. The first startup triggers a full index build; subsequent starts only reindex changed files.
+The index, embeddings, and FastEmbed cache volumes are automatically created on first run. The first startup triggers a full index build; subsequent starts only reindex changed files.
 
 ## Traefik Reverse Proxy
 

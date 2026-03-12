@@ -22,22 +22,19 @@ With optional dependencies:
     ```
     Adds httpx + numpy for Ollama/OpenAI embeddings via HTTP.
 
+=== "Local embeddings"
+
+    ```bash
+    pip install markdown-vault-mcp[embeddings]
+    ```
+    Adds FastEmbed + numpy for local embeddings.
+
 === "All (recommended)"
 
     ```bash
     pip install markdown-vault-mcp[all]
     ```
-    MCP + API embeddings. Lightweight — no PyTorch.
-
-=== "All + local models"
-
-    ```bash
-    pip install markdown-vault-mcp[all-local]
-    ```
-    Includes sentence-transformers + PyTorch for local CPU/GPU embeddings without Ollama.
-
-!!! info "`[all]` vs `[all-local]`"
-    The `[all]` extra is lightweight and does **not** include `sentence-transformers` or PyTorch. Use `[all-local]` if you want local CPU/GPU embeddings without an Ollama server. The Docker image uses `[all]`.
+    MCP + FastEmbed + API embeddings.
 
 ## Using uv
 
@@ -59,7 +56,7 @@ pip install -e ".[all,dev]"
 docker pull ghcr.io/pvliesdonk/markdown-vault-mcp:latest
 ```
 
-The Docker image uses `[all]` (MCP + API embeddings). It does **not** include `sentence-transformers` or PyTorch — use Ollama or OpenAI for embeddings. For local sentence-transformers, build from source with `[all-local]`.
+The Docker image uses `[all]` (MCP + FastEmbed + API embeddings). Semantic search is available by default with FastEmbed and can switch to Ollama/OpenAI when configured.
 
 See [Docker deployment](deployment/docker.md) for compose setup and volume configuration.
 

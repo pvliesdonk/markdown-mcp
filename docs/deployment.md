@@ -51,10 +51,12 @@ services:
       - ${MARKDOWN_VAULT_MCP_SOURCE_DIR:?Set MARKDOWN_VAULT_MCP_SOURCE_DIR}:/data/vault
       - index-data:/data/index
       - embeddings-data:/data/embeddings
+      - fastembed-data:/data/fastembed
     environment:
       MARKDOWN_VAULT_MCP_SOURCE_DIR: /data/vault
       MARKDOWN_VAULT_MCP_INDEX_PATH: /data/index/index.db
       MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/embeddings/embeddings
+      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/fastembed
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
@@ -64,6 +66,7 @@ services:
 volumes:
   index-data:
   embeddings-data:
+  fastembed-data:
 ```
 
 **Volume mounts:**
@@ -71,8 +74,9 @@ volumes:
 - `/data/vault` — your Markdown vault (bind-mounted from `MARKDOWN_VAULT_MCP_SOURCE_DIR`)
 - `/data/index` — SQLite FTS5 index (Docker-managed named volume, persists across restarts)
 - `/data/embeddings` — numpy embedding vectors (Docker-managed named volume)
+- `/data/fastembed` — FastEmbed model cache (Docker-managed named volume)
 
-The index and embeddings volumes are automatically created on first run. The
+The index, embeddings, and FastEmbed cache volumes are automatically created on first run. The
 first startup triggers a full index build; subsequent starts only reindex
 changed files.
 
@@ -196,10 +200,12 @@ services:
       - ${MARKDOWN_VAULT_MCP_SOURCE_DIR:?Set MARKDOWN_VAULT_MCP_SOURCE_DIR}:/data/vault
       - index-data:/data/index
       - embeddings-data:/data/embeddings
+      - fastembed-data:/data/fastembed
     environment:
       MARKDOWN_VAULT_MCP_SOURCE_DIR: /data/vault
       MARKDOWN_VAULT_MCP_INDEX_PATH: /data/index/index.db
       MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/embeddings/embeddings
+      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/fastembed
     networks:
       - internal
     restart: unless-stopped
@@ -231,6 +237,7 @@ services:
 volumes:
   index-data:
   embeddings-data:
+  fastembed-data:
 
 networks:
   traefik:
