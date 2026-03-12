@@ -404,7 +404,7 @@ def load_config() -> CollectionConfig:
 
     raw_templates_folder = (_env("TEMPLATES_FOLDER") or "").strip()
     if raw_templates_folder:
-        templates_folder = raw_templates_folder.strip("/")
+        templates_folder = raw_templates_folder.replace("\\", "/").strip("/")
         templates_folder = templates_folder or "_templates"
     else:
         templates_folder = "_templates"

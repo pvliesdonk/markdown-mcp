@@ -300,7 +300,7 @@ def create_server() -> FastMCP:
     is_read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
     raw_templates_folder = (os.environ.get(f"{_ENV_PREFIX}_TEMPLATES_FOLDER") or "").strip()
     if raw_templates_folder:
-        templates_folder = raw_templates_folder.strip("/")
+        templates_folder = raw_templates_folder.replace("\\", "/").strip("/")
         templates_folder = templates_folder or "_templates"
     else:
         templates_folder = "_templates"
@@ -965,7 +965,7 @@ def create_server() -> FastMCP:
     def create_from_template(template_name: str | None = None) -> str:
         """Create a new note by adapting a template from the templates folder."""
         template_hint = "None" if template_name is None else repr(template_name)
-        template_name_clean = (template_name or "").strip().lstrip("/")
+        template_name_clean = (template_name or "").strip().replace("\\", "/").lstrip("/")
         if template_name_clean:
             raw_parts = PurePosixPath(template_name_clean).parts
             safe_parts = [part for part in raw_parts if part not in ("", ".", "..")]

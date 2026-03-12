@@ -1224,6 +1224,21 @@ class TestPrompts:
         assert "read(path='/../notes/meeting.md')" not in text
 
     @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_create_from_template_prompt_normalizes_windows_separators(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER", "Templates\\Notes\\")
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt(
+                "create_from_template",
+                {"template_name": "daily\\standup.md"},
+            )
+        text = result.messages[0].content.text
+        assert "`Templates/Notes`" in text
+        assert "read(path='Templates/Notes/daily/standup.md')" in text
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
     async def test_create_from_template_prompt_discovery_mode(self) -> None:
         server = create_server()
         async with Client(server) as client:
