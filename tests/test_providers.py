@@ -48,6 +48,44 @@ class TestOllamaProvider:
         assert provider.provider_name == "ollama"
         assert provider.model_name == "nomic-embed-text"
 
+    def test_embed_payload_includes_model_and_input(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OLLAMA_MODEL", "test-model")
+        mock_client, _ = _make_httpx_mock(json_body={"embeddings": [[0.5, 0.6]]})
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OllamaProvider()
+            provider.embed(["alpha", "beta"])
+
+        _, call_kwargs = mock_client.post.call_args
+        payload = call_kwargs["json"]
+        assert payload["model"] == "test-model"
+        assert payload["input"] == ["alpha", "beta"]
+
+    def test_embed_cpu_only_includes_num_gpu_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY", "true")
+        mock_client, _ = _make_httpx_mock(json_body={"embeddings": [[1.0, 2.0]]})
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OllamaProvider()
+            provider.embed(["test"])
+
+        _, call_kwargs = mock_client.post.call_args
+        assert call_kwargs["json"].get("options") == {"num_gpu": 0}
+
+    def test_embed_cpu_only_false_no_options_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY", "false")
+        mock_client, _ = _make_httpx_mock(json_body={"embeddings": [[1.0, 2.0]]})
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OllamaProvider()
+            provider.embed(["test"])
+
+        _, call_kwargs = mock_client.post.call_args
+        assert "options" not in call_kwargs["json"]
+
     def test_embed_raises_on_non_200_status(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -69,6 +107,45 @@ class TestOllamaProvider:
             provider = OllamaProvider()
             assert provider.dimension == 4
 
+    def test_dimension_cached_after_first_embed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OLLAMA_HOST", raising=False)
+        mock_client, _ = _make_httpx_mock(json_body={"embeddings": [[0.1, 0.2, 0.3]]})
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OllamaProvider()
+            provider.embed(["prime"])
+            _ = provider.dimension
+            _ = provider.dimension
+
+        assert mock_client.post.call_count == 1
+
+    def test_ollama_host_env_var_changes_base_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OLLAMA_HOST", "http://remote-host:12345")
+        mock_client, _ = _make_httpx_mock(json_body={"embeddings": [[0.9]]})
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OllamaProvider()
+            provider.embed(["x"])
+
+        call_args = mock_client.post.call_args
+        url = call_args[0][0] if call_args[0] else call_args[1]["url"]
+        assert url == "http://remote-host:12345/api/embed"
+
+    def test_ollama_host_trailing_slash_stripped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OLLAMA_HOST", "http://myhost:9999/")
+        mock_client, _ = _make_httpx_mock(json_body={"embeddings": [[0.1]]})
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OllamaProvider()
+            provider.embed(["y"])
+
+        call_args = mock_client.post.call_args
+        url = call_args[0][0] if call_args[0] else call_args[1]["url"]
+        assert url == "http://myhost:9999/api/embed"
+
     def test_ollama_model_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_OLLAMA_MODEL", "my-custom-model")
         mock_client, _ = _make_httpx_mock(json_body={"embeddings": [[0.3, 0.4]]})
@@ -79,6 +156,22 @@ class TestOllamaProvider:
         _, call_kwargs = mock_client.post.call_args
         assert call_kwargs["json"]["model"] == "my-custom-model"
         assert provider.model_name == "my-custom-model"
+
+    def test_missing_httpx_raises_import_error(self) -> None:
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "httpx":
+                raise ImportError("No module named 'httpx'")
+            return real_import(name, *args, **kwargs)
+
+        with (
+            patch("builtins.__import__", side_effect=fake_import),
+            pytest.raises(ImportError, match="httpx"),
+        ):
+            OllamaProvider()
 
 
 class TestOpenAIProvider:
@@ -118,6 +211,62 @@ class TestOpenAIProvider:
             provider = OpenAIProvider()
             result = provider.embed(["first", "second"])
         assert result == [[1.0, 2.0], [9.0, 8.0]]
+
+    def test_embed_raises_on_non_200_status(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        mock_client, _ = _make_httpx_mock(status_code=401, text="Unauthorized")
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OpenAIProvider()
+            with pytest.raises(RuntimeError, match="401"):
+                provider.embed(["secret"])
+
+    def test_dimension_caches_after_first_embed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        mock_client, _ = _make_httpx_mock(
+            json_body={"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]}
+        )
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OpenAIProvider()
+            provider.embed(["probe"])
+            dim1 = provider.dimension
+            dim2 = provider.dimension
+
+        assert dim1 == 3
+        assert dim2 == 3
+        assert mock_client.post.call_count == 1
+
+    def test_dimension_triggers_embed_when_uncached(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        mock_client, _ = _make_httpx_mock(
+            json_body={"data": [{"index": 0, "embedding": [0.5, 0.6, 0.7, 0.8]}]}
+        )
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OpenAIProvider()
+            dim = provider.dimension
+
+        assert dim == 4
+        mock_client.post.assert_called_once()
+
+    def test_embed_posts_to_openai_endpoint(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        mock_client, _ = _make_httpx_mock(
+            json_body={"data": [{"index": 0, "embedding": [0.1]}]}
+        )
+        with patch("httpx.Client", return_value=mock_client):
+            provider = OpenAIProvider()
+            provider.embed(["hello"])
+
+        call_args = mock_client.post.call_args
+        url = call_args[0][0] if call_args[0] else call_args[1]["url"]
+        assert url == "https://api.openai.com/v1/embeddings"
 
 
 class TestFastEmbedProvider:
@@ -221,7 +370,9 @@ class TestGetEmbeddingProvider:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("EMBEDDING_PROVIDER", "unknown_value")
-        with pytest.raises(ValueError, match="Valid values: 'openai', 'ollama', 'fastembed'"):
+        with pytest.raises(
+            ValueError, match="Valid values: 'openai', 'ollama', 'fastembed'"
+        ):
             get_embedding_provider()
 
     def test_autodetect_openai_key_present(

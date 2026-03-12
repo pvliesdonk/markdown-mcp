@@ -30,7 +30,7 @@ RUN if [ "$APP_UID" -eq 0 ] || [ "$APP_GID" -eq 0 ]; then \
     fi \
     && groupadd -r --gid $APP_GID --non-unique appuser \
     && useradd -r --uid $APP_UID --gid $APP_GID --no-log-init -d /app appuser \
-    && mkdir -p /data/index /data/embeddings \
+    && mkdir -p /data/index /data/embeddings /data/fastembed \
     && chown -R appuser:appuser /app /data
 USER appuser
 
@@ -38,7 +38,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
 
-VOLUME ["/data/index", "/data/embeddings"]
+VOLUME ["/data/index", "/data/embeddings", "/data/fastembed"]
 
 ENTRYPOINT ["markdown-vault-mcp"]
 CMD ["serve", "--transport", "http"]

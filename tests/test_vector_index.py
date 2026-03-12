@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
-from markdown_vault_mcp.vector_index import VectorIndex
+from markdown_vault_mcp.vector_index import VectorIndex, VectorIndexCompatibilityError
 
 if TYPE_CHECKING:
     from .conftest import MockEmbeddingProvider
@@ -335,3 +336,38 @@ class TestVectorIndexPersistence:
         result = results[0]
         for key, expected in original_meta.items():
             assert result[key] == expected
+
+    def test_load_legacy_json_list_payload(
+        self, mock_provider: MockEmbeddingProvider, tmp_path: Path
+    ) -> None:
+        """load() accepts legacy JSON list metadata format."""
+        index = VectorIndex(mock_provider)
+        index.add(["legacy"], [_make_meta("legacy.md")])
+        base = tmp_path / "legacy_idx"
+        index.save(base)
+
+        legacy_payload = [_make_meta("legacy.md")]
+        with (tmp_path / "legacy_idx.json").open("w", encoding="utf-8") as fh:
+            json.dump(legacy_payload, fh)
+
+        loaded = VectorIndex.load(base, mock_provider)
+        assert loaded.count == 1
+
+    def test_load_raises_on_provider_model_mismatch(
+        self, mock_provider: MockEmbeddingProvider, tmp_path: Path
+    ) -> None:
+        """load() raises compatibility error when provider/model identity differs."""
+        index = VectorIndex(mock_provider)
+        index.add(["alpha"], [_make_meta("alpha.md")])
+        base = tmp_path / "compat_idx"
+        index.save(base)
+
+        json_path = tmp_path / "compat_idx.json"
+        with json_path.open(encoding="utf-8") as fh:
+            payload = json.load(fh)
+        payload["index_metadata"]["provider"] = "different-provider"
+        with json_path.open("w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+
+        with pytest.raises(VectorIndexCompatibilityError, match="mismatch"):
+            VectorIndex.load(base, mock_provider)

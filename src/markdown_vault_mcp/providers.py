@@ -304,7 +304,9 @@ class FastEmbedProvider(EmbeddingProvider):
         self._model_name = model_name or os.environ.get(
             f"{_ENV_PREFIX}_FASTEMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5"
         )
-        self._cache_dir = cache_dir or os.environ.get(f"{_ENV_PREFIX}_FASTEMBED_CACHE_DIR")
+        self._cache_dir = cache_dir or os.environ.get(
+            f"{_ENV_PREFIX}_FASTEMBED_CACHE_DIR"
+        )
         kwargs: dict[str, object] = {"model_name": self._model_name}
         if self._cache_dir:
             kwargs["cache_dir"] = self._cache_dir
