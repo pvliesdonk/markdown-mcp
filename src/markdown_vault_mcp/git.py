@@ -26,6 +26,40 @@ from markdown_vault_mcp.exceptions import ConfigurationError
 logger = logging.getLogger(__name__)
 
 
+def _is_ssh_remote(url: str) -> bool:
+    return url.startswith("git@") or url.startswith("ssh://")
+
+
+def _normalize_remote(url: str) -> str:
+    normalized = url.strip().rstrip("/")
+    if normalized.endswith(".git"):
+        normalized = normalized[: -len(".git")]
+    return normalized
+
+
+def _build_askpass_env(token: str, username: str) -> dict[str, str]:
+    fd, script_path_str = tempfile.mkstemp(suffix=".sh", prefix="git_askpass_")
+    script_path = Path(script_path_str)
+    os.close(fd)
+    script_path.write_text(
+        "#!/bin/sh\n"
+        "case \"$1\" in\n"
+        "  *sername*) echo "
+        + shlex.quote(username)
+        + " ;;\n"
+        "  *) echo "
+        + shlex.quote(token)
+        + " ;;\n"
+        "esac\n"
+    )
+    script_path.chmod(stat.S_IRWXU)
+    return {
+        **os.environ,
+        "GIT_ASKPASS": script_path_str,
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+
+
 def _find_git_root(path: Path) -> Path | None:
     """Find the git repository root containing *path*.
 
@@ -72,6 +106,13 @@ class GitWriteStrategy:
     Args:
         token: PAT for HTTPS push via ``GIT_ASKPASS``.  ``None`` uses
             SSH or pre-configured credentials.
+        username: Username used with token auth. Defaults to
+            ``"x-access-token"`` (GitHub-compatible).
+        repo_url: Remote URL expected in managed mode.
+        managed: When ``True``, ensure the repo exists under ``repo_path``:
+            clone into an empty directory or validate ``origin`` on existing repos.
+        enable_pull: Enable fetch + ff-only sync methods.
+        enable_push: Enable deferred push behavior.
         push_delay_s: Seconds of idle before pushing.  ``0`` disables
             the timer (push only on :meth:`close`).
         commit_name: Git committer name; defaults to
@@ -103,6 +144,11 @@ class GitWriteStrategy:
     def __init__(
         self,
         token: str | None = None,
+        username: str = "x-access-token",
+        repo_url: str | None = None,
+        managed: bool = False,
+        enable_pull: bool = True,
+        enable_push: bool = True,
         push_delay_s: float = 30.0,
         commit_name: str | None = None,
         commit_email: str | None = None,
@@ -110,6 +156,11 @@ class GitWriteStrategy:
         repo_path: Path | None = None,
     ) -> None:
         self._token = token
+        self._username = username
+        self._repo_url = repo_url
+        self._managed = managed
+        self._enable_pull = enable_pull
+        self._enable_push = enable_push
         self._push_delay_s = push_delay_s
         self._commit_name = commit_name or self.DEFAULT_COMMIT_NAME
         self._commit_email = commit_email or self.DEFAULT_COMMIT_EMAIL
@@ -130,7 +181,10 @@ class GitWriteStrategy:
         ) = None
         self._on_pull: Callable[[], None] | None = None
         if repo_path is not None:
-            self.validate_startup(repo_path)
+            if self._managed:
+                self._ensure_managed_repo(repo_path)
+            else:
+                self.validate_startup(repo_path)
 
     def _git_env(self) -> dict[str, str] | None:
         """Build environment for git subprocess calls.
@@ -141,19 +195,7 @@ class GitWriteStrategy:
         """
         if not self._token:
             return None
-        fd, script_path_str = tempfile.mkstemp(suffix=".sh", prefix="git_askpass_")
-        script_path = Path(script_path_str)
-        os.close(fd)
-        # The script echoes the token for any prompt. This matches the existing
-        # push behavior and avoids provider-specific username handling.
-        script_path.write_text(f"#!/bin/sh\necho {shlex.quote(self._token)}\n")
-        script_path.chmod(stat.S_IRWXU)
-        # Caller is responsible for unlinking script_path.
-        return {
-            **os.environ,
-            "GIT_ASKPASS": script_path_str,
-            "GIT_TERMINAL_PROMPT": "0",
-        }
+        return _build_askpass_env(self._token, self._username)
 
     def _cleanup_git_env(self, env: dict[str, str] | None) -> None:
         if env is None:
@@ -173,6 +215,79 @@ class GitWriteStrategy:
                 self._git_root_checked = True
         return self._git_root
 
+    def _get_origin_url(self, git_root: Path) -> str | None:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(git_root), "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            return None
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() or None
+
+    def _ensure_managed_repo(self, repo_path: Path) -> None:
+        if self._repo_url is None:
+            raise ConfigurationError("Managed git mode requires a repo_url.")
+
+        if self._token and _is_ssh_remote(self._repo_url):
+            raise ConfigurationError(
+                f"Managed mode repo URL {self._repo_url!r} uses SSH transport, but "
+                "GIT_TOKEN auth requires HTTPS."
+            )
+
+        path = Path(repo_path)
+        if path.exists():
+            if not path.is_dir():
+                raise ConfigurationError(
+                    f"Managed mode requires SOURCE_DIR to be a directory: {path}"
+                )
+            is_empty = not any(path.iterdir())
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            is_empty = True
+
+        if is_empty:
+            env = self._git_env()
+            try:
+                subprocess.run(
+                    ["git", "clone", self._repo_url, str(path)],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=env,
+                )
+            except FileNotFoundError as exc:
+                raise ConfigurationError("git is not installed or not on PATH.") from exc
+            except subprocess.CalledProcessError as exc:
+                raise ConfigurationError(
+                    f"Failed to clone managed git repo {self._repo_url!r} into {path}: "
+                    f"{(exc.stderr or '').strip()}"
+                ) from exc
+            finally:
+                self._cleanup_git_env(env)
+
+        git_root = _find_git_root(path)
+        if git_root is None:
+            raise ConfigurationError(
+                f"Managed mode requires SOURCE_DIR to be empty or a git repository: {path}"
+            )
+        origin_url = self._get_origin_url(git_root)
+        if origin_url is None:
+            raise ConfigurationError(
+                f"Managed mode requires an 'origin' remote in repository {git_root}."
+            )
+        if _normalize_remote(origin_url) != _normalize_remote(self._repo_url):
+            raise ConfigurationError(
+                "Managed mode remote mismatch: existing origin is "
+                f"{origin_url!r}, expected {self._repo_url!r}."
+            )
+        self._git_root = git_root
+        self._git_root_checked = True
+        self._check_remote_protocol(git_root)
+
     def _check_remote_protocol(self, git_root: Path) -> None:
         """Raise ConfigurationError if origin uses SSH while token auth is enabled."""
         if not self._token:
@@ -190,7 +305,7 @@ class GitWriteStrategy:
             return
 
         url = result.stdout.strip()
-        if not (url.startswith("git@") or url.startswith("ssh://")):
+        if not _is_ssh_remote(url):
             return
 
         if url.startswith("ssh://git@"):
@@ -222,15 +337,17 @@ class GitWriteStrategy:
                 return
             self._check_remote_protocol(self._git_root)
             self._check_identity()
-            self._push_if_unpushed()
+            if self._enable_push:
+                self._push_if_unpushed()
             # LFS pull runs under the git lock to avoid overlapping git ops.
             # Forward auth credentials so token-protected LFS backends
             # authenticate with the same GIT_ASKPASS mechanism used for push.
-            env = self._git_env()
-            try:
-                self._lfs_pull(env=env)
-            finally:
-                self._cleanup_git_env(env)
+            if self._enable_pull or self._enable_push:
+                env = self._git_env()
+                try:
+                    self._lfs_pull(env=env)
+                finally:
+                    self._cleanup_git_env(env)
             self._write_init_done = True
 
     def __call__(
@@ -264,7 +381,8 @@ class GitWriteStrategy:
                     commit_name=self._commit_name,
                     commit_email=self._commit_email,
                 )
-            self._schedule_push()
+            if self._enable_push:
+                self._schedule_push()
         except subprocess.CalledProcessError as exc:
             sanitized_stderr = exc.stderr or ""
             if self._token and self._token in sanitized_stderr:
@@ -322,12 +440,12 @@ class GitWriteStrategy:
         or on the next startup via ``_push_if_unpushed()``.
         """
         with self._lock:
-            if not self._push_pending or self._git_root is None:
+            if not self._enable_push or not self._push_pending or self._git_root is None:
                 return
             self._push_pending = False
 
         with self._lock:
-            _push(self._git_root, self._token)
+            _push(self._git_root, self._token, self._username)
             logger.info("Git: pushed to remote")
 
     def _check_identity(self) -> None:
@@ -358,7 +476,7 @@ class GitWriteStrategy:
 
     def _push_if_unpushed(self) -> None:
         """On startup, push any local commits ahead of the remote."""
-        if self._git_root is None:
+        if self._git_root is None or not self._enable_push:
             return
 
         try:
@@ -386,7 +504,7 @@ class GitWriteStrategy:
         if result.stdout.strip():
             logger.info("Git: found unpushed commits on startup, pushing now")
             try:
-                _push(self._git_root, self._token)
+                _push(self._git_root, self._token, self._username)
             except subprocess.CalledProcessError as exc:
                 sanitized_stderr = exc.stderr or ""
                 if self._token and self._token in sanitized_stderr:
@@ -434,7 +552,7 @@ class GitWriteStrategy:
 
     def sync_once(self, repo_path: Path) -> bool:
         """Fetch + ff-only update once, returning True if HEAD advanced."""
-        if self._closed:
+        if self._closed or not self._enable_pull:
             return False
 
         git_root = self._ensure_git_root(repo_path)
@@ -534,7 +652,7 @@ class GitWriteStrategy:
         on_pull: Callable[[], None] | None = None,
     ) -> None:
         """Start a periodic fetch + ff-only update loop in a daemon thread."""
-        if self._closed or pull_interval_s <= 0:
+        if self._closed or not self._enable_pull or pull_interval_s <= 0:
             return
 
         git_root = self._ensure_git_root(repo_path)
@@ -774,7 +892,7 @@ def _stage_and_commit(
     logger.info("Git: committed %s (%s)", rel_path, operation)
 
 
-def _push(git_root: Path, token: str | None) -> None:
+def _push(git_root: Path, token: str | None, username: str = "x-access-token") -> None:
     """Push to the default remote, using GIT_ASKPASS for token auth.
 
     When a token is supplied a temporary helper script is written to a
@@ -788,6 +906,7 @@ def _push(git_root: Path, token: str | None) -> None:
         git_root: Git repository root.
         token: Optional PAT for HTTPS push.  If ``None``, relies on SSH
             keys or pre-configured git credentials.
+        username: Username used for HTTPS auth prompts when *token* is set.
     """
     root = str(git_root)
 
@@ -802,18 +921,10 @@ def _push(git_root: Path, token: str | None) -> None:
         )
         return
 
-    fd, script_path_str = tempfile.mkstemp(suffix=".sh", prefix="git_askpass_")
+    env = _build_askpass_env(token, username)
+    script_path_str = env["GIT_ASKPASS"]
     script_path = Path(script_path_str)
     try:
-        with os.fdopen(fd, "w") as f:
-            f.write(f"#!/bin/sh\necho {shlex.quote(token)}\n")
-        script_path.chmod(stat.S_IRWXU)  # 0o700 — owner-only rwx
-
-        env = {
-            **os.environ,
-            "GIT_ASKPASS": script_path_str,
-            "GIT_TERMINAL_PROMPT": "0",
-        }
         subprocess.run(
             ["git", "-C", root, "push", "origin"],
             capture_output=True,

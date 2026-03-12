@@ -146,18 +146,26 @@ All configuration is via environment variables with the `MARKDOWN_VAULT_MCP_` pr
 
 ### Git integration
 
-Git integration supports:
+Git integration has three modes:
 
-- **Periodic pull** (ff-only): keeps the server's working tree up to date with the remote. Works in read-only mode.
-- **Auto-commit + push on write**: commits each MCP write and pushes after an idle delay. Requires `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
-- When `MARKDOWN_VAULT_MCP_GIT_TOKEN` is set, `origin` must use an HTTPS remote URL.
-  SSH remotes (for example `git@github.com:owner/repo.git`) are rejected at startup.
-  Fix with: `git -C /path/to/vault remote set-url origin https://github.com/owner/repo.git`
+- **Managed mode** (`MARKDOWN_VAULT_MCP_GIT_REPO_URL` set): server owns repo setup.
+  On startup it clones into `SOURCE_DIR` when empty, or validates existing `origin`.
+  Pull loop + auto-commit + deferred push are enabled.
+- **Unmanaged / commit-only mode** (no `GIT_REPO_URL`): writes are committed to a local git repo if `SOURCE_DIR` is already a git checkout. No pull, no push.
+- **No-git mode**: if `SOURCE_DIR` is not a git repo, git callbacks are no-ops.
+
+When token auth is used (`MARKDOWN_VAULT_MCP_GIT_TOKEN`), remotes must be HTTPS.
+SSH remotes (for example `git@github.com:owner/repo.git`) are rejected with a startup error.
+Fix with: `git -C /path/to/vault remote set-url origin https://github.com/owner/repo.git`
+
+Backward compatibility: `MARKDOWN_VAULT_MCP_GIT_TOKEN` without `GIT_REPO_URL` still works (legacy mode) but logs a deprecation warning.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `MARKDOWN_VAULT_MCP_GIT_REPO_URL` | — | HTTPS remote URL for managed mode; enables clone/remote validation on startup |
+| `MARKDOWN_VAULT_MCP_GIT_USERNAME` | `x-access-token` | Username for HTTPS auth prompts (`x-access-token` for GitHub, `oauth2` for GitLab, account name for Bitbucket) |
+| `MARKDOWN_VAULT_MCP_GIT_TOKEN` | — | Token/password for HTTPS auth (`GIT_ASKPASS`) |
 | `MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S` | `600` | Seconds between `git fetch` + ff-only update attempts; `0` disables periodic pull |
-| `MARKDOWN_VAULT_MCP_GIT_TOKEN` | — | GitHub/GitLab PAT; when set, every write triggers a git commit and deferred push via `GIT_ASKPASS` |
 | `MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S` | `30` | Seconds of write-idle time before pushing; `0` = push only on shutdown |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME` | `markdown-vault-mcp` | Git committer name for auto-commits; **set this in Docker** where `git config user.name` is empty |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL` | `noreply@markdown-vault-mcp` | Git committer email for auto-commits |

@@ -105,6 +105,8 @@ class CollectionConfig:
     required_frontmatter: list[str] | None = None
     exclude_patterns: list[str] | None = None
     git_token: str | None = None
+    git_repo_url: str | None = None
+    git_username: str = "x-access-token"
     git_push_delay_s: float = 30.0
     git_commit_name: str = "markdown-vault-mcp"
     git_commit_email: str = "noreply@markdown-vault-mcp"
@@ -116,7 +118,7 @@ class CollectionConfig:
     def to_collection_kwargs(self) -> dict[str, Any]:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
 
-        When ``git_token`` is set, creates a
+        Creates a
         :class:`~markdown_vault_mcp.git.GitWriteStrategy` and includes
         it as the ``on_write`` parameter.
 
@@ -140,27 +142,64 @@ class CollectionConfig:
             "exclude_patterns": self.exclude_patterns,
             "attachment_extensions": self.attachment_extensions,
             "max_attachment_size_mb": self.max_attachment_size_mb,
-            "git_pull_interval_s": self.git_pull_interval_s,
+            "git_pull_interval_s": 0,
         }
-        git_strategy = None
-        if self.git_token is not None or self.git_pull_interval_s > 0:
-            # Periodic pull defaults to enabled, so we create the strategy even
-            # without a token. It will no-op gracefully when git is unavailable.
-            from markdown_vault_mcp.git import GitWriteStrategy
+        from markdown_vault_mcp.git import GitWriteStrategy
 
+        if self.git_repo_url is not None:
             git_strategy = GitWriteStrategy(
                 token=self.git_token,
+                username=self.git_username,
+                repo_url=self.git_repo_url,
+                managed=True,
+                enable_pull=True,
+                enable_push=True,
                 push_delay_s=self.git_push_delay_s,
                 commit_name=self.git_commit_name,
                 commit_email=self.git_commit_email,
                 git_lfs=self.git_lfs,
                 repo_path=self.source_dir,
             )
+            kwargs["git_pull_interval_s"] = self.git_pull_interval_s
             kwargs["git_strategy"] = git_strategy
-
-        # Preserve existing semantics: auto-commit/push on write is gated on GIT_TOKEN.
-        if self.git_token is not None and git_strategy is not None:
             kwargs["on_write"] = git_strategy
+            return kwargs
+
+        # Backward compatibility mode: token without explicit repo URL keeps
+        # pull+push semantics, using the existing local checkout's origin.
+        if self.git_token is not None:
+            git_strategy = GitWriteStrategy(
+                token=self.git_token,
+                username=self.git_username,
+                managed=False,
+                enable_pull=True,
+                enable_push=True,
+                push_delay_s=self.git_push_delay_s,
+                commit_name=self.git_commit_name,
+                commit_email=self.git_commit_email,
+                git_lfs=self.git_lfs,
+                repo_path=self.source_dir,
+            )
+            kwargs["git_pull_interval_s"] = self.git_pull_interval_s
+            kwargs["git_strategy"] = git_strategy
+            kwargs["on_write"] = git_strategy
+            return kwargs
+
+        # Unmanaged / commit-only mode: commit locally if repo exists, never pull/push.
+        git_strategy = GitWriteStrategy(
+            token=None,
+            username=self.git_username,
+            managed=False,
+            enable_pull=False,
+            enable_push=False,
+            push_delay_s=self.git_push_delay_s,
+            commit_name=self.git_commit_name,
+            commit_email=self.git_commit_email,
+            git_lfs=self.git_lfs,
+            repo_path=self.source_dir,
+        )
+        kwargs["git_strategy"] = git_strategy
+        kwargs["on_write"] = git_strategy
         return kwargs
 
 
@@ -184,6 +223,10 @@ def load_config() -> CollectionConfig:
       exclude; default none.
     - ``MARKDOWN_VAULT_MCP_GIT_TOKEN``: token for git write strategy; default
       disabled.
+    - ``MARKDOWN_VAULT_MCP_GIT_REPO_URL``: HTTPS remote URL for managed git mode;
+      when set, startup may clone into ``SOURCE_DIR``.
+    - ``MARKDOWN_VAULT_MCP_GIT_USERNAME``: username for token auth in managed
+      mode; default ``x-access-token``.
     - ``MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S``: seconds of idle before pushing
       (default ``30``).  Set to ``0`` to push only on shutdown.
     - ``MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME``: git committer name for
@@ -263,6 +306,21 @@ def load_config() -> CollectionConfig:
     raw_git_token = (_env("GIT_TOKEN") or "").strip()
     git_token: str | None = raw_git_token or None
     logger.debug("load_config: git_token=%s", "set" if git_token else "not set")
+
+    raw_git_repo_url = (_env("GIT_REPO_URL") or "").strip()
+    git_repo_url: str | None = raw_git_repo_url or None
+    logger.debug("load_config: git_repo_url=%s", git_repo_url or "not set")
+
+    raw_git_username = (_env("GIT_USERNAME") or "").strip()
+    git_username: str = raw_git_username or "x-access-token"
+    logger.debug("load_config: git_username=%s", git_username)
+
+    if git_token and not git_repo_url:
+        logger.warning(
+            "load_config: MARKDOWN_VAULT_MCP_GIT_TOKEN is set without "
+            "MARKDOWN_VAULT_MCP_GIT_REPO_URL. This legacy mode is deprecated; "
+            "set GIT_REPO_URL to enable explicit managed mode."
+        )
 
     raw_commit_name = (_env("GIT_COMMIT_NAME") or "").strip()
     git_commit_name: str = raw_commit_name or "markdown-vault-mcp"
@@ -351,6 +409,8 @@ def load_config() -> CollectionConfig:
         required_frontmatter=required_frontmatter,
         exclude_patterns=exclude_patterns,
         git_token=git_token,
+        git_repo_url=git_repo_url,
+        git_username=git_username,
         git_push_delay_s=git_push_delay_s,
         git_commit_name=git_commit_name,
         git_commit_email=git_commit_email,

@@ -44,6 +44,8 @@ class TestLoadConfig:
             "MARKDOWN_VAULT_MCP_INDEXED_FIELDS",
             "MARKDOWN_VAULT_MCP_REQUIRED_FIELDS",
             "MARKDOWN_VAULT_MCP_EXCLUDE",
+            "MARKDOWN_VAULT_MCP_GIT_REPO_URL",
+            "MARKDOWN_VAULT_MCP_GIT_USERNAME",
             "MARKDOWN_VAULT_MCP_GIT_TOKEN",
             "MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S",
         ):
@@ -59,6 +61,8 @@ class TestLoadConfig:
         assert config.indexed_frontmatter_fields is None
         assert config.required_frontmatter is None
         assert config.exclude_patterns is None
+        assert config.git_repo_url is None
+        assert config.git_username == "x-access-token"
         assert config.git_token is None
         assert config.git_pull_interval_s == 600
 
@@ -71,6 +75,10 @@ class TestLoadConfig:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_INDEXED_FIELDS", "cluster, topics")
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_REQUIRED_FIELDS", "title,cluster")
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_EXCLUDE", ".obsidian/**, .trash/**")
+        monkeypatch.setenv(
+            "MARKDOWN_VAULT_MCP_GIT_REPO_URL", "https://github.com/acme/vault.git"
+        )
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_USERNAME", "oauth2")
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_TOKEN", "ghp_test123")
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S", "300")
 
@@ -84,8 +92,25 @@ class TestLoadConfig:
         assert config.indexed_frontmatter_fields == ["cluster", "topics"]
         assert config.required_frontmatter == ["title", "cluster"]
         assert config.exclude_patterns == [".obsidian/**", ".trash/**"]
+        assert config.git_repo_url == "https://github.com/acme/vault.git"
+        assert config.git_username == "oauth2"
         assert config.git_token == "ghp_test123"
         assert config.git_pull_interval_s == 300
+
+    def test_git_username_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_GIT_USERNAME", raising=False)
+        config = load_config()
+        assert config.git_username == "x-access-token"
+
+    def test_token_without_repo_url_logs_deprecation(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_TOKEN", "ghp_legacy")
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_GIT_REPO_URL", raising=False)
+        _ = load_config()
+        assert "legacy mode is deprecated" in caplog.text
 
     def test_invalid_pull_interval_uses_default(
         self, monkeypatch: pytest.MonkeyPatch
@@ -160,9 +185,32 @@ class TestToCollectionKwargs:
         assert kwargs["exclude_patterns"] == [".obsidian/**"]
         assert kwargs["attachment_extensions"] is None
         assert kwargs["max_attachment_size_mb"] == 10.0
-        assert kwargs["git_pull_interval_s"] == 600
+        assert kwargs["git_pull_interval_s"] == 0
         assert "git_strategy" in kwargs
-        assert "on_write" not in kwargs
+        assert "on_write" in kwargs
+
+    def test_managed_mode_wires_pull_and_on_write(self, tmp_path: Path) -> None:
+        import subprocess
+
+        bare = tmp_path / "remote.git"
+        subprocess.run(
+            ["git", "init", "--bare", str(bare)],
+            check=True,
+            capture_output=True,
+        )
+        source_dir = tmp_path / "vault"
+        source_dir.mkdir()
+
+        config = CollectionConfig(
+            source_dir=source_dir,
+            git_repo_url=str(bare),
+            git_token="ghp_secret",
+            git_pull_interval_s=123,
+        )
+        kwargs = config.to_collection_kwargs()
+        assert kwargs["git_pull_interval_s"] == 123
+        assert "git_strategy" in kwargs
+        assert "on_write" in kwargs
 
 
 class TestGitCommitterConfig:

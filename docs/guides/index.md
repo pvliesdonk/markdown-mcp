@@ -6,6 +6,7 @@ Step-by-step walkthroughs for common deployment scenarios. Each guide takes you 
 
 | I want to... | Guide |
 |---|---|
+| Understand git modes (managed, commit-only, no-git) | [Git Integration](git-integration.md) |
 | Connect my Obsidian vault to Claude Desktop | [Claude Desktop](claude-desktop.md) |
 | Enable write/edit operations with git auto-commit | [Claude Desktop](claude-desktop.md#step-2-enable-git-write-support) |
 | Add semantic search to my vault | [Claude Desktop](claude-desktop.md#step-3-add-semantic-search) |

@@ -538,6 +538,32 @@ class TestGitWriteStrategyClass:
                     f"Token found in command argument: {cmd!r}"
                 )
 
+    def test_git_env_askpass_uses_configured_username(self) -> None:
+        """Askpass helper returns username for username prompts."""
+        import subprocess
+
+        strategy = GitWriteStrategy(token="topsecret", username="oauth2")
+        env = strategy._git_env()
+        assert env is not None
+        script = env["GIT_ASKPASS"]
+        try:
+            username = subprocess.run(
+                [script, "Username for 'https://example.com':"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            password = subprocess.run(
+                [script, "Password for 'https://example.com':"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            assert username == "oauth2"
+            assert password == "topsecret"
+        finally:
+            strategy._cleanup_git_env(env)
+
     def test_startup_recovery_pushes_unpushed(
         self, git_repo_with_remote: tuple[Path, Path]
     ) -> None:
@@ -586,11 +612,8 @@ class TestGitWriteStrategyClass:
 
 
 class TestConfigIntegration:
-    def test_git_token_wires_up_strategy(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """to_collection_kwargs() includes on_write when git_token is set."""
+    def test_git_token_wires_up_strategy(self, tmp_path: Path) -> None:
+        """Legacy mode: token-only config still wires pull+push strategy."""
         from markdown_vault_mcp.config import CollectionConfig
 
         config = CollectionConfig(
@@ -601,9 +624,10 @@ class TestConfigIntegration:
         kwargs = config.to_collection_kwargs()
         assert "on_write" in kwargs
         assert isinstance(kwargs["on_write"], GitWriteStrategy)
+        assert kwargs["git_pull_interval_s"] == 600
 
-    def test_no_git_token_no_callback(self, tmp_path: Path) -> None:
-        """to_collection_kwargs() omits on_write when git_token is None."""
+    def test_no_git_token_uses_local_only_mode(self, tmp_path: Path) -> None:
+        """No token and no repo URL uses local-only mode with no pull loop."""
         from markdown_vault_mcp.config import CollectionConfig
 
         config = CollectionConfig(
@@ -611,7 +635,32 @@ class TestConfigIntegration:
             read_only=False,
         )
         kwargs = config.to_collection_kwargs()
-        assert "on_write" not in kwargs
+        assert "on_write" in kwargs
+        assert kwargs["git_pull_interval_s"] == 0
+
+    def test_git_repo_url_enables_managed_mode(self, tmp_path: Path) -> None:
+        """Managed mode uses configured pull interval and write callback."""
+        import subprocess
+
+        from markdown_vault_mcp.config import CollectionConfig
+
+        bare = tmp_path / "remote.git"
+        subprocess.run(
+            ["git", "init", "--bare", str(bare)],
+            check=True,
+            capture_output=True,
+        )
+
+        config = CollectionConfig(
+            source_dir=tmp_path / "vault",
+            read_only=False,
+            git_repo_url=str(bare),
+            git_token="ghp_test",
+            git_pull_interval_s=321,
+        )
+        kwargs = config.to_collection_kwargs()
+        assert "on_write" in kwargs
+        assert kwargs["git_pull_interval_s"] == 321
 
     def test_push_delay_passed_to_strategy(self, tmp_path: Path) -> None:
         """to_collection_kwargs() passes git_push_delay_s to strategy."""
@@ -1513,6 +1562,103 @@ class TestGitPullLoop:
         assert strategy._pull_thread.is_alive()
 
         strategy.stop()
+
+
+class TestManagedGitMode:
+    def test_managed_mode_clones_into_empty_source_dir(
+        self, tmp_path: Path, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """Managed mode clones when SOURCE_DIR exists but is empty."""
+        _work, bare = git_repo_with_remote
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        strategy = GitWriteStrategy(
+            repo_url=str(bare),
+            managed=True,
+            repo_path=vault,
+            push_delay_s=0,
+        )
+
+        assert (vault / "README.md").exists()
+        assert strategy._git_root == vault
+
+    def test_managed_mode_remote_mismatch_raises(
+        self, tmp_path: Path, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """Managed mode rejects existing repos with a different origin URL."""
+        import subprocess
+
+        work, _bare = git_repo_with_remote
+        other_bare = tmp_path / "other.git"
+        subprocess.run(
+            ["git", "init", "--bare", str(other_bare)],
+            check=True,
+            capture_output=True,
+        )
+
+        from markdown_vault_mcp.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="remote mismatch"):
+            GitWriteStrategy(
+                repo_url=str(other_bare),
+                managed=True,
+                repo_path=work,
+                push_delay_s=0,
+            )
+
+    def test_managed_mode_non_git_non_empty_dir_raises(self, tmp_path: Path) -> None:
+        """Managed mode requires SOURCE_DIR to be empty or an existing git repo."""
+        from markdown_vault_mcp.exceptions import ConfigurationError
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "notes.md").write_text("# Notes\n")
+
+        with pytest.raises(
+            ConfigurationError, match="empty or a git repository"
+        ):
+            GitWriteStrategy(
+                repo_url="https://github.com/acme/vault.git",
+                managed=True,
+                repo_path=vault,
+            )
+
+    def test_local_only_mode_commits_without_push(
+        self, git_repo_with_remote: tuple[Path, Path]
+    ) -> None:
+        """Local-only mode commits writes and never pushes to origin."""
+        import subprocess
+
+        work, bare = git_repo_with_remote
+
+        strategy = GitWriteStrategy(
+            managed=False,
+            enable_pull=False,
+            enable_push=False,
+            repo_path=work,
+            push_delay_s=0,
+        )
+        md_file = work / "local_only.md"
+        md_file.write_text("# Local\n")
+        strategy(md_file, "# Local\n", "write")
+        strategy.flush()
+
+        local_log = subprocess.run(
+            ["git", "-C", str(work), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        remote_log = subprocess.run(
+            ["git", "-C", str(bare), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "write: local_only.md" in local_log.stdout
+        assert "write: local_only.md" not in remote_log.stdout
 
 
 class TestCheckRemoteProtocol:

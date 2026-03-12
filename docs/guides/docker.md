@@ -69,7 +69,7 @@ You should see log output indicating the index was built successfully (e.g., num
 
 ## Step 2: Add git write support
 
-**Goal:** Enable write operations that auto-commit and push to a git remote.
+**Goal:** Enable managed git mode so writes auto-commit and push to a git remote.
 
 **Prerequisites:** Step 1 complete. Your vault must be a git repository with an HTTPS remote.
 
@@ -82,10 +82,12 @@ You should see log output indicating the index was built successfully (e.g., num
 
 ### Update the env file
 
-```bash hl_lines="3-7"
+```bash hl_lines="3-9"
 # .env
 MARKDOWN_VAULT_MCP_SOURCE_DIR=/home/user/ObsidianVault
 MARKDOWN_VAULT_MCP_READ_ONLY=false
+MARKDOWN_VAULT_MCP_GIT_REPO_URL=https://github.com/your-org/your-vault.git
+MARKDOWN_VAULT_MCP_GIT_USERNAME=x-access-token
 MARKDOWN_VAULT_MCP_GIT_TOKEN=github_pat_your_token_here
 MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S=30
 MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME=markdown-vault-mcp
@@ -97,7 +99,8 @@ MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**
 **What these do:**
 
 - `READ_ONLY=false` — enables write, edit, delete, rename tools
-- `GIT_TOKEN` — enables auto-commit and push via HTTPS
+- `GIT_REPO_URL` — enables managed mode (clone/remote validation)
+- `GIT_USERNAME` / `GIT_TOKEN` — HTTPS auth for pull/push
 - `GIT_PUSH_DELAY_S=30` — push after 30 seconds of write-idle time
 - `GIT_COMMIT_NAME` / `GIT_COMMIT_EMAIL` — required in Docker where `git config user.name` is unset
 

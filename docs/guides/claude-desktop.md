@@ -83,7 +83,7 @@ Claude should use the `search` tool and return matching documents from your vaul
 
 ## Step 2: Enable git write support
 
-**Goal:** Allow Claude to create, edit, delete, and rename notes — with every change auto-committed and pushed to a git remote.
+**Goal:** Allow Claude to create, edit, delete, and rename notes in managed git mode — with every change auto-committed and pushed.
 
 **Prerequisites:** Step 1 complete. Your vault directory must be a git repository with an HTTPS remote configured.
 
@@ -98,7 +98,7 @@ Claude should use the `search` tool and return matching documents from your vaul
 
 Add the highlighted lines to your existing config:
 
-```json hl_lines="8-10"
+```json hl_lines="8-12"
 {
   "mcpServers": {
     "my-vault": {
@@ -107,6 +107,8 @@ Add the highlighted lines to your existing config:
       "env": {
         "MARKDOWN_VAULT_MCP_SOURCE_DIR": "/path/to/your/ObsidianVault",
         "MARKDOWN_VAULT_MCP_READ_ONLY": "false",
+        "MARKDOWN_VAULT_MCP_GIT_REPO_URL": "https://github.com/your-org/your-vault.git",
+        "MARKDOWN_VAULT_MCP_GIT_USERNAME": "x-access-token",
         "MARKDOWN_VAULT_MCP_GIT_TOKEN": "github_pat_your_token_here",
         "MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S": "60",
         "MARKDOWN_VAULT_MCP_SERVER_NAME": "my-vault",
@@ -121,7 +123,8 @@ Add the highlighted lines to your existing config:
 **What these do:**
 
 - `READ_ONLY=false` — enables the write, edit, delete, and rename tools
-- `GIT_TOKEN` — enables auto-commit and push on every write operation
+- `GIT_REPO_URL` — enables managed mode (clone/remote validation)
+- `GIT_USERNAME` / `GIT_TOKEN` — HTTPS auth for pull/push
 - `GIT_PUSH_DELAY_S=60` — batches rapid writes, pushing after 60 seconds of idle time
 
 !!! warning "Token security"
