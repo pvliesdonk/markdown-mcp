@@ -37,9 +37,8 @@ dependencies = [
 [project.optional-dependencies]
 mcp = ["fastmcp>=3.0,<4"]
 embeddings-api = ["httpx>=0.25", "numpy>=1.20"]
-embeddings = ["sentence-transformers>=2.0", "numpy>=1.20"]
-all = ["fastmcp>=3.0,<4", "httpx>=0.25", "numpy>=1.20"]
-all-local = ["fastmcp>=3.0,<4", "httpx>=0.25", "numpy>=1.20", "sentence-transformers>=2.0"]
+embeddings = ["fastembed>=0.3", "numpy>=1.20"]
+all = ["fastmcp>=3.0,<4", "httpx>=0.25", "fastembed>=0.3", "numpy>=1.20"]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",

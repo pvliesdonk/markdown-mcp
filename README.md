@@ -11,7 +11,7 @@ Point it at a directory of Markdown files (an Obsidian vault, a docs folder, a Z
 ## Features
 
 - **Full-text search** — SQLite FTS5 with BM25 scoring, porter stemming
-- **Semantic search** — cosine similarity over embedding vectors (Ollama, OpenAI, or Sentence Transformers)
+- **Semantic search** — cosine similarity over embedding vectors (FastEmbed, Ollama, or OpenAI)
 - **Hybrid search** — Reciprocal Rank Fusion combining FTS5 and vector results
 - **Frontmatter-aware** — indexes YAML frontmatter fields, supports required field enforcement
 - **Incremental reindexing** — hash-based change detection, only re-processes modified files
@@ -36,11 +36,9 @@ With optional dependencies:
 ```bash
 pip install markdown-vault-mcp[mcp]            # FastMCP server
 pip install markdown-vault-mcp[embeddings-api]  # Ollama/OpenAI embeddings via HTTP
-pip install markdown-vault-mcp[all]             # MCP + API embeddings (lightweight, no PyTorch)
-pip install markdown-vault-mcp[all-local]       # + sentence-transformers + PyTorch (large)
+pip install markdown-vault-mcp[embeddings]      # FastEmbed local embeddings
+pip install markdown-vault-mcp[all]             # MCP + FastEmbed + API embeddings
 ```
-
-> **`[all]` vs `[all-local]`:** The `[all]` extra is lightweight and does **not** include `sentence-transformers` or PyTorch. Use `[all-local]` if you want local CPU/GPU embeddings without Ollama. The Docker image uses `[all]`.
 
 ### From source
 
@@ -56,7 +54,7 @@ pip install -e ".[all,dev]"
 docker pull ghcr.io/pvliesdonk/markdown-vault-mcp:latest
 ```
 
-The Docker image uses `[all]` (MCP + API embeddings). It does **not** include `sentence-transformers` or PyTorch — use Ollama or OpenAI for embeddings. For local sentence-transformers, build from source with `[all-local]`.
+The Docker image uses `[all]` (MCP + FastEmbed + API embeddings). By default, semantic search works locally with FastEmbed and can switch to Ollama/OpenAI when configured.
 
 ## Quick Start
 
@@ -139,11 +137,13 @@ All configuration is via environment variables with the `MARKDOWN_VAULT_MCP_` pr
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EMBEDDING_PROVIDER` | auto-detect | Embedding provider: `ollama`, `openai`, or `sentence-transformers` (**not** `MARKDOWN_VAULT_MCP_`-prefixed) |
+| `EMBEDDING_PROVIDER` | auto-detect | Embedding provider: `openai`, `ollama`, or `fastembed` (**not** `MARKDOWN_VAULT_MCP_`-prefixed) |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL (**not** `MARKDOWN_VAULT_MCP_`-prefixed) |
 | `OPENAI_API_KEY` | — | OpenAI API key for the OpenAI embedding provider (**not** `MARKDOWN_VAULT_MCP_`-prefixed) |
 | `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | `nomic-embed-text` | Ollama embedding model name |
 | `MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY` | `false` | Force Ollama to use CPU only |
+| `MARKDOWN_VAULT_MCP_FASTEMBED_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | FastEmbed model name |
+| `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` | FastEmbed default | FastEmbed model cache directory (set to a Docker volume for persistence) |
 
 ### Git integration
 

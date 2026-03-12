@@ -462,7 +462,7 @@ class TestBuildCollectionEmbeddingFailure:
         with (
             patch(
                 "markdown_vault_mcp.providers.get_embedding_provider",
-                side_effect=RuntimeError("no sentence-transformers"),
+                side_effect=RuntimeError("no embedding provider"),
             ),
             caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.cli"),
         ):

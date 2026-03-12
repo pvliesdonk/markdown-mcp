@@ -1,6 +1,6 @@
 # Embedding Providers
 
-The `providers` module defines an abstract base class for embedding providers and three concrete implementations for Ollama, OpenAI, and Sentence Transformers.
+The `providers` module defines an abstract base class for embedding providers and three concrete implementations for OpenAI, Ollama, and FastEmbed.
 
 ## Quick Start
 
@@ -19,11 +19,11 @@ print(f"Dimension: {provider.dimension}")
 
 The `get_embedding_provider()` function auto-detects the best available provider:
 
-1. **Ollama** — if `OLLAMA_HOST` is reachable
-2. **OpenAI** — if `OPENAI_API_KEY` is set
-3. **Sentence Transformers** — if the package is installed
+1. **OpenAI** — if `OPENAI_API_KEY` is set
+2. **Ollama** — if `OLLAMA_HOST` is reachable
+3. **FastEmbed** — if the package is installed
 
-Override with `EMBEDDING_PROVIDER=ollama|openai|sentence-transformers`.
+Override with `EMBEDDING_PROVIDER=openai|ollama|fastembed`.
 
 ## API Reference
 
@@ -37,6 +37,6 @@ Override with `EMBEDDING_PROVIDER=ollama|openai|sentence-transformers`.
 
 ::: markdown_vault_mcp.providers.OpenAIProvider
 
-::: markdown_vault_mcp.providers.SentenceTransformersProvider
+::: markdown_vault_mcp.providers.FastEmbedProvider
 
 ::: markdown_vault_mcp.providers.get_embedding_provider

@@ -111,10 +111,12 @@ services:
       - ${MARKDOWN_VAULT_MCP_SOURCE_DIR:?Set MARKDOWN_VAULT_MCP_SOURCE_DIR}:/data/vault
       - index-data:/data/index
       - embeddings-data:/data/embeddings
+      - fastembed-data:/data/fastembed
     environment:
       MARKDOWN_VAULT_MCP_SOURCE_DIR: /data/vault
       MARKDOWN_VAULT_MCP_INDEX_PATH: /data/index/index.db
       MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/embeddings/embeddings
+      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/fastembed
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
@@ -127,6 +129,7 @@ services:
 volumes:
   index-data:
   embeddings-data:
+  fastembed-data:
 
 networks:
   traefik:
