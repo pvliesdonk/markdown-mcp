@@ -403,10 +403,11 @@ def load_config() -> CollectionConfig:
     logger.debug("load_config: max_attachment_size_mb=%s", max_attachment_size_mb)
 
     raw_templates_folder = (_env("TEMPLATES_FOLDER") or "").strip()
-    if raw_templates_folder:
-        templates_folder = raw_templates_folder.replace("\\", "/").strip("/")
-        templates_folder = templates_folder or "_templates"
-    else:
+    templates_folder = (
+        raw_templates_folder.replace("\\", "/") if raw_templates_folder else "_templates"
+    )
+    templates_folder = templates_folder.strip().strip("/")
+    if not templates_folder:
         templates_folder = "_templates"
     logger.debug("load_config: templates_folder=%s", templates_folder)
 
