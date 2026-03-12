@@ -114,6 +114,7 @@ class CollectionConfig:
     git_pull_interval_s: int = 600
     attachment_extensions: list[str] | None = None
     max_attachment_size_mb: float = 10.0
+    templates_folder: str = "_templates"
 
     def to_collection_kwargs(self) -> dict[str, Any]:
         """Return keyword arguments suitable for ``Collection(**kwargs)``.
@@ -242,6 +243,8 @@ def load_config() -> CollectionConfig:
       ``*`` to allow all non-.md files; default: common document and image types.
     - ``MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB``: maximum attachment size in
       megabytes for read and write; ``0`` disables the limit; default ``10.0``.
+    - ``MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER``: relative folder path where
+      template markdown files are stored; default ``_templates``.
 
     The ``EMBEDDING_PROVIDER`` variable is intentionally **not** resolved here;
     call :func:`~markdown_vault_mcp.providers.get_embedding_provider`
@@ -399,6 +402,15 @@ def load_config() -> CollectionConfig:
         max_attachment_size_mb = 10.0
     logger.debug("load_config: max_attachment_size_mb=%s", max_attachment_size_mb)
 
+    raw_templates_folder = (_env("TEMPLATES_FOLDER") or "").strip()
+    templates_folder = (
+        raw_templates_folder.replace("\\", "/") if raw_templates_folder else "_templates"
+    )
+    templates_folder = templates_folder.strip().strip("/")
+    if not templates_folder:
+        templates_folder = "_templates"
+    logger.debug("load_config: templates_folder=%s", templates_folder)
+
     return CollectionConfig(
         source_dir=source_dir,
         read_only=read_only,
@@ -418,4 +430,5 @@ def load_config() -> CollectionConfig:
         git_pull_interval_s=git_pull_interval_s,
         attachment_extensions=attachment_extensions,
         max_attachment_size_mb=max_attachment_size_mb,
+        templates_folder=templates_folder,
     )

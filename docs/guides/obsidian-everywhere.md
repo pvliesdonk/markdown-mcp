@@ -138,4 +138,4 @@ Verification checklist:
 
 - Add semantic search for better recall: [Embeddings](embeddings.md)
 - Tune git modes and policies: [Git Integration](git-integration.md)
-- Add note templates to standardize AI-generated notes (tracked in #102)
+- Add note templates to standardize AI-generated notes via the `create_from_template` prompt (see [MCP Prompts](../prompts.md#create_from_template))
