@@ -298,8 +298,12 @@ def create_server() -> FastMCP:
     """
     raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY")
     is_read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
-    templates_folder = (os.environ.get(f"{_ENV_PREFIX}_TEMPLATES_FOLDER") or "").strip()
-    templates_folder = templates_folder or "_templates"
+    raw_templates_folder = (os.environ.get(f"{_ENV_PREFIX}_TEMPLATES_FOLDER") or "").strip()
+    if raw_templates_folder:
+        templates_folder = raw_templates_folder.strip("/")
+        templates_folder = templates_folder or "_templates"
+    else:
+        templates_folder = "_templates"
 
     server_name = os.environ.get(f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp")
     default_instructions = _build_default_instructions(read_only=is_read_only)

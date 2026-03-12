@@ -1221,6 +1221,18 @@ class TestPrompts:
         assert "discover -> read -> fill -> write" in text
 
     @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_create_from_template_prompt_normalizes_templates_folder(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER", "Templates/")
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt("create_from_template", {})
+        text = result.messages[0].content.text
+        assert "Templates/" not in text
+        assert "`Templates`" in text
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
     async def test_create_from_template_prompt_registration_schema(self) -> None:
         server = create_server()
         async with Client(server) as client:
