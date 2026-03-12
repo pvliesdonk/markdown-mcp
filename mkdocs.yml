@@ -54,6 +54,7 @@ plugins:
           - configuration.md: All environment variables with types and defaults
         Guides:
           - guides/index.md: Guide overview — which guide to read
+          - guides/git-integration.md: Git modes — managed, unmanaged (commit-only), and no-git
           - guides/claude-desktop.md: Claude Desktop setup (read-only, git write, semantic search)
           - guides/docker.md: Docker deployment (basic, git write, OIDC)
           - guides/embeddings.md: Embedding providers (Ollama, sentence-transformers, OpenAI)
@@ -110,6 +111,7 @@ nav:
       - Configuration: configuration.md
   - Guides:
       - Overview: guides/index.md
+      - Git Integration: guides/git-integration.md
       - Claude Desktop: guides/claude-desktop.md
       - Docker: guides/docker.md
       - Embeddings: guides/embeddings.md

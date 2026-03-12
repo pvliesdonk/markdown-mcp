@@ -235,15 +235,26 @@ the public network entirely.
 
 ## Git-Backed Write Support
 
-When `MARKDOWN_VAULT_MCP_GIT_TOKEN` is set, every write operation
-(`write`, `edit`, `delete`, `rename`) automatically stages the change, commits
-it, and pushes to the configured remote. This keeps a remote git repository in
-sync without any external cron job.
+Git integration has three modes:
+
+- **Managed** (`GIT_REPO_URL` + `GIT_TOKEN`): clone/pull/commit/push
+- **Unmanaged / commit-only** (no `GIT_REPO_URL`, existing git repo): commit only
+- **No-git**: plain directory, no git operations
 
 **Setup:**
 
-1. The vault directory must be a git repository with a configured remote.
-2. Mount the vault so the `.git` directory is accessible inside the container —
+1. For managed mode, set:
+
+   ```bash
+   MARKDOWN_VAULT_MCP_GIT_REPO_URL=https://github.com/your-org/your-vault.git
+   MARKDOWN_VAULT_MCP_GIT_USERNAME=x-access-token
+   MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_your_personal_access_token
+   ```
+
+2. For unmanaged/commit-only mode, omit `GIT_REPO_URL` and `GIT_TOKEN`.
+   If `SOURCE_DIR` is a git repo, writes are committed locally.
+
+3. Mount the vault so the `.git` directory is accessible inside the container —
    the default bind mount covers this:
 
    ```yaml
@@ -251,13 +262,7 @@ sync without any external cron job.
      - /path/to/your/vault:/data/vault
    ```
 
-3. Set the token in `.env`:
-
-   ```bash
-   MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_your_personal_access_token
-   ```
-
-The token needs `repo` scope (or `contents: write` for fine-grained tokens) on
+For managed mode, the token needs `repo` scope (or `contents: write` for fine-grained tokens) on
 the target repository.
 
 **Example read-write env file** (`examples/obsidian-readwrite.env`):
@@ -266,6 +271,8 @@ the target repository.
 MARKDOWN_VAULT_MCP_SOURCE_DIR=/data/vault
 MARKDOWN_VAULT_MCP_READ_ONLY=false
 MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**,_templates/**
+MARKDOWN_VAULT_MCP_GIT_REPO_URL=https://github.com/your-org/your-vault.git
+MARKDOWN_VAULT_MCP_GIT_USERNAME=x-access-token
 MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_your_token_here
 EMBEDDING_PROVIDER=ollama
 OLLAMA_HOST=http://host.docker.internal:11434  # use host.docker.internal inside Docker
@@ -276,9 +283,9 @@ MARKDOWN_VAULT_MCP_OLLAMA_MODEL=nomic-embed-text
 `extra_hosts: ["host.docker.internal:host-gateway"]` to the service in
 `compose.yml` for `host.docker.internal` to resolve.
 
-**If you prefer not to use auto-push:** omit `MARKDOWN_VAULT_MCP_GIT_TOKEN`.
-Writes still persist to disk; run `git add + commit + push` from a cron job or
-git hook as usual.
+**If you prefer commit-only mode:** omit `MARKDOWN_VAULT_MCP_GIT_REPO_URL`.
+Writes are still committed locally (when `SOURCE_DIR` is a git repo); run
+`git pull`/`git push` from cron/hooks or another process.
 
 ## Troubleshooting
 
@@ -334,7 +341,8 @@ Git errors are logged at ERROR level. Common causes:
 - Token lacks `repo` scope — regenerate with the right permissions.
 - Remote URL is SSH-based — the PAT strategy only works with HTTPS remotes.
   Convert: `git remote set-url origin https://github.com/user/repo.git`
-- The vault directory is not a git repo — run `git init && git remote add origin ...` on the host first.
+- In unmanaged/commit-only mode, the vault directory is not a git repo —
+  run `git init` on the host first.
 
 **Index feels stale after adding files outside the server**
 

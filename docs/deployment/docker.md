@@ -105,28 +105,37 @@ See the [Traefik ACME documentation](https://doc.traefik.io/traefik/https/acme/)
 
 ## Git-Backed Write Support
 
-When `MARKDOWN_VAULT_MCP_GIT_TOKEN` is set, every write operation automatically stages, commits, and pushes to the configured remote.
+Git integration supports three modes:
+
+- **Managed** (`GIT_REPO_URL` + `GIT_TOKEN`): clone/pull/commit/push
+- **Unmanaged / commit-only** (no `GIT_REPO_URL`, existing git repo): commit only
+- **No-git**: no git operations
 
 ### Setup
 
-1. The vault directory must be a git repository with a configured remote
-2. Mount the vault so the `.git` directory is accessible:
+1. For managed mode, set a remote URL and credentials:
+
+    ```bash
+    MARKDOWN_VAULT_MCP_GIT_REPO_URL=https://github.com/your-org/your-vault.git
+    MARKDOWN_VAULT_MCP_GIT_USERNAME=x-access-token
+    MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_your_personal_access_token
+    ```
+
+2. For unmanaged/commit-only mode, omit `GIT_REPO_URL` and `GIT_TOKEN`.
+   If the vault path is a git repo, writes are committed locally only.
+
+3. The vault mount must include `.git` when using managed or unmanaged mode:
 
     ```yaml
     volumes:
       - /path/to/your/vault:/data/vault
     ```
 
-3. Set the token in `.env`:
-
-    ```bash
-    MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_your_personal_access_token
-    ```
-
-The token needs `repo` scope (or `contents: write` for fine-grained tokens).
+For managed mode, the token needs `repo` scope (or `contents: write` for fine-grained tokens).
 
 !!! tip "Without auto-push"
-    Omit `MARKDOWN_VAULT_MCP_GIT_TOKEN`. Writes persist to disk; run `git add + commit + push` from a cron job or git hook.
+    Use unmanaged/commit-only mode: omit `MARKDOWN_VAULT_MCP_GIT_REPO_URL`.
+    Writes are committed locally; run `git pull`/`git push` externally.
 
 ## UID/GID Configuration
 
@@ -170,7 +179,7 @@ Common causes:
 
 - Token lacks `repo` scope — regenerate with the right permissions
 - Remote URL is SSH-based — the PAT strategy only works with HTTPS remotes. Convert: `git remote set-url origin https://github.com/user/repo.git`
-- The vault directory is not a git repo — run `git init && git remote add origin ...` on the host first
+- In unmanaged/commit-only mode, the vault directory is not a git repo — run `git init` on the host first
 
 ### Stale index after adding files outside the server
 

@@ -865,7 +865,10 @@ For MCP server deployment:
 | `MARKDOWN_VAULT_MCP_INDEXED_FIELDS` | Comma-separated frontmatter fields to index | none |
 | `MARKDOWN_VAULT_MCP_REQUIRED_FIELDS` | Comma-separated required frontmatter fields | none |
 | `MARKDOWN_VAULT_MCP_EXCLUDE` | Comma-separated glob patterns to exclude | none |
-| `MARKDOWN_VAULT_MCP_GIT_TOKEN` | PAT for git push on write | disabled |
+| `MARKDOWN_VAULT_MCP_GIT_REPO_URL` | HTTPS URL for managed git mode (clone + remote validation) | disabled |
+| `MARKDOWN_VAULT_MCP_GIT_USERNAME` | Username for HTTPS token auth prompts | `x-access-token` |
+| `MARKDOWN_VAULT_MCP_GIT_TOKEN` | Token/password for HTTPS git auth | disabled |
+| `MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S` | Seconds between ff-only pull ticks | `600` |
 | `MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S` | Seconds of idle before git push (0 = push on shutdown only) | `30` |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME` | Committer name for auto-commits | `markdown-vault-mcp` |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL` | Committer email for auto-commits | `noreply@markdown-vault-mcp` |
@@ -908,6 +911,8 @@ MARKDOWN_VAULT_MCP_INDEXED_FIELDS=cluster,topics
 MARKDOWN_VAULT_MCP_SOURCE_DIR=/data/vault
 MARKDOWN_VAULT_MCP_READ_ONLY=false
 MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**,_templates/**
+MARKDOWN_VAULT_MCP_GIT_REPO_URL=https://github.com/acme/vault.git
+MARKDOWN_VAULT_MCP_GIT_USERNAME=x-access-token
 MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_xxx
 ```
 
@@ -1019,17 +1024,23 @@ ifcraftcorpus).
 
 ### Write + Git Integration
 
-Three strategies supported via the `on_write` callback:
+Three git modes:
 
-1. **No push (default)**: write to disk only. External process (cron, hook)
-   handles `git add + commit + push`.
-2. **Git strategy with deferred push**: `GitWriteStrategy` commits per-write
-   and defers push to a background timer (`MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S`,
-   default 30s). After the idle period elapses with no writes, all accumulated
-   local commits are pushed in a single `git push`. On shutdown,
-   `Collection.close()` flushes any pending push.
-3. **Git strategy with push on shutdown**: set `GIT_PUSH_DELAY_S=0` — commits
-   per-write, push only on `Collection.close()` (MCP lifespan teardown).
+1. **Managed mode** (`GIT_REPO_URL` set): server owns git lifecycle.
+   Startup clones into `SOURCE_DIR` if empty, or verifies existing `origin`
+   matches the configured repo URL. Pull loop + commit + deferred push enabled.
+2. **Unmanaged / commit-only mode** (no `GIT_REPO_URL`): server commits local writes if
+   `SOURCE_DIR` is already a git repo, but never pulls or pushes.
+3. **No-git mode**: when `SOURCE_DIR` is not a git repo, git callbacks no-op.
+
+Backward compatibility: `GIT_TOKEN` without `GIT_REPO_URL` keeps previous
+pull+push behavior against the existing checkout but logs a deprecation warning.
+
+In managed/legacy push-enabled modes, `GitWriteStrategy` commits per-write and
+defers push to a background timer (`MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S`,
+default 30s). After the idle period elapses with no writes, all accumulated
+local commits are pushed in a single `git push`. On shutdown,
+`Collection.close()` flushes any pending push.
 
 Startup recovery: `GitWriteStrategy` checks for unpushed local commits
 (`git log @{upstream}..HEAD`) on first invocation and pushes them before
@@ -1041,8 +1052,16 @@ local commits are pushed in a single `git push`. `flush()` cancels the timer
 and pushes synchronously. `close()` calls `flush()` and marks the strategy as
 closed (subsequent writes are ignored).
 
-For private repos (like `pvliesdonk/obsidian.md`), the git strategy needs
-credentials. Options: SSH key mount or PAT via `MARKDOWN_VAULT_MCP_GIT_TOKEN`.
+For private repos, HTTPS token auth uses:
+
+- `MARKDOWN_VAULT_MCP_GIT_USERNAME` (default `x-access-token`)
+- `MARKDOWN_VAULT_MCP_GIT_TOKEN`
+
+Provider-specific usernames:
+
+- GitHub: `x-access-token`
+- GitLab: `oauth2`
+- Bitbucket: account username
 
 **Git credential security**: when a token is supplied, `GitWriteStrategy` uses
 a `GIT_ASKPASS` temporary script rather than embedding the token in any
@@ -1061,8 +1080,8 @@ or any non-zero exit) are logged at ERROR and never propagated to the caller.
 Set `MARKDOWN_VAULT_MCP_GIT_LFS=false` for repos that do not use LFS, or when
 `git-lfs` is not available on PATH.
 
-**Periodic pull (ff-only)**: when `MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S > 0`
-(default `600`), the server:
+**Periodic pull (ff-only)**: in push-enabled managed/legacy modes, when
+`MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S > 0` (default `600`), the server:
 
 - Runs one `git fetch` + ff-only update **before** the initial `build_index()`
   so the index scans the freshest working tree.

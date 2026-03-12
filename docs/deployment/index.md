@@ -39,6 +39,6 @@ markdown-vault-mcp serve --transport http --host 0.0.0.0 --port 8000
 | File | Description |
 |------|-------------|
 | `examples/obsidian-readonly.env` | Obsidian vault, read-only, Ollama embeddings |
-| `examples/obsidian-readwrite.env` | Obsidian vault, read-write with git auto-commit |
+| `examples/obsidian-readwrite.env` | Obsidian vault, read-write with managed git mode (clone/pull/commit/push) |
 | `examples/obsidian-oidc.env` | Obsidian vault, read-only, OIDC authentication |
 | `examples/ifcraftcorpus.env` | Strict frontmatter enforcement, read-only corpus |

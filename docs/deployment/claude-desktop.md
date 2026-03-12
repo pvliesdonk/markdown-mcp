@@ -75,7 +75,7 @@ Restart the application to pick up the new configuration. You should see the mar
 }
 ```
 
-### Read-write with git integration
+### Read-write with managed git mode
 
 ```json
 {
@@ -87,6 +87,8 @@ Restart the application to pick up the new configuration. You should see the mar
         "MARKDOWN_VAULT_MCP_SOURCE_DIR": "/Users/me/Documents/ObsidianVault",
         "MARKDOWN_VAULT_MCP_READ_ONLY": "false",
         "MARKDOWN_VAULT_MCP_INDEX_PATH": "/Users/me/.local/share/markdown-vault-mcp/index.db",
+        "MARKDOWN_VAULT_MCP_GIT_REPO_URL": "https://github.com/your-org/your-vault.git",
+        "MARKDOWN_VAULT_MCP_GIT_USERNAME": "x-access-token",
         "MARKDOWN_VAULT_MCP_GIT_TOKEN": "ghp_your_token_here",
         "MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S": "60"
       }
@@ -94,6 +96,26 @@ Restart the application to pick up the new configuration. You should see the mar
   }
 }
 ```
+
+### Read-write with unmanaged / commit-only mode
+
+```json
+{
+  "mcpServers": {
+    "my-vault": {
+      "command": "markdown-vault-mcp",
+      "args": ["serve"],
+      "env": {
+        "MARKDOWN_VAULT_MCP_SOURCE_DIR": "/Users/me/Documents/ObsidianVault",
+        "MARKDOWN_VAULT_MCP_READ_ONLY": "false",
+        "MARKDOWN_VAULT_MCP_INDEX_PATH": "/Users/me/.local/share/markdown-vault-mcp/index.db"
+      }
+    }
+  }
+}
+```
+
+In unmanaged mode, writes are committed only if `SOURCE_DIR` is already a git repository. Pull/push are handled externally.
 
 ### Multiple vaults
 

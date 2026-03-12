@@ -41,15 +41,20 @@ All configuration is via environment variables. Most use the `MARKDOWN_VAULT_MCP
 
 ## Git Integration
 
-Git integration supports:
+Git integration has three modes:
 
-- **Periodic pull** (ff-only): keeps the server's working tree up to date with the remote. Works in read-only mode.
-- **Auto-commit + push on write**: commits each MCP write and pushes after an idle delay. Requires `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
+- **Managed** (`GIT_REPO_URL` + `GIT_TOKEN`): server manages clone, pull, commit, and push.
+- **Unmanaged / commit-only** (no `GIT_REPO_URL`, repo already exists): server commits writes locally only; you manage pull/push externally.
+- **No-git** (default): plain directory; no git operations.
+
+Backward compatibility: `GIT_TOKEN` without `GIT_REPO_URL` still works (legacy behavior) and logs a deprecation warning.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
+| `MARKDOWN_VAULT_MCP_GIT_REPO_URL` | string | — | HTTPS repo URL for managed mode. On startup, empty `SOURCE_DIR` is cloned from this URL |
+| `MARKDOWN_VAULT_MCP_GIT_USERNAME` | string | `x-access-token` | Username for HTTPS auth prompts (`x-access-token` GitHub, `oauth2` GitLab, account name Bitbucket) |
+| `MARKDOWN_VAULT_MCP_GIT_TOKEN` | string | — | Token/password for HTTPS auth via `GIT_ASKPASS` |
 | `MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S` | int | `600` | Seconds between `git fetch` + ff-only update attempts; `0` disables periodic pull |
-| `MARKDOWN_VAULT_MCP_GIT_TOKEN` | string | — | GitHub/GitLab PAT; when set, every write triggers a git commit and deferred push via `GIT_ASKPASS` |
 | `MARKDOWN_VAULT_MCP_GIT_PUSH_DELAY_S` | float | `30` | Seconds of write-idle time before pushing; `0` = push only on shutdown |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME` | string | `markdown-vault-mcp` | Git committer name for auto-commits; **set this in Docker** where `git config user.name` is empty |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL` | string | `noreply@markdown-vault-mcp` | Git committer email for auto-commits |
@@ -57,6 +62,9 @@ Git integration supports:
 
 !!! tip "Push delay"
     The push delay batches rapid writes into a single push. Set to `0` to disable automatic pushing — the server will push only on shutdown via `close()`.
+
+!!! warning "HTTPS remotes only with token auth"
+    When `GIT_TOKEN` is used, SSH remotes are rejected. Use an HTTPS URL for `origin` or `GIT_REPO_URL`.
 
 ## Attachments
 
