@@ -56,10 +56,10 @@ openssl rand -base64 32
 Hash the secret for Authelia:
 
 ```bash
-authelia crypto hash generate pbkdf2 --password 'your-client-secret'
+authelia crypto hash generate pbkdf2
 ```
 
-Set the hashed value in `configuration.yml` as `client_secret`. Keep the plain-text secret for `MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET`.
+Enter the secret at the prompt. Set the hashed value in `configuration.yml` as `client_secret`. Keep the plain-text secret for `MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET`.
 
 ### 3. Generate JWT signing key
 
@@ -132,7 +132,7 @@ MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/realms/vault/.well-k
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-keycloak-client-secret
 MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-64-char-hex-key
-MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES=openid,email
+MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES=openid,profile,email
 ```
 
 Generate the JWT signing key:
@@ -241,6 +241,8 @@ Use Keycloak as the OIDC broker and GitHub as a social login provider:
 3. Login at Keycloak and choose GitHub as the upstream identity provider
 
 This keeps Keycloak as the OIDC provider for markdown-vault-mcp while delegating user auth to GitHub.
+
+Other compatible brokers also work, including [Authelia](https://www.authelia.com/) and [Authentik](https://goauthentik.io/). Keycloak is shown here because the setup flow is already documented in this guide.
 
 ### Verify
 

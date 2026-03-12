@@ -129,7 +129,7 @@ Verification checklist:
 ## Limitations & troubleshooting
 
 - Fast-forward-only policy: server pulls avoid automatic merges; divergent history requires manual intervention.
-- Safety branch behavior: conflicting local writes are preserved on `GIT_SAFETY_BRANCH` for recovery.
+- Safety branch behavior (planned): recovery via `GIT_SAFETY_BRANCH` is part of the sync-mode roadmap and tracked in #119.
 - Squash/cherry-pick detection limitation: rewritten commit history may not map cleanly for duplicate detection.
 - Git LFS: large binary attachments may need explicit LFS setup on every client and server.
 - iOS: no equivalent GitSync workflow is documented here for private repositories.
