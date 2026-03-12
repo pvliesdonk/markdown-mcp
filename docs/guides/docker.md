@@ -158,7 +158,8 @@ identity_providers:
       - client_id: markdown-vault-mcp
         client_secret: '$pbkdf2-sha512$...'   # authelia crypto hash generate
         redirect_uris:
-          - https://mcp.example.com/vault/auth/callback
+          - https://mcp.example.com/auth/callback
+          - https://mcp.example.com/vault/auth/callback   # optional when mounted under /vault
         grant_types: [authorization_code]
         response_types: [code]
         pkce_challenge_method: S256
@@ -184,11 +185,10 @@ Save the output — you'll need it in the next step.
 
 ### Update the env file
 
-```bash hl_lines="3-10"
+```bash hl_lines="3-9"
 # .env
 MARKDOWN_VAULT_MCP_SOURCE_DIR=/home/user/ObsidianVault
-MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
-MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com
 MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/.well-known/openid-configuration
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
@@ -197,6 +197,13 @@ MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES=openid,profile,email
 MARKDOWN_VAULT_MCP_READ_ONLY=true
 MARKDOWN_VAULT_MCP_SERVER_NAME=my-vault
 MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**
+```
+
+For subpath deployments (example `https://mcp.example.com/vault/mcp`), also set:
+
+```bash
+MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
 ```
 
 !!! danger "JWT signing key is required on Linux/Docker"
@@ -211,7 +218,7 @@ services:
   markdown-vault-mcp:
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`) && PathPrefix(`/vault/mcp`)"
+      - "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`)"
       - "traefik.http.routers.markdown-vault-mcp.tls.certresolver=letsencrypt"
       - "traefik.http.services.markdown-vault-mcp.loadbalancer.server.port=8000"
     networks:
@@ -222,19 +229,31 @@ networks:
     external: true
 ```
 
+For subpath deployments, use:
+
+```yaml
+- "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`) && PathPrefix(`/vault/mcp`)"
+```
+
 ### Restart and verify
 
 ```bash
 docker compose up -d
 ```
 
-Test the OIDC flow:
+Test the OIDC flow (default non-subpath):
 
-1. Navigate to `https://mcp.example.com/vault` in a browser
+1. Navigate to `https://mcp.example.com` in a browser
 2. You should be redirected to your Authelia login page
 3. After authentication, you should be redirected back with a valid session
 
 Callback URI for this setup:
+
+```text
+https://mcp.example.com/auth/callback
+```
+
+Subpath callback example:
 
 ```text
 https://mcp.example.com/vault/auth/callback
