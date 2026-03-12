@@ -17,7 +17,7 @@ Point it at a directory of Markdown files — an Obsidian vault, a docs folder, 
 - **OIDC authentication** — optional token-based auth for HTTP deployments
 - **13 MCP tools** — search, read, write, edit, delete, rename, and admin operations
 - **6 MCP resources** — vault configuration, statistics, tags, folders, and document outlines
-- **5 MCP prompts** — summarize, research, discuss, compare, and find related notes
+- **6 MCP prompts** — summarize, research, discuss, create from template, compare, and find related notes
 
 ## Quick Start
 

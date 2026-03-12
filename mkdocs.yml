@@ -46,7 +46,7 @@ plugins:
         markdown-vault-mcp is a generic markdown collection MCP server with
         FTS5 full-text search, semantic search via embeddings, frontmatter-aware
         indexing, and incremental reindexing. It exposes 13 tools, 6 resources,
-        and 5 prompts over the Model Context Protocol.
+        and 6 prompts over the Model Context Protocol.
       sections:
         Getting Started:
           - index.md: Overview — features, quick start, and project links
@@ -63,7 +63,7 @@ plugins:
         MCP Interface:
           - tools/index.md: All 13 MCP tools with parameters and examples
           - resources.md: All 6 MCP resources with URI patterns
-          - prompts.md: All 5 MCP prompts with workflow descriptions
+          - prompts.md: All 6 MCP prompts with workflow descriptions
         Deployment:
           - deployment/index.md: Deployment overview
           - deployment/docker.md: Docker Compose, Traefik, volumes, UID/GID

@@ -1,6 +1,6 @@
 # MCP Prompts
 
-Prompt templates guide the LLM through multi-step workflows using the vault tools. Write prompts (`research`, `discuss`) are only available when `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
+Prompt templates guide the LLM through multi-step workflows using the vault tools. Write prompts (`research`, `discuss`, `create_from_template`) are only available when `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
 
 ## Quick Reference
 
@@ -9,6 +9,7 @@ Prompt templates guide the LLM through multi-step workflows using the vault tool
 | [`summarize`](#summarize) | `path` | Read | Structured summary of a document |
 | [`research`](#research) | `topic` | Write | Search, synthesize, and create a research note |
 | [`discuss`](#discuss) | `path` | Write | Analyze and suggest improvements using `edit` |
+| [`create_from_template`](#create_from_template) | `template_name` (optional) | Write | Create a new note from a template in your templates folder |
 | [`related`](#related) | `path` | Read | Find related notes and suggest cross-references |
 | [`compare`](#compare) | `path1`, `path2` | Read | Side-by-side comparison of two documents |
 
@@ -64,6 +65,30 @@ Analyze a document and suggest improvements, applying changes via `edit` (not `w
 
 !!! note "Write prompt"
     This prompt modifies existing documents and is only available when `READ_ONLY=false`.
+
+## `create_from_template`
+
+Create a new note by adapting a template from your configured templates folder.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `template_name` | string \| null | Optional template filename/path relative to `MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER` |
+
+**Workflow:**
+
+1. If `template_name` is not provided, calls `list_documents(folder=<templates folder>)`
+2. Calls `read` on the selected template path
+3. Presents template structure and asks the user for values
+4. Proposes/collects target path for the new note
+5. Calls `write` with the filled content
+
+!!! note "Template convention"
+    Templates are regular markdown files. Set `MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER` (default `_templates`) to control where template files live.
+
+!!! note "Write prompt"
+    This prompt creates a new document and is only available when `READ_ONLY=false`.
 
 ## `related`
 
