@@ -32,3 +32,7 @@ class ConcurrentModificationError(MarkdownMCPError):
             f"Concurrent modification on {path}: "
             f"expected etag {expected!r}, actual {actual!r}"
         )
+
+
+class ConfigurationError(MarkdownMCPError):
+    """Invalid or unsupported configuration at startup."""

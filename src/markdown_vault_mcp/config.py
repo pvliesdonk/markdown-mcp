@@ -154,6 +154,7 @@ class CollectionConfig:
                 commit_name=self.git_commit_name,
                 commit_email=self.git_commit_email,
                 git_lfs=self.git_lfs,
+                repo_path=self.source_dir,
             )
             kwargs["git_strategy"] = git_strategy
 

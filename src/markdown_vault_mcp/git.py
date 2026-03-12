@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from markdown_vault_mcp.exceptions import ConfigurationError
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,6 +82,10 @@ class GitWriteStrategy:
             lazy initialisation so LFS pointers are resolved before the
             first write is committed.  Requires ``git-lfs`` to be on
             ``PATH``; failures are logged at ERROR and never propagated.
+        repo_path: Optional repository path used for startup validation.
+            When set together with ``token``, startup raises
+            :class:`~markdown_vault_mcp.exceptions.ConfigurationError`
+            if ``origin`` uses SSH transport instead of HTTPS.
 
     Example::
 
@@ -101,6 +107,7 @@ class GitWriteStrategy:
         commit_name: str | None = None,
         commit_email: str | None = None,
         git_lfs: bool = True,
+        repo_path: Path | None = None,
     ) -> None:
         self._token = token
         self._push_delay_s = push_delay_s
@@ -122,6 +129,8 @@ class GitWriteStrategy:
             Callable[[], contextlib.AbstractContextManager[None]] | None
         ) = None
         self._on_pull: Callable[[], None] | None = None
+        if repo_path is not None:
+            self.validate_startup(repo_path)
 
     def _git_env(self) -> dict[str, str] | None:
         """Build environment for git subprocess calls.
@@ -164,6 +173,46 @@ class GitWriteStrategy:
                 self._git_root_checked = True
         return self._git_root
 
+    def _check_remote_protocol(self, git_root: Path) -> None:
+        """Raise ConfigurationError if origin uses SSH while token auth is enabled."""
+        if not self._token:
+            return
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(git_root), "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            return
+        if result.returncode != 0:
+            # No remote configured; ignore here.
+            return
+
+        url = result.stdout.strip()
+        if not (url.startswith("git@") or url.startswith("ssh://")):
+            return
+
+        if url.startswith("ssh://git@"):
+            https_url = "https://" + url[len("ssh://git@") :]
+        elif url.startswith("ssh://"):
+            https_url = "https://" + url[len("ssh://") :]
+        else:
+            without_prefix = url[len("git@") :]
+            https_url = "https://" + without_prefix.replace(":", "/", 1)
+
+        raise ConfigurationError(
+            f"Remote URL {url!r} uses SSH transport, but GIT_TOKEN requires HTTPS.\n"
+            f"Run: git -C {git_root} remote set-url origin {https_url}"
+        )
+
+    def validate_startup(self, repo_path: Path) -> None:
+        """Validate startup git settings for token-authenticated workflows."""
+        git_root = self._ensure_git_root(repo_path)
+        if git_root is None:
+            return
+        self._check_remote_protocol(git_root)
+
     def _ensure_write_init(self) -> None:
         """One-time initialisation for the write path (identity/push/LFS)."""
         if self._write_init_done or self._git_root is None:
@@ -171,6 +220,7 @@ class GitWriteStrategy:
         with self._lock:
             if self._write_init_done or self._git_root is None:
                 return
+            self._check_remote_protocol(self._git_root)
             self._check_identity()
             self._push_if_unpushed()
             # LFS pull runs under the git lock to avoid overlapping git ops.
