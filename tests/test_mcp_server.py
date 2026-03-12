@@ -44,6 +44,7 @@ _CLEAR_VARS = (
     "MARKDOWN_VAULT_MCP_REQUIRED_FIELDS",
     "MARKDOWN_VAULT_MCP_EXCLUDE",
     "MARKDOWN_VAULT_MCP_GIT_TOKEN",
+    "MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER",
     "MARKDOWN_VAULT_MCP_SERVER_NAME",
     "MARKDOWN_VAULT_MCP_INSTRUCTIONS",
     # OIDC vars — ensure non-OIDC tests run unauthenticated
@@ -294,6 +295,19 @@ class TestReadTool:
         assert data["title"] == "Full Frontmatter Note"
         assert data["frontmatter"]["cluster"] == "fiction"
 
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_read_template_file(self, vault_path: Path) -> None:
+        template_path = vault_path / "_templates" / "meeting.md"
+        template_path.parent.mkdir(parents=True, exist_ok=True)
+        template_path.write_text("# Meeting Template\n\n- Date:\n- Attendees:\n")
+
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("read", {"path": "_templates/meeting.md"})
+        data = result.data
+        assert data["path"] == "_templates/meeting.md"
+        assert "Meeting Template" in data["content"]
+
 
 class TestListDocumentsTool:
     """Test the list_documents MCP tool."""
@@ -321,6 +335,19 @@ class TestListDocumentsTool:
             assert doc["folder"] == "subfolder" or doc["folder"].startswith(
                 "subfolder/"
             )
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_list_templates_folder(self, vault_path: Path) -> None:
+        template_path = vault_path / "_templates" / "daily.md"
+        template_path.parent.mkdir(parents=True, exist_ok=True)
+        template_path.write_text("# Daily Template\n\n## Highlights\n\n- \n")
+
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("list_documents", {"folder": "_templates"})
+        data = _parse_tool_data(result)
+        paths = {doc["path"] for doc in data}
+        assert "_templates/daily.md" in paths
 
 
 class TestListFoldersTool:
@@ -1044,6 +1071,7 @@ class TestResources:
         assert isinstance(data["indexed_fields"], list)
         assert isinstance(data["required_fields"], list)
         assert isinstance(data["exclude_patterns"], list)
+        assert isinstance(data["templates_folder"], str)
         assert isinstance(data["semantic_search_available"], bool)
         assert isinstance(data["attachment_extensions"], list)
 
@@ -1169,6 +1197,44 @@ class TestPrompts:
         assert "no_frontmatter.md" in text
         assert "`read`" in text
 
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_create_from_template_prompt_with_name(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt(
+                "create_from_template", {"template_name": "meeting.md"}
+            )
+        text = result.messages[0].content.text
+        assert "create_from_template" not in text  # prompt body, not function name
+        assert "_templates" in text
+        assert "meeting.md" in text
+        assert "`read`" in text
+        assert "`write`" in text
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_create_from_template_prompt_discovery_mode(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt("create_from_template", {})
+        text = result.messages[0].content.text
+        assert "list_documents" in text
+        assert "discover -> read -> fill -> write" in text
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_create_from_template_prompt_registration_schema(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            prompts = await client.list_prompts()
+
+        prompt = next((p for p in prompts if p.name == "create_from_template"), None)
+        assert prompt is not None
+        assert prompt.meta is not None
+        assert prompt.meta.get("fastmcp", {}).get("tags") == ["write"]
+
+        arg = next((a for a in prompt.arguments if a.name == "template_name"), None)
+        assert arg is not None
+        assert arg.required is False
+
 
 # ---------------------------------------------------------------------------
 # Prompt visibility
@@ -1186,6 +1252,7 @@ class TestPromptVisibility:
         names = {p.name for p in prompts}
         assert "research" not in names
         assert "discuss" not in names
+        assert "create_from_template" not in names
 
     @pytest.mark.usefixtures("_mcp_env_writable")
     async def test_write_prompts_visible_when_writable(self) -> None:
@@ -1196,6 +1263,7 @@ class TestPromptVisibility:
         assert "summarize" in names
         assert "research" in names
         assert "discuss" in names
+        assert "create_from_template" in names
         assert "related" in names
         assert "compare" in names
 

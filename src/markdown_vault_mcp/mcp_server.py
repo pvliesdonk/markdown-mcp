@@ -19,6 +19,7 @@ import os
 import re
 import sys
 from dataclasses import asdict
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastmcp import FastMCP
@@ -297,6 +298,8 @@ def create_server() -> FastMCP:
     """
     raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY")
     is_read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
+    templates_folder = (os.environ.get(f"{_ENV_PREFIX}_TEMPLATES_FOLDER") or "").strip()
+    templates_folder = templates_folder or "_templates"
 
     server_name = os.environ.get(f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp")
     default_instructions = _build_default_instructions(read_only=is_read_only)
@@ -839,6 +842,7 @@ def create_server() -> FastMCP:
                 "indexed_fields": config.indexed_frontmatter_fields or [],
                 "required_fields": config.required_frontmatter or [],
                 "exclude_patterns": config.exclude_patterns or [],
+                "templates_folder": config.templates_folder,
                 "semantic_search_available": stats.semantic_search_available,
                 "attachment_extensions": stats.attachment_extensions,
             }
@@ -937,6 +941,42 @@ def create_server() -> FastMCP:
             "Do not use `write` — it overwrites the entire file including "
             "frontmatter.\n"
             "If `read` fails, report the error and stop."
+        )
+
+    @mcp.prompt(tags={"write"})
+    def create_from_template(template_name: str | None = None) -> str:
+        """Create a new note by adapting a template from the templates folder."""
+        template_hint = "None" if template_name is None else repr(template_name)
+        template_name_clean = (template_name or "").strip()
+        template_path = (
+            str(PurePosixPath(templates_folder) / template_name_clean)
+            if template_name_clean
+            else ""
+        )
+        return (
+            "## Role\n"
+            "You are a note assistant that creates new notes from vault templates.\n\n"
+            "## Context\n"
+            f"- Templates folder: `{templates_folder}`\n"
+            f"- Requested template_name: {template_hint}\n"
+            "- Templates are normal markdown files. Do not use server-side variable substitution.\n\n"
+            "## Task\n"
+            "Guide the user through this workflow: discover template -> read template -> gather values -> write the new note.\n\n"
+            "## Format\n"
+            "Follow these exact steps in order:\n"
+            "1. If `template_name` is missing, call `list_documents(folder=<templates folder>)`, "
+            "show available templates, and ask the user to pick one.\n"
+            "2. Resolve template path and call `read(path=<template path>)`.\n"
+            f"   If a name is already provided, start with `read(path='{template_path or '<templates_folder>/<template_name>'}')`.\n"
+            "3. Present the template structure and ask the user for missing values.\n"
+            "4. Propose a target note path. Prefer frontmatter convention if present; otherwise ask the user.\n"
+            "5. Call `write(path=..., content=..., frontmatter=...)` with the filled note.\n\n"
+            "## Constraints\n"
+            "- Use only vault tools (`list_documents`, `read`, `write`) for this flow.\n"
+            "- Never overwrite an existing file without explicit user confirmation.\n"
+            "- If the selected template does not exist, return a clear error and ask for another template.\n"
+            "- Keep paths relative to the vault root.\n"
+            "- Repeat: discover -> read -> fill -> write.\n"
         )
 
     @mcp.prompt

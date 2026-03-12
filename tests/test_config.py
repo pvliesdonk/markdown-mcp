@@ -65,6 +65,7 @@ class TestLoadConfig:
         assert config.git_username == "x-access-token"
         assert config.git_token is None
         assert config.git_pull_interval_s == 600
+        assert config.templates_folder == "_templates"
 
     def test_full_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/data/vault")
@@ -81,6 +82,7 @@ class TestLoadConfig:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_USERNAME", "oauth2")
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_TOKEN", "ghp_test123")
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_GIT_PULL_INTERVAL_S", "300")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER", "Templates")
 
         config = load_config()
 
@@ -96,6 +98,7 @@ class TestLoadConfig:
         assert config.git_username == "oauth2"
         assert config.git_token == "ghp_test123"
         assert config.git_pull_interval_s == 300
+        assert config.templates_folder == "Templates"
 
     def test_git_username_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", "/tmp/vault")

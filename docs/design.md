@@ -793,7 +793,7 @@ method is unchanged.
 registered but tagged with ``tags={"write"}``. When ``read_only=True``, the
 server calls ``mcp.disable(tags={"write"})`` to hide them from clients.
 This also hides any prompts sharing the ``write`` tag (e.g. ``research``,
-``discuss``). The Collection still raises ``ReadOnlyError`` as a defence-in-depth
+``discuss``, ``create_from_template``). The Collection still raises ``ReadOnlyError`` as a defence-in-depth
 guard if a write method is somehow called on a read-only instance.
 
 **Dynamic instructions**: the server's MCP `instructions` string varies with
@@ -831,13 +831,14 @@ template functions with no collection dependency.
 Resources return JSON (``mime_type="application/json"``). The ToC resource
 queries the existing ``sections`` table — no file I/O.
 
-**Prompts**: 5 built-in prompt templates:
+**Prompts**: 6 built-in prompt templates:
 
 | Prompt | Parameters | Tags | Description |
 |--------|-----------|------|-------------|
 | ``summarize`` | ``path`` | — | Summarize a document |
 | ``research`` | ``topic`` | ``write`` | Search and consolidate as new note |
 | ``discuss`` | ``path`` | ``write`` | Analyze and suggest improvements |
+| ``create_from_template`` | ``template_name`` (optional) | ``write`` | Discover/read/fill/write from a template |
 | ``related`` | ``path`` | — | Find related notes, suggest cross-references |
 | ``compare`` | ``path1, path2`` | — | Compare two documents |
 
@@ -865,6 +866,7 @@ For MCP server deployment:
 | `MARKDOWN_VAULT_MCP_INDEXED_FIELDS` | Comma-separated frontmatter fields to index | none |
 | `MARKDOWN_VAULT_MCP_REQUIRED_FIELDS` | Comma-separated required frontmatter fields | none |
 | `MARKDOWN_VAULT_MCP_EXCLUDE` | Comma-separated glob patterns to exclude | none |
+| `MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER` | Relative folder path for note templates used by `create_from_template` | `_templates` |
 | `MARKDOWN_VAULT_MCP_GIT_REPO_URL` | HTTPS URL for managed git mode (clone + remote validation) | disabled |
 | `MARKDOWN_VAULT_MCP_GIT_USERNAME` | Username for HTTPS token auth prompts | `x-access-token` |
 | `MARKDOWN_VAULT_MCP_GIT_TOKEN` | Token/password for HTTPS git auth | disabled |

@@ -21,7 +21,7 @@ Point it at a directory of Markdown files (an Obsidian vault, a docs folder, a Z
 - **OIDC authentication** — optional token-based auth for HTTP deployments (Authelia, Keycloak, etc.)
 - **MCP tools** — 13 tools including search, read, write, edit, delete, rename, and admin operations
 - **MCP resources** — 6 resources exposing vault configuration, statistics, tags, folders, and document outlines
-- **MCP prompts** — 5 prompt templates for summarizing, researching, discussing, comparing, and finding related notes
+- **MCP prompts** — 6 prompt templates including template-driven note creation
 
 ## Installation
 
@@ -124,6 +124,7 @@ All configuration is via environment variables with the `MARKDOWN_VAULT_MCP_` pr
 | `MARKDOWN_VAULT_MCP_INDEXED_FIELDS` | — | No | Comma-separated frontmatter fields to promote to the tag index for structured filtering |
 | `MARKDOWN_VAULT_MCP_REQUIRED_FIELDS` | — | No | Comma-separated frontmatter fields required on every document; documents missing any are excluded from the index |
 | `MARKDOWN_VAULT_MCP_EXCLUDE` | — | No | Comma-separated glob patterns to exclude from scanning (e.g. `.obsidian/**,.trash/**`) |
+| `MARKDOWN_VAULT_MCP_TEMPLATES_FOLDER` | `_templates` | No | Relative folder path where note templates live (used by the `create_from_template` prompt) |
 
 ### Server identity
 
@@ -313,10 +314,13 @@ Prompt templates guide the LLM through multi-step workflows using the vault tool
 | `summarize` | `path` | Read a document and produce a structured summary with key themes and takeaways |
 | `research` | `topic` | Search for a topic, synthesize findings, and create a new note at `research/{topic}.md` |
 | `discuss` | `path` | Analyze a document and suggest improvements using `edit` (not `write`) |
+| `create_from_template` | `template_name` (optional) | Discover templates (if needed), read a template, gather user values, and write a new note |
 | `related` | `path` | Find related notes via search and suggest cross-references as markdown links |
 | `compare` | `path1`, `path2` | Read two documents and produce a side-by-side comparison |
 
-Write prompts (`research`, `discuss`) are only available when `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
+Write prompts (`research`, `discuss`, `create_from_template`) are only available when `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
+
+Templates are regular markdown files. If placeholder template text pollutes search results, add your templates folder to `MARKDOWN_VAULT_MCP_EXCLUDE` (for example `_templates/**`).
 
 ## Attachments
 
