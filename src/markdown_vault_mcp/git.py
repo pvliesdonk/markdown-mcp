@@ -102,6 +102,8 @@ class GitWriteStrategy:
         commit_email: str | None = None,
         git_lfs: bool = True,
     ) -> None:
+        # Token is retained for GIT_ASKPASS credential forwarding in subprocesses.
+        # This pattern is intentionally accepted and suppressed in CodeQL config.
         self._token = token
         self._push_delay_s = push_delay_s
         self._commit_name = commit_name or self.DEFAULT_COMMIT_NAME

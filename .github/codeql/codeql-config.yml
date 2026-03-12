@@ -1,0 +1,7 @@
+name: "CodeQL config"
+
+query-filters:
+  - exclude:
+      id: py/clear-text-storage-of-sensitive-information
+      paths:
+        - src/markdown_vault_mcp/git.py
