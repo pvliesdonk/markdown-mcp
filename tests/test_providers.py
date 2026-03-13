@@ -295,6 +295,7 @@ class TestFastEmbedProvider:
             model_name="nomic-ai/nomic-embed-text-v1.5",
             cache_dir="/tmp/fastembed-cache",
         )
+        model_instance.embed.assert_called_once_with(["hello"], batch_size=16)
         assert result == [[0.1, 0.2, 0.3]]
         assert provider.dimension == 3
         assert provider.provider_name == "fastembed"
