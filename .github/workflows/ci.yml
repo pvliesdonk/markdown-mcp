@@ -109,7 +109,7 @@ jobs:
               pull_number: context.payload.pull_request.number,
             });
             const hasPythonSourceChanges = files.some(
-              f => f.filename.match(/^src\/.*\.py$/)
+              f => f.filename.endsWith('.py')
             );
             if (!hasPythonSourceChanges) {
               const headSha = context.payload.pull_request.head.sha;
