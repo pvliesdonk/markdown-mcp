@@ -2079,6 +2079,85 @@ class TestBuildEmbeddings:
         assert len(embed_calls) > 0
         assert count == 9
 
+    def test_build_embeddings_uses_bounded_batches(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """build_embeddings() calls the provider in batches, not one giant call."""
+        from markdown_vault_mcp.collection import _EMBEDDING_BATCH_SIZE
+
+        embeddings_path = tmp_path / "embeddings"
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col.build_index()
+
+        original_embed = mock_provider.embed
+        batch_sizes: list[int] = []
+
+        def tracking_embed(texts: list[str]) -> list[list[float]]:
+            batch_sizes.append(len(texts))
+            return original_embed(texts)
+
+        mock_provider.embed = tracking_embed  # type: ignore[method-assign]
+
+        count = col.build_embeddings(force=True)
+        assert count == 9
+
+        # embed() must have been called, and every batch at most _EMBEDDING_BATCH_SIZE.
+        assert len(batch_sizes) > 0, "embed() should have been called"
+        for size in batch_sizes:
+            assert size <= _EMBEDDING_BATCH_SIZE
+
+    def test_build_embeddings_multi_batch_corpus(
+        self,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """build_embeddings() handles a corpus spanning multiple batches."""
+        from markdown_vault_mcp.collection import _EMBEDDING_BATCH_SIZE
+
+        # Create a vault with enough chunks to span multiple batches.
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        for i in range(_EMBEDDING_BATCH_SIZE + 10):
+            (vault / f"note_{i:03d}.md").write_text(
+                f"---\ntitle: Note {i}\n---\n\nContent of note {i}.\n"
+            )
+
+        embeddings_path = tmp_path / "embeddings"
+        col = Collection(
+            source_dir=vault,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+        )
+        col.build_index()
+
+        original_embed = mock_provider.embed
+        batch_sizes: list[int] = []
+
+        def tracking_embed(texts: list[str]) -> list[list[float]]:
+            batch_sizes.append(len(texts))
+            return original_embed(texts)
+
+        mock_provider.embed = tracking_embed  # type: ignore[method-assign]
+
+        count = col.build_embeddings(force=True)
+
+        # All chunks embedded despite spanning multiple batches.
+        assert count > _EMBEDDING_BATCH_SIZE
+        # Multiple embed() calls must have been made.
+        assert len(batch_sizes) > 1, "expected multiple embed() calls for large corpus"
+        for size in batch_sizes:
+            assert size <= _EMBEDDING_BATCH_SIZE
+        # The .npy file must exist (saved at the end).
+        npy_path = tmp_path / "embeddings.npy"
+        assert npy_path.exists()
+
 
 # ---------------------------------------------------------------------------
 # build_index() second-call no-op
