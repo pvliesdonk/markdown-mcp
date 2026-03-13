@@ -1749,9 +1749,7 @@ class TestLifespanAutoEmbeddings:
 # Bearer token auth configuration
 # ---------------------------------------------------------------------------
 
-_BEARER_VARS = (
-    "MARKDOWN_VAULT_MCP_BEARER_TOKEN",
-)
+_BEARER_VARS = ("MARKDOWN_VAULT_MCP_BEARER_TOKEN",)
 
 
 class TestBuildBearerAuth:

@@ -383,9 +383,7 @@ def create_server() -> FastMCP:
         logger.info("OIDC auth enabled")
     else:
         auth = None
-        logger.info(
-            "No auth configured — server accepts unauthenticated connections"
-        )
+        logger.info("No auth configured — server accepts unauthenticated connections")
 
     mcp = FastMCP(
         server_name,
