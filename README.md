@@ -182,9 +182,19 @@ Non-markdown file support. See [Attachments](#attachments) for details.
 | `MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS` | (built-in list) | Comma-separated allowed extensions without dot (e.g. `pdf,png,jpg`); use `*` to allow all non-`.md` files |
 | `MARKDOWN_VAULT_MCP_MAX_ATTACHMENT_SIZE_MB` | `10.0` | Maximum attachment size in MB for reads and writes; `0` disables the limit |
 
+### Bearer token authentication
+
+Simple static token auth for HTTP deployments. Set a single env var — clients must send `Authorization: Bearer <token>`.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MARKDOWN_VAULT_MCP_BEARER_TOKEN` | Yes | Static bearer token; any non-empty string enables auth |
+
 ### OIDC authentication
 
-Optional token-based authentication for HTTP deployments. OIDC activates when all four required variables are set. See [Authentication](#authentication) for setup details.
+Full OAuth 2.1 authentication for HTTP deployments. OIDC activates when all four required variables are set. See [Authentication](#authentication) for setup details.
+
+> **Precedence:** If both `BEARER_TOKEN` and OIDC variables are set, bearer token auth takes precedence.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -370,11 +380,24 @@ Override with `MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS`. Use `*` to allow all n
 
 ## Authentication
 
-OIDC authentication is optional and activates automatically when all four required variables (`BASE_URL`, `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`) are set.
+The server supports two auth modes (in order of precedence):
 
-**OIDC requires `--transport http` (or `sse`).** It has no effect with `--transport stdio`.
+1. **Bearer token** — set `MARKDOWN_VAULT_MCP_BEARER_TOKEN` to a secret string
+2. **OIDC** — set all four required OIDC variables (`BASE_URL`, `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`)
 
-### Setup with Authelia
+If neither is configured, the server accepts unauthenticated connections. **Auth requires `--transport http` (or `sse`).** It has no effect with `--transport stdio`.
+
+### Bearer token
+
+Set a single env var to enable simple bearer token auth:
+
+```bash
+MARKDOWN_VAULT_MCP_BEARER_TOKEN=your-secret-token
+```
+
+Clients must include `Authorization: Bearer your-secret-token` in every request. Best for deployments behind a VPN or in a Docker compose stack where full OIDC is overkill.
+
+### OIDC with Authelia
 
 > **Note:** Authelia does not support Dynamic Client Registration (RFC 7591). Clients must be registered manually in `configuration.yml`.
 

@@ -878,6 +878,7 @@ For MCP server deployment:
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_NAME` | Committer name for auto-commits | `markdown-vault-mcp` |
 | `MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL` | Committer email for auto-commits | `noreply@markdown-vault-mcp` |
 | `MARKDOWN_VAULT_MCP_GIT_LFS` | Run `git lfs pull` on startup to resolve LFS pointer files | `true` |
+| `MARKDOWN_VAULT_MCP_BEARER_TOKEN` | Static bearer token for simple auth — clients send `Authorization: Bearer <token>` | none |
 | `MARKDOWN_VAULT_MCP_BASE_URL` | Server's public URL, required to enable OIDC auth (e.g. `https://mcp.example.com`) | none |
 | `MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL` | OIDC discovery URL (`/.well-known/openid-configuration`) | none |
 | `MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID` | OIDC client ID registered with the provider | none |
@@ -924,6 +925,12 @@ MARKDOWN_VAULT_MCP_GIT_USERNAME=x-access-token
 MARKDOWN_VAULT_MCP_GIT_TOKEN=ghp_xxx
 ```
 
+**Bearer token auth (simple)**:
+```bash
+MARKDOWN_VAULT_MCP_SOURCE_DIR=/data/vault
+MARKDOWN_VAULT_MCP_BEARER_TOKEN=your-secret-token
+```
+
 **Obsidian vault with OIDC auth (Authelia)**:
 ```bash
 MARKDOWN_VAULT_MCP_SOURCE_DIR=/data/vault
@@ -934,6 +941,22 @@ MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
 MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-random-secret   # required on Linux/Docker
 ```
+
+#### Authentication
+
+The server supports three auth modes, resolved in order of precedence:
+
+1. **Bearer token** — simple static token via `MARKDOWN_VAULT_MCP_BEARER_TOKEN`
+2. **OIDC** — full OAuth 2.1 flow via `OIDCProxy` (requires `BASE_URL`, `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`)
+3. **No auth** — server accepts all connections (default)
+
+The first configured mode wins. If both bearer token and OIDC are configured, bearer token takes precedence and a warning is logged.
+
+#### Bearer Token Authentication
+
+Set `MARKDOWN_VAULT_MCP_BEARER_TOKEN` to a secret string. Clients must send an `Authorization: Bearer <token>` header with every request. Uses FastMCP's `StaticTokenVerifier` — no external dependencies or identity providers needed.
+
+Best for deployments behind a VPN, in a Docker compose stack, or on a private network where full OIDC is unnecessary.
 
 #### OIDC Authentication
 

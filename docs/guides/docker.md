@@ -4,7 +4,8 @@ This guide walks through three progressive Docker deployments:
 
 1. **Basic** — read-only container with keyword search via HTTP
 2. **Git write support** — enable write operations with auto-commit and push
-3. **OIDC authentication** — protect HTTP access with Authelia
+3. **Bearer token authentication** — simple static token auth
+4. **OIDC authentication** — protect HTTP access with Authelia
 
 Each step builds on the previous one.
 
@@ -141,7 +142,25 @@ git -C /path/to/vault log --oneline -3
 
 ---
 
-## Step 3: Add OIDC authentication
+## Step 3: Add bearer token authentication
+
+**Goal:** Protect the HTTP endpoint with a simple static bearer token.
+
+**Prerequisites:** Step 1 (or Step 2) complete.
+
+Add `MARKDOWN_VAULT_MCP_BEARER_TOKEN` to your `.env` file:
+
+```bash
+MARKDOWN_VAULT_MCP_BEARER_TOKEN=your-secret-token
+```
+
+Clients must include the `Authorization: Bearer your-secret-token` header in every request. No external identity provider needed.
+
+> **Tip:** Generate a random token with `openssl rand -hex 32`.
+
+---
+
+## Step 4: Add OIDC authentication
 
 **Goal:** Protect the HTTP endpoint with OIDC authentication using Authelia.
 
