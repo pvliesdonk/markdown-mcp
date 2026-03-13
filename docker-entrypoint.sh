@@ -26,7 +26,7 @@ if [ "$(id -u)" = '0' ]; then
     # Only recurse into directories still owned by root, to avoid
     # touching bind-mounted vault files on every restart.
     chown appuser:appuser /data
-    for _dir in /data/vault /data/index /data/embeddings /data/fastembed; do
+    for _dir in /data/*; do
         if [ -d "$_dir" ] && [ "$(stat -c '%u' "$_dir")" = '0' ]; then
             chown -R appuser:appuser "$_dir"
         fi
