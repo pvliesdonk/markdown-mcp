@@ -1699,6 +1699,14 @@ class TestLifespanAutoEmbeddings:
 
         # Second startup: should load from disk, not re-embed.
         mock_prov2 = MockEmbeddingProvider()
+        embed_calls: list[int] = []
+        original_embed = mock_prov2.embed
+
+        def tracking_embed(texts: list[str]) -> list[list[float]]:
+            embed_calls.append(len(texts))
+            return original_embed(texts)
+
+        mock_prov2.embed = tracking_embed  # type: ignore[method-assign]
         with patch(
             "markdown_vault_mcp.providers.get_embedding_provider",
             return_value=mock_prov2,
@@ -1708,6 +1716,8 @@ class TestLifespanAutoEmbeddings:
                 r2 = await client2.call_tool_mcp("embeddings_status", {})
         count2 = json.loads(r2.content[0].text)["chunk_count"]
         assert count2 == count1
+        # embed() must NOT have been called — vectors were loaded from disk.
+        assert embed_calls == [], f"embed() was called with {embed_calls} texts"
 
     async def test_no_embeddings_without_config(
         self,
