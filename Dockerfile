@@ -33,13 +33,12 @@ RUN if [ "$APP_UID" -eq 0 ] || [ "$APP_GID" -eq 0 ]; then \
     && mkdir -p /data/vault /data/index /data/embeddings /data/fastembed \
     && chown -R appuser:appuser /app /data
 
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
 
 VOLUME ["/data/vault", "/data/index", "/data/embeddings", "/data/fastembed"]
 
-ENTRYPOINT ["docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["markdown-vault-mcp", "serve", "--transport", "http"]
