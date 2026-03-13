@@ -1224,6 +1224,22 @@ class TestPrompts:
         assert "read(path='/../notes/meeting.md')" not in text
 
     @pytest.mark.usefixtures("_mcp_env_writable")
+    async def test_create_from_template_prompt_resolves_dotdot_in_template_name(
+        self,
+    ) -> None:
+        """.. segments collapse into parent rather than being dropped as isolated parts."""
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.get_prompt(
+                "create_from_template",
+                {"template_name": "team/../daily.md"},
+            )
+        text = result.messages[0].content.text
+        # team/.. resolves to nothing, leaving just daily.md under templates_folder
+        assert "read(path='_templates/daily.md')" in text
+        assert "read(path='_templates/team/daily.md')" not in text
+
+    @pytest.mark.usefixtures("_mcp_env_writable")
     async def test_create_from_template_prompt_normalizes_windows_separators(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
