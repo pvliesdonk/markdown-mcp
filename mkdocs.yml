@@ -56,8 +56,9 @@ plugins:
           - guides/index.md: Guide overview — which guide to read
           - guides/git-integration.md: Git modes — managed, unmanaged (commit-only), and no-git
           - guides/claude-desktop.md: Claude Desktop setup (read-only, git write, semantic search)
-          - guides/docker.md: Docker deployment (basic, git write, OIDC)
+          - guides/docker.md: Docker deployment (basic, git write, bearer token, OIDC)
           - guides/embeddings.md: Embedding providers (Ollama, sentence-transformers, OpenAI)
+          - guides/authentication.md: Authentication modes — bearer token, OIDC, and troubleshooting
           - guides/oidc-providers.md: OIDC provider setup (Authelia, Keycloak, Google, GitHub via broker)
           - guides/obsidian-everywhere.md: Reference architecture for desktop + mobile + Claude on one vault
         MCP Interface:
@@ -116,6 +117,7 @@ nav:
       - Claude Desktop: guides/claude-desktop.md
       - Docker: guides/docker.md
       - Embeddings: guides/embeddings.md
+      - Authentication: guides/authentication.md
       - OIDC Providers: guides/oidc-providers.md
       - Obsidian Everywhere: guides/obsidian-everywhere.md
   - MCP Interface:

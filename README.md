@@ -383,76 +383,12 @@ Override with `MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS`. Use `*` to allow all n
 The server supports three auth modes, resolved in order of precedence:
 
 1. **Bearer token** — set `MARKDOWN_VAULT_MCP_BEARER_TOKEN` to a secret string
-2. **OIDC** — set all four required OIDC variables (`BASE_URL`, `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`)
+2. **OIDC** — full OAuth 2.1 flow via `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, and `BASE_URL`
 3. **No auth** — server accepts all connections (default)
 
 **Auth requires `--transport http` (or `sse`).** It has no effect with `--transport stdio`.
 
-### Bearer token
-
-Set a single env var to enable simple bearer token auth:
-
-```bash
-MARKDOWN_VAULT_MCP_BEARER_TOKEN=your-secret-token
-```
-
-Clients must include `Authorization: Bearer your-secret-token` in every request. Best for deployments behind a VPN or in a Docker compose stack where full OIDC is overkill.
-
-### OIDC with Authelia
-
-> **Note:** Authelia does not support Dynamic Client Registration (RFC 7591). Clients must be registered manually in `configuration.yml`.
-
-1. Register the client in Authelia:
-
-   ```yaml
-   identity_providers:
-     oidc:
-       clients:
-         - client_id: markdown-vault-mcp
-           client_secret: '$pbkdf2-sha512$...'   # authelia crypto hash generate
-           redirect_uris:
-             - https://mcp.example.com/auth/callback
-             - https://mcp.example.com/vault/auth/callback   # when mounted under /vault
-           grant_types: [authorization_code]
-           response_types: [code]
-           pkce_challenge_method: S256
-           scopes: [openid, profile, email]
-   ```
-
-2. Set the environment variables (see also `examples/obsidian-oidc.env`):
-
-   ```bash
-   MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com
-   MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/.well-known/openid-configuration
-   MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
-   MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
-   MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=$(openssl rand -hex 32)
-   ```
-
-   For OIDC subpath deployments, the subpath goes in `BASE_URL` only:
-
-   ```bash
-   MARKDOWN_VAULT_MCP_HTTP_PATH=/mcp
-   MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
-   ```
-
-   The reverse proxy must strip the subpath prefix before forwarding.
-   See the [OIDC subpath deployment guide](https://pvliesdonk.github.io/markdown-vault-mcp/deployment/oidc/#subpath-deployments) for details and known limitations.
-
-3. Start with HTTP transport:
-
-   ```bash
-   markdown-vault-mcp serve --transport http --port 8000
-   ```
-
-### JWT signing key
-
-The FastMCP default signing key is ephemeral (regenerated on startup), which forces clients to re-authenticate after every restart. Set `MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY` to a stable random secret to avoid this:
-
-```bash
-# Generate once, store in your .env file
-openssl rand -hex 32
-```
+For setup instructions, troubleshooting, and provider-specific guides, see the [Authentication guide](https://pvliesdonk.github.io/markdown-vault-mcp/guides/authentication/).
 
 ## Development
 

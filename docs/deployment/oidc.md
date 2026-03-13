@@ -1,6 +1,6 @@
 # OIDC Authentication
 
-Optional token-based authentication for HTTP deployments. OIDC activates automatically when all four required environment variables are set.
+Optional token-based authentication for HTTP deployments. OIDC activates automatically when all four required environment variables are set. For an overview of all authentication modes (bearer token, OIDC, no auth), see the [Authentication guide](../guides/authentication.md).
 
 !!! warning "Transport requirement"
     OIDC requires `--transport http` (or `sse`). It has no effect with `--transport stdio`.
