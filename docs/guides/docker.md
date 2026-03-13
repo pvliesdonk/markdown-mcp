@@ -1,6 +1,6 @@
 # Docker
 
-This guide walks through three progressive Docker deployments:
+This guide walks through four progressive Docker deployments:
 
 1. **Basic** — read-only container with keyword search via HTTP
 2. **Git write support** — enable write operations with auto-commit and push
