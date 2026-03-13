@@ -172,7 +172,7 @@ https://mcp.example.com/vault/auth/callback
 The reverse proxy must:
 
 1. **Strip the prefix** (`/vault`) from operational routes before forwarding to the app
-2. **Forward OAuth discovery routes** at the host root to this service:
+2. **Forward OAuth discovery routes** to this service (without stripping prefixes):
     - `/.well-known/oauth-authorization-server` — authorization server metadata
     - `/.well-known/oauth-protected-resource/vault/mcp` — protected resource metadata
 
@@ -189,6 +189,9 @@ labels:
   - "traefik.http.routers.vault-wellknown.rule=Host(`mcp.example.com`) && (PathPrefix(`/.well-known/oauth-authorization-server`) || PathPrefix(`/.well-known/oauth-protected-resource/vault`))"
   - "traefik.http.routers.vault-wellknown.service=vault-app"
 ```
+
+!!! note
+    This configuration requires that no other OAuth service claims `/.well-known/oauth-authorization-server` on this hostname. See [Shared-hostname limitation](#shared-hostname-limitation) below.
 
 ### Shared-hostname limitation
 
