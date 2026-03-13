@@ -199,12 +199,14 @@ MARKDOWN_VAULT_MCP_SERVER_NAME=my-vault
 MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**
 ```
 
-For subpath deployments (example `https://mcp.example.com/vault/mcp`), also set:
+For subpath deployments with OIDC, the subpath goes in `BASE_URL` only — do not include it in `HTTP_PATH`:
 
 ```bash
-MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+MARKDOWN_VAULT_MCP_HTTP_PATH=/mcp
 MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
 ```
+
+The reverse proxy must strip the `/vault` prefix before forwarding. See the [OIDC subpath deployment guide](../deployment/oidc.md#subpath-deployments) for the full Traefik configuration and known limitations.
 
 !!! danger "JWT signing key is required on Linux/Docker"
     Without `OIDC_JWT_SIGNING_KEY`, FastMCP generates an ephemeral key that invalidates all tokens on restart. Always set a stable key in Docker deployments.
@@ -229,11 +231,7 @@ networks:
     external: true
 ```
 
-For subpath deployments, use:
-
-```yaml
-- "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`) && PathPrefix(`/vault/mcp`)"
-```
+For OIDC subpath deployments, the Traefik routing is different — the prefix must be stripped and OAuth discovery routes must be forwarded separately. See the [OIDC subpath deployment guide](../deployment/oidc.md#subpath-deployments) for the full configuration.
 
 ### Restart and verify
 

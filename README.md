@@ -236,11 +236,7 @@ For reverse proxies, you can either:
 - Keep app path at `/mcp` and use proxy rewrite/strip-prefix middleware.
 - Set app path directly to the public path (`/vault/mcp`) and route without rewrite.
 
-When OIDC is enabled and you deploy under a prefix, include that prefix in `MARKDOWN_VAULT_MCP_BASE_URL`. Example:
-
-```bash
-MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
-```
+When OIDC is enabled under a subpath, the configuration is different: the subpath goes in `BASE_URL` only, and `HTTP_PATH` stays at `/mcp`. See [OIDC subpath deployments](https://pvliesdonk.github.io/markdown-vault-mcp/deployment/oidc/#subpath-deployments).
 
 Then your redirect URI is:
 
@@ -408,12 +404,15 @@ OIDC authentication is optional and activates automatically when all four requir
    MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=$(openssl rand -hex 32)
    ```
 
-   For subpath deployments (example MCP endpoint `/vault/mcp`):
+   For OIDC subpath deployments, the subpath goes in `BASE_URL` only:
 
    ```bash
-   MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
+   MARKDOWN_VAULT_MCP_HTTP_PATH=/mcp
    MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
    ```
+
+   The reverse proxy must strip the subpath prefix before forwarding.
+   See the [OIDC subpath deployment guide](https://pvliesdonk.github.io/markdown-vault-mcp/deployment/oidc/#subpath-deployments) for details and known limitations.
 
 3. Start with HTTP transport:
 
