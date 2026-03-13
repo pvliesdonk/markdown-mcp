@@ -20,6 +20,11 @@ from markdown_vault_mcp.config import _ENV_PREFIX
 
 logger = logging.getLogger(__name__)
 
+# Maximum texts per ONNX inference call inside FastEmbed.  The default (256)
+# creates attention matrices that can require >192 GB with long chunks from
+# models like nomic-embed-text-v1.5 (8192-token context).
+_FASTEMBED_ONNX_BATCH_SIZE = 4
+
 
 class EmbeddingProvider(ABC):
     """Abstract base class for embedding providers."""
@@ -327,7 +332,12 @@ class FastEmbedProvider(EmbeddingProvider):
         Returns:
             List of embedding vectors, one per input text.
         """
-        vectors = [vector.tolist() for vector in self._model.embed(texts)]
+        vectors = [
+            vector.tolist()
+            for vector in self._model.embed(
+                texts, batch_size=_FASTEMBED_ONNX_BATCH_SIZE
+            )
+        ]
         if self._dimension is None and vectors:
             self._dimension = len(vectors[0])
         return vectors

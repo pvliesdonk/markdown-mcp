@@ -2,11 +2,11 @@
 
 This guide covers configuring each supported embedding provider for semantic search. You only need one provider — choose based on your requirements:
 
-| Provider | Runs locally | Requires GPU | Internet required | Install size |
-|----------|-------------|-------------|-------------------|-------------|
-| [Ollama](#ollama) | Yes | No (CPU works fine) | No | ~2 GB (model) |
-| [FastEmbed](#fastembed) | Yes | No | First run only (model download) | Small runtime + model |
-| [OpenAI](#openai) | No (API call) | N/A | Yes | Minimal |
+| Provider | Runs locally | Requires GPU | Internet required | Install size | RAM during embedding |
+|----------|-------------|-------------|-------------------|-------------|---------------------|
+| [Ollama](#ollama) | Yes | No (CPU works fine) | No | ~2 GB (model) | ~2–4 GB (separate process) |
+| [FastEmbed](#fastembed) | Yes | No | First run only (model download) | Small runtime + model | ~1–2 GB (in-process) |
+| [OpenAI](#openai) | No (API call) | N/A | Yes | Minimal | Negligible |
 
 All three providers produce embeddings that enable the `semantic` and `hybrid` search modes in the `search` tool.
 
@@ -139,6 +139,11 @@ That's it — no host URL or API key needed. The model downloads automatically o
 !!! note "First startup downloads the model"
     Set `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` to a persistent location. In Docker, mount it as a named volume (for example `/data/fastembed`) to avoid re-downloading on container recreation.
 
+!!! info "Memory usage — in-process vs out-of-process"
+    FastEmbed runs the ONNX model **inside the Python process**, so the container itself bears the full inference memory cost. To keep this bounded, the server limits the ONNX-level batch size to 4 chunks per inference call (tunable via the `_FASTEMBED_ONNX_BATCH_SIZE` constant in `providers.py`).
+
+    By contrast, Ollama runs inference in a **separate server process** — the Python container only sends HTTP requests and receives float vectors, so its own memory footprint stays low. If memory is tight (e.g., a small VPS), Ollama may be a better fit since its memory is isolated from the MCP server.
+
 ### Verify
 
 Start the server and test with a search:
@@ -208,4 +213,11 @@ Regardless of which provider you choose:
 - Use `mode="hybrid"` in search for best results — it combines keyword (BM25) and semantic (cosine similarity) scores using Reciprocal Rank Fusion.
 
 !!! note "Large vaults"
-    The initial embedding build processes documents in batches of 64 chunks to keep memory usage bounded. For very large vaults (thousands of notes), the first startup may take several minutes. If the process is interrupted mid-build, it will rebuild from scratch on the next startup — partial indices are never persisted.
+    The initial embedding build uses two levels of batching to keep memory bounded:
+
+    1. **Collection level** — 64 chunks per provider call (`_EMBEDDING_BATCH_SIZE` in `collection.py`)
+    2. **ONNX level** (FastEmbed only) — 4 chunks per inference call (`_FASTEMBED_ONNX_BATCH_SIZE` in `providers.py`)
+
+    The current ONNX batch size of 4 was chosen to prevent OOM on long-context models (e.g., `nomic-embed-text-v1.5` with 8192-token context). Larger batch sizes improve throughput but increase peak memory proportionally; smaller values have negligible impact on build time since the model computation dominates.
+
+    For very large vaults (thousands of notes), the first startup may take several minutes. If the process is interrupted mid-build, it will rebuild from scratch on the next startup — partial indices are never persisted.
