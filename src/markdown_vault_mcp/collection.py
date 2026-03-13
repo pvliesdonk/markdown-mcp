@@ -1094,7 +1094,7 @@ class Collection:
             end = min(start + _EMBEDDING_BATCH_SIZE, total)
             self._vectors.add(texts[start:end], meta[start:end])
             logger.info(
-                "build_embeddings: embedded chunks %d–%d of %d",
+                "build_embeddings: embedded chunks %d-%d of %d",
                 start + 1,
                 end,
                 total,
