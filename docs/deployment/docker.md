@@ -53,7 +53,7 @@ volumes:
 
 | Container Path | Type | Purpose |
 |---------------|------|---------|
-| `/data/vault` | Bind mount or named volume | Your Markdown vault (from `MARKDOWN_VAULT_MCP_SOURCE_DIR`); pre-created in the image for managed repo mode |
+| `/data/vault` | Bind mount or named volume | Your Markdown vault; pre-created in the image for managed repo mode |
 | `/data/index` | Named volume | SQLite FTS5 index (persists across restarts) |
 | `/data/embeddings` | Named volume | Numpy embedding vectors |
 | `/data/fastembed` | Named volume | FastEmbed model cache (prevents re-downloads) |
