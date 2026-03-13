@@ -1085,15 +1085,17 @@ class Collection:
             end = min(start + _EMBEDDING_BATCH_SIZE, total)
             self._vectors.add(texts[start:end], meta[start:end])
             logger.debug(
-                "build_embeddings: batch %d-%d of %d embedded",
+                "build_embeddings: embedded chunks %d to %d of %d",
                 start,
-                end,
+                end - 1,
                 total,
             )
 
         if total > 0:
             self._vectors.save(self._embeddings_path)
-        logger.info("build_embeddings: embedded and saved %d chunks", total)
+            logger.info("build_embeddings: embedded and saved %d chunks", total)
+        else:
+            logger.info("build_embeddings: nothing to embed")
         return total
 
     def embeddings_status(self) -> dict:

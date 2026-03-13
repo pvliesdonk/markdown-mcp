@@ -2108,7 +2108,8 @@ class TestBuildEmbeddings:
         count = col.build_embeddings(force=True)
         assert count == 9
 
-        # Every batch must be at most _EMBEDDING_BATCH_SIZE.
+        # embed() must have been called, and every batch at most _EMBEDDING_BATCH_SIZE.
+        assert len(batch_sizes) > 0, "embed() should have been called"
         for size in batch_sizes:
             assert size <= _EMBEDDING_BATCH_SIZE
 
@@ -2136,10 +2137,23 @@ class TestBuildEmbeddings:
         )
         col.build_index()
 
+        original_embed = mock_provider.embed
+        batch_sizes: list[int] = []
+
+        def tracking_embed(texts: list[str]) -> list[list[float]]:
+            batch_sizes.append(len(texts))
+            return original_embed(texts)
+
+        mock_provider.embed = tracking_embed  # type: ignore[method-assign]
+
         count = col.build_embeddings(force=True)
 
         # All chunks embedded despite spanning multiple batches.
         assert count > _EMBEDDING_BATCH_SIZE
+        # Multiple embed() calls must have been made.
+        assert len(batch_sizes) > 1, "expected multiple embed() calls for large corpus"
+        for size in batch_sizes:
+            assert size <= _EMBEDDING_BATCH_SIZE
         # The .npy file must exist (saved at the end).
         npy_path = tmp_path / "embeddings.npy"
         assert npy_path.exists()
