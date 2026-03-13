@@ -147,7 +147,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run pip-audit
-        run: uv run pip-audit --strict --progress-spinner off --ignore-vuln CVE-2026-25990 --exclude markdown-vault-mcp
+        run: uv run pip-audit --strict --progress-spinner off --ignore-vuln CVE-2026-25990 --skip-editable
 
   secrets:
     name: Secret Detection
