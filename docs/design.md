@@ -336,7 +336,8 @@ the process exits. The full lifecycle contract is:
 ```
 Collection(...)
   → sync_from_remote_before_index()   # git fetch + ff-only before first index
-  → build_index()                     # build FTS + vector index
+  → build_index()                     # build FTS index
+  → build_embeddings()                # build vector index (when configured)
   → start()                           # launch background pull loop
   → zero or more read/write operations
   → close()                           # stop pull loop, flush git, release SQLite

@@ -1031,18 +1031,18 @@ class Collection:
 
         from markdown_vault_mcp.vector_index import VectorIndex
 
-        if force or self._vectors is None:
+        if force:
             self._vectors = VectorIndex(self._embedding_provider)
-        elif not force:
-            # If a persisted index already exists and we are not forcing,
-            # return the existing count without rebuilding.
-            npy_path = Path(str(self._embeddings_path) + ".npy")
-            if npy_path.exists() and self._vectors.count > 0:
+        else:
+            # Load persisted vectors (or create empty) so we can check count.
+            self._load_vectors()
+            if self._vectors.count > 0:
                 logger.info(
                     "build_embeddings: index already exists (%d chunks), skipping",
                     self._vectors.count,
                 )
                 return self._vectors.count
+            # Empty index — fall through to build from scratch.
 
         rows = self._fts.list_notes()
         texts: list[str] = []

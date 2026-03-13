@@ -166,6 +166,13 @@ async def _collection_lifespan(
         stats.chunks_indexed,
     )
 
+    # Build embeddings eagerly when an embedding provider is configured.
+    # build_embeddings() skips work if the vector index already exists on disk,
+    # so this is safe to call on every startup.
+    if embedding_provider is not None:
+        chunks_embedded = await asyncio.to_thread(collection.build_embeddings)
+        logger.info("Embeddings ready: %d chunks", chunks_embedded)
+
     # Start background tasks (e.g. git pull loop) after index is built.
     collection.start()
 
@@ -598,11 +605,11 @@ def create_server() -> FastMCP:
     ) -> dict[str, Any]:
         """Check the embedding provider configuration and vector index status.
 
-        Use this to diagnose why semantic search is unavailable. Compare
-        chunk_count here against chunk_count from 'stats': if stats has more
-        chunks, call 'build_embeddings' to initialise the vector index for
-        the first time (or 'reindex' to incrementally re-embed changed docs
-        when semantic search is already active).
+        Use this to diagnose why semantic search is unavailable. Embeddings
+        are built automatically on startup when configured, so chunk_count
+        should normally match the FTS chunk count from 'stats'. If it is
+        lower, call 'reindex' to re-embed changed docs, or
+        'build_embeddings' with force=True to rebuild from scratch.
 
         Returns:
             Dict with available (bool), provider (str — provider class name,
@@ -630,10 +637,10 @@ def create_server() -> FastMCP:
         outside this server. Only processes changed files — unchanged documents
         are skipped.
 
-        Note: if semantic search is already active (vector index loaded), this
-        also re-embeds changed documents automatically. Call
-        'build_embeddings' only to initialise semantic search for the
-        first time, or use force=True to rebuild all embeddings.
+        Note: this also re-embeds changed documents in the vector index
+        when semantic search is configured. Use 'build_embeddings' with
+        force=True only to rebuild all embeddings from scratch (e.g. after
+        changing the embedding model).
 
         Returns:
             Dict with counts: added, modified, deleted, unchanged.
@@ -653,13 +660,11 @@ def create_server() -> FastMCP:
         force: bool = False,
         collection: Collection = Depends(get_collection),
     ) -> dict[str, Any]:
-        """Build vector embeddings to enable semantic and hybrid search.
+        """Rebuild vector embeddings for semantic and hybrid search.
 
-        This can be slow for large collections — it calls the embedding
-        provider for every unembedded text chunk. Call once to enable semantic
-        search for the first time (when the vector index does not yet exist).
-        After that, 'reindex' handles incremental re-embedding automatically.
-        Check 'embeddings_status' to see if this is needed.
+        Embeddings are built automatically on startup, so this is normally
+        not needed. Use force=True to rebuild from scratch after changing
+        the embedding model. Without force, skips if embeddings already exist.
 
         Args:
             force: When True, discards existing embeddings and rebuilds from

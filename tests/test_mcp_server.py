@@ -1628,3 +1628,113 @@ class TestIfMatchParameter:
                 },
             )
         assert result.isError is True
+
+
+# ---------------------------------------------------------------------------
+# Lifespan: auto-build embeddings on startup
+# ---------------------------------------------------------------------------
+
+
+class TestLifespanAutoEmbeddings:
+    """Verify that the lifespan auto-builds embeddings when configured."""
+
+    async def test_embeddings_auto_built_on_startup(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With EMBEDDINGS_PATH set, startup builds vectors automatically."""
+        from unittest.mock import patch
+
+        from .conftest import MockEmbeddingProvider
+
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_READ_ONLY", raising=False)
+        for var in _CLEAR_VARS:
+            monkeypatch.delenv(var, raising=False)
+        embeddings_path = str(tmp_path / "embeddings")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH", embeddings_path)
+
+        mock_prov = MockEmbeddingProvider()
+        # Patch at providers module — the lifespan uses a local import so the
+        # patched attribute is resolved at call time.  If the import moves to
+        # module level, patch "mcp_server.get_embedding_provider" instead.
+        with patch(
+            "markdown_vault_mcp.providers.get_embedding_provider",
+            return_value=mock_prov,
+        ):
+            server = create_server()
+            async with Client(server) as client:
+                result = await client.call_tool_mcp("embeddings_status", {})
+        data = json.loads(result.content[0].text)
+        assert data["chunk_count"] > 0
+
+    async def test_subsequent_startup_skips_rebuild(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With existing embeddings on disk, startup loads them without rebuilding."""
+        from unittest.mock import patch
+
+        from .conftest import MockEmbeddingProvider
+
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_READ_ONLY", raising=False)
+        for var in _CLEAR_VARS:
+            monkeypatch.delenv(var, raising=False)
+        embeddings_path = str(tmp_path / "embeddings")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH", embeddings_path)
+
+        mock_prov = MockEmbeddingProvider()
+        # First startup: build embeddings from scratch.
+        with patch(
+            "markdown_vault_mcp.providers.get_embedding_provider",
+            return_value=mock_prov,
+        ):
+            server = create_server()
+            async with Client(server) as client:
+                r1 = await client.call_tool_mcp("embeddings_status", {})
+        count1 = json.loads(r1.content[0].text)["chunk_count"]
+        assert count1 > 0
+
+        # Second startup: should load from disk, not re-embed.
+        mock_prov2 = MockEmbeddingProvider()
+        embed_calls: list[int] = []
+        original_embed = mock_prov2.embed
+
+        def tracking_embed(texts: list[str]) -> list[list[float]]:
+            embed_calls.append(len(texts))
+            return original_embed(texts)
+
+        mock_prov2.embed = tracking_embed  # type: ignore[method-assign]
+        with patch(
+            "markdown_vault_mcp.providers.get_embedding_provider",
+            return_value=mock_prov2,
+        ):
+            server2 = create_server()
+            async with Client(server2) as client2:
+                r2 = await client2.call_tool_mcp("embeddings_status", {})
+        count2 = json.loads(r2.content[0].text)["chunk_count"]
+        assert count2 == count1
+        # embed() must NOT have been called — vectors were loaded from disk.
+        assert embed_calls == [], f"embed() was called with {embed_calls} texts"
+
+    async def test_no_embeddings_without_config(
+        self,
+        vault_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Without EMBEDDINGS_PATH, startup does not build embeddings."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_READ_ONLY", raising=False)
+        for var in _CLEAR_VARS:
+            monkeypatch.delenv(var, raising=False)
+
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp("stats", {})
+        data = json.loads(result.content[0].text)
+        assert data["semantic_search_available"] is False
