@@ -208,4 +208,4 @@ Regardless of which provider you choose:
 - Use `mode="hybrid"` in search for best results — it combines keyword (BM25) and semantic (cosine similarity) scores using Reciprocal Rank Fusion.
 
 !!! note "Large vaults"
-    The initial embedding build processes documents in batches of 64 chunks to keep memory usage bounded. For very large vaults (thousands of notes), the first startup may take several minutes. If the process is interrupted mid-build, it will rebuild from scratch on the next startup — partial indices are never persisted.
+    The initial embedding build processes documents in batches of 64 chunks to keep memory usage bounded. FastEmbed additionally uses an ONNX-level batch size of 16 to prevent pathological memory allocation on long documents. For very large vaults (thousands of notes), the first startup may take several minutes. If the process is interrupted mid-build, it will rebuild from scratch on the next startup — partial indices are never persisted.

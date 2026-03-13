@@ -327,7 +327,10 @@ class FastEmbedProvider(EmbeddingProvider):
         Returns:
             List of embedding vectors, one per input text.
         """
-        vectors = [vector.tolist() for vector in self._model.embed(texts)]
+        vectors = [
+            vector.tolist()
+            for vector in self._model.embed(texts, batch_size=16)
+        ]
         if self._dimension is None and vectors:
             self._dimension = len(vectors[0])
         return vectors

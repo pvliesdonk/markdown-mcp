@@ -269,9 +269,12 @@ Two-layer model:
 | `ValueError` | `edit()` | `old_text` is empty string |
 
 `build_embeddings()` processes chunks in bounded batches (default 64) to avoid
-pathological memory allocation from embedding providers (see issue #159). The
-save happens once at the end so a mid-run crash does not leave a partial index
-that the skip-if-exists check treats as complete on the next startup.
+pathological memory allocation from embedding providers (see issue #159).
+FastEmbed's ONNX inference uses a further inner batch size of 16 to keep
+per-call memory bounded — without this, the ONNX attention matrix for 64 long
+chunks can require >192 GB of allocation. The save happens once at the end so a
+mid-run crash does not leave a partial index that the skip-if-exists check
+treats as complete on the next startup.
 
 ### Thread Safety
 
