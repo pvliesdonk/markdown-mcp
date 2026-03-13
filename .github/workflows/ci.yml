@@ -112,11 +112,12 @@ jobs:
               f => f.filename.match(/^src\/.*\.py$/)
             );
             if (!hasPythonSourceChanges) {
-              core.info('No Python source changes — posting codecov/patch: success');
+              const headSha = context.payload.pull_request.head.sha;
+              core.info(`No Python source changes — posting codecov/patch: success to ${headSha}`);
               await github.rest.repos.createCommitStatus({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                sha: context.sha,
+                sha: headSha,
                 state: 'success',
                 context: 'codecov/patch',
                 description: 'Coverage not affected',
