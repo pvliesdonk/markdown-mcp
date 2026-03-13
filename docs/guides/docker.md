@@ -5,7 +5,7 @@ This guide walks through four progressive Docker deployments:
 1. **Basic** — read-only container with keyword search via HTTP
 2. **Git write support** — enable write operations with auto-commit and push
 3. **Bearer token authentication** — simple static token auth
-4. **OIDC authentication** — protect HTTP access with Authelia
+4. **OIDC authentication** — protect HTTP access with an OIDC provider
 
 Each step builds on the previous one.
 
@@ -172,7 +172,7 @@ For more details on bearer token auth (client usage, when to use it), see the [A
 
 OIDC requires four environment variables added to your `.env`:
 
-```bash hl_lines="3-6"
+```bash hl_lines="2-5"
 # .env (add to your existing config)
 MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com
 MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/.well-known/openid-configuration
