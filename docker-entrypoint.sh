@@ -16,14 +16,21 @@ if [ "$(id -u)" = '0' ]; then
     cur_uid="$(id -u appuser)"
     cur_gid="$(id -g appuser)"
     if [ "$cur_gid" != "$TARGET_GID" ]; then
-        groupmod -o -g "$TARGET_GID" appuser || echo "WARNING: groupmod failed, GID may conflict" >&2
+        groupmod -o -g "$TARGET_GID" appuser
     fi
     if [ "$cur_uid" != "$TARGET_UID" ]; then
-        usermod -o -u "$TARGET_UID" -g "$TARGET_GID" appuser || echo "WARNING: usermod failed, UID may conflict" >&2
+        usermod -o -u "$TARGET_UID" -g "$TARGET_GID" appuser
     fi
 
-    # Fix ownership of data directories — volumes may arrive root-owned.
-    chown -R appuser:appuser /data
+    # Fix ownership — named volumes may arrive root-owned.
+    # Only recurse into directories still owned by root, to avoid
+    # touching bind-mounted vault files on every restart.
+    chown appuser:appuser /data
+    for _dir in /data/vault /data/index /data/embeddings /data/fastembed; do
+        if [ -d "$_dir" ] && [ "$(stat -c '%u' "$_dir")" = '0' ]; then
+            chown -R appuser:appuser "$_dir"
+        fi
+    done
 
     exec gosu appuser "$@"
 fi
