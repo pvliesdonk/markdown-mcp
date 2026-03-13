@@ -976,6 +976,41 @@ class TestBuildOidcAuth:
             for r in caplog.records
         )
 
+    def test_warning_when_openid_scope_missing_with_verify_id_token(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Warn when verify_id_token=True but 'openid' is not in scopes."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES", "profile,email")
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert any(
+            "openid" in r.message and r.levelname == "WARNING" for r in caplog.records
+        )
+
+    def test_no_warning_when_openid_scope_present(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No warning when 'openid' is in scopes (default)."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert not any(
+            "openid" in r.message and r.levelname == "WARNING" for r in caplog.records
+        )
+
 
 # ---------------------------------------------------------------------------
 # MCP attachment tool tests

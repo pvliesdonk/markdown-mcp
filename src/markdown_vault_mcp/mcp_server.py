@@ -277,6 +277,14 @@ def _build_oidc_auth() -> Any:
     ).strip().lower() in ("true", "1", "yes")
     verify_id_token = not verify_access_token
 
+    if verify_id_token and "openid" not in required_scopes:
+        logger.warning(
+            "OIDC: verify_id_token=True requires the 'openid' scope but it is "
+            "not in MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES — the id_token may "
+            "be absent from the token response; add 'openid' to the scope list "
+            "or set MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true"
+        )
+
     if jwt_signing_key is None and sys.platform.startswith("linux"):
         logger.warning(
             "OIDC: MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY is not set — "
