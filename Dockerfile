@@ -34,6 +34,7 @@ RUN if [ "$APP_UID" -eq 0 ] || [ "$APP_GID" -eq 0 ]; then \
     && chown -R appuser:appuser /app /data
 
 COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
