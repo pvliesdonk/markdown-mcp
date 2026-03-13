@@ -68,6 +68,11 @@ _DEFAULT_STATE_FILENAME = "state.json"
 # RRF constant — standard value recommended in the original paper.
 _RRF_K = 60
 
+# Maximum chunks per embedding provider call.  Keeps memory bounded during
+# build_embeddings() — FastEmbed/ONNX can allocate pathologically large buffers
+# when the entire corpus is sent in one batch (see issue #159).
+_EMBEDDING_BATCH_SIZE = 64
+
 # Default set of allowed attachment extensions (without leading dot, lower-case).
 # .md is always excluded — it is always handled as a markdown note.
 _DEFAULT_ATTACHMENT_EXTENSIONS: frozenset[str] = frozenset(
@@ -1071,12 +1076,25 @@ class Collection:
                     }
                 )
 
-        if texts:
-            self._vectors.add(texts, meta)
+        # Embed in bounded batches to avoid pathological memory allocation
+        # (see issue #159 -- FastEmbed/ONNX can request >200 GB for a single
+        # oversized batch).  Save once at the end so a mid-run crash does not
+        # leave a partial index that the skip-if-exists check treats as complete.
+        total = len(texts)
+        for start in range(0, total, _EMBEDDING_BATCH_SIZE):
+            end = min(start + _EMBEDDING_BATCH_SIZE, total)
+            self._vectors.add(texts[start:end], meta[start:end])
+            logger.debug(
+                "build_embeddings: batch %d-%d of %d embedded",
+                start,
+                end,
+                total,
+            )
 
-        self._vectors.save(self._embeddings_path)
-        logger.info("build_embeddings: embedded and saved %d chunks", len(texts))
-        return len(texts)
+        if total > 0:
+            self._vectors.save(self._embeddings_path)
+        logger.info("build_embeddings: embedded and saved %d chunks", total)
+        return total
 
     def embeddings_status(self) -> dict:
         """Return status information about the vector index.

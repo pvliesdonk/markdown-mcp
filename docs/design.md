@@ -268,8 +268,10 @@ Two-layer model:
 | `None` return | `read()` | Path escapes `source_dir` (traversal attempt) or file does not exist on disk |
 | `ValueError` | `edit()` | `old_text` is empty string |
 
-If a provider fails mid-`build_embeddings()`, the partial state is NOT saved;
-the previous embeddings file (if any) is left intact.
+`build_embeddings()` processes chunks in bounded batches (default 64) to avoid
+pathological memory allocation from embedding providers (see issue #159). The
+save happens once at the end so a mid-run crash does not leave a partial index
+that the skip-if-exists check treats as complete on the next startup.
 
 ### Thread Safety
 
