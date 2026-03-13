@@ -204,6 +204,8 @@ Set `EMBEDDING_PROVIDER` explicitly to avoid surprises when your environment cha
 Regardless of which provider you choose:
 
 - **`MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH` is required** to enable semantic search. Without it, only keyword search is available.
-- The first startup with embeddings builds vectors for every document and may take a few minutes for large vaults.
-- Subsequent starts only process changed files (incremental reindexing).
+- Embeddings are built automatically on first startup when a provider is configured. Subsequent starts load the persisted index from disk and only process changed files.
 - Use `mode="hybrid"` in search for best results — it combines keyword (BM25) and semantic (cosine similarity) scores using Reciprocal Rank Fusion.
+
+!!! note "Large vaults"
+    The initial embedding build processes documents in batches of 64 chunks to keep memory usage bounded. For very large vaults (thousands of notes), the first startup may take several minutes. If the process is interrupted mid-build, it will rebuild from scratch on the next startup — partial indices are never persisted.
