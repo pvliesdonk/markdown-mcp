@@ -270,7 +270,7 @@ Two-layer model:
 
 `build_embeddings()` processes chunks in bounded batches (default 64) to avoid
 pathological memory allocation from embedding providers (see issue #159).
-FastEmbed's ONNX inference uses a further inner batch size of 16 to keep
+FastEmbed's ONNX inference uses a further inner batch size of 4 to keep
 per-call memory bounded — without this, the ONNX attention matrix for 64 long
 chunks can require >192 GB of allocation. The save happens once at the end so a
 mid-run crash does not leave a partial index that the skip-if-exists check

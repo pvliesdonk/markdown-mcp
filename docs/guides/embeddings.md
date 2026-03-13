@@ -140,7 +140,7 @@ That's it — no host URL or API key needed. The model downloads automatically o
     Set `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` to a persistent location. In Docker, mount it as a named volume (for example `/data/fastembed`) to avoid re-downloading on container recreation.
 
 !!! info "Memory usage — in-process vs out-of-process"
-    FastEmbed runs the ONNX model **inside the Python process**, so the container itself bears the full inference memory cost. To keep this bounded, the server limits the ONNX-level batch size to 16 chunks per inference call (configurable via the `_FASTEMBED_ONNX_BATCH_SIZE` constant in `providers.py`).
+    FastEmbed runs the ONNX model **inside the Python process**, so the container itself bears the full inference memory cost. To keep this bounded, the server limits the ONNX-level batch size to 4 chunks per inference call (configurable via the `_FASTEMBED_ONNX_BATCH_SIZE` constant in `providers.py`).
 
     By contrast, Ollama runs inference in a **separate server process** — the Python container only sends HTTP requests and receives float vectors, so its own memory footprint stays low. If memory is tight (e.g., a small VPS), Ollama may be a better fit since its memory is isolated from the MCP server.
 
@@ -216,7 +216,7 @@ Regardless of which provider you choose:
     The initial embedding build uses two levels of batching to keep memory bounded:
 
     1. **Collection level** — 64 chunks per provider call (`_EMBEDDING_BATCH_SIZE` in `collection.py`)
-    2. **ONNX level** (FastEmbed only) — 16 chunks per inference call (`_FASTEMBED_ONNX_BATCH_SIZE` in `providers.py`)
+    2. **ONNX level** (FastEmbed only) — 4 chunks per inference call (`_FASTEMBED_ONNX_BATCH_SIZE` in `providers.py`)
 
     Smaller ONNX batch sizes (e.g., 4) use less peak memory with negligible impact on build time — the bottleneck is the model computation, not the call overhead. Larger batch sizes improve throughput but increase peak memory proportionally.
 

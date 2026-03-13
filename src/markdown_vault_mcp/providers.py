@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Maximum texts per ONNX inference call inside FastEmbed.  The default (256)
 # creates attention matrices that can require >192 GB with long chunks from
 # models like nomic-embed-text-v1.5 (8192-token context).
-_FASTEMBED_ONNX_BATCH_SIZE = 16
+_FASTEMBED_ONNX_BATCH_SIZE = 4
 
 
 class EmbeddingProvider(ABC):
