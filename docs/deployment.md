@@ -311,21 +311,24 @@ Writes are still committed locally (when `SOURCE_DIR` is a git repo); run
 
 **Permission denied on vault directory**
 
-The container runs as a non-root `appuser` (UID 1000 / GID 1000 by default).
-If the vault is owned by a different UID on the host, reads will fail.
+Named volumes are handled automatically — the entrypoint fixes ownership on
+startup. For **bind-mounted vaults** where the host user doesn't match the
+container user (UID 1000 / GID 1000 by default), use one of these options:
 
-**Option 1: Build with matching UID/GID** (recommended — baked into the image):
-
-```bash
-docker compose build --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
-```
-
-**Option 2: Runtime override** — add `user:` to `compose.yml`:
+**Option 1: Set PUID/PGID** (recommended — no rebuild needed):
 
 ```yaml
 services:
   markdown-vault-mcp:
-    user: "1001:1001"   # or "${APP_UID}:${APP_GID}" with .env
+    environment:
+      PUID: 1001
+      PGID: 1001
+```
+
+**Option 2: Build with matching UID/GID** (baked into the image):
+
+```bash
+docker compose build --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
 ```
 
 **Option 3: Fix host permissions** to match the default container user:

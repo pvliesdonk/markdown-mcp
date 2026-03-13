@@ -1028,6 +1028,13 @@ Same pattern as ifcraftcorpus: `python:3.12-slim` base, `uv` for installs.
 CI/CD, GitHub Actions, and PyPI publishing adapted from ifcraftcorpus with
 minimal changes.
 
+**Entrypoint + gosu privilege drop**: the container starts as root and runs
+`docker-entrypoint.sh`, which chowns `/data/*` to `appuser` (fixing
+root-owned named volumes), then drops to non-root via `gosu` before
+executing the application. Runtime UID/GID override via `PUID`/`PGID`
+env vars (default 1000/1000). This is the same pattern used by official
+PostgreSQL, Redis, and MySQL images.
+
 Deployed behind **litellm MCP gateway + mcp-auth-proxy** (same as
 ifcraftcorpus).
 

@@ -66,8 +66,8 @@ docker compose logs markdown-vault-mcp
 
 You should see log output indicating the index was built successfully (e.g., number of documents indexed). If you see permission errors, check the UID/GID tip below.
 
-!!! tip "UID/GID mismatch"
-    If the container can't read your vault files, the container user (UID 1000) may not match your host user. Fix with:
+!!! tip "UID/GID handling"
+    Named volumes work out of the box — the entrypoint automatically fixes ownership on startup. For **bind-mounted vaults** where the host user doesn't match the container user (UID 1000), either set `PUID`/`PGID` environment variables or rebuild:
 
     ```bash
     docker compose build --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
