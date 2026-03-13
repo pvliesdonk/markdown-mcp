@@ -10,3 +10,4 @@ tests/
 docs/
 *.md
 !README.md
+docker-entrypoint.sh
