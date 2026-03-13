@@ -144,10 +144,10 @@ jobs:
         run: uv python install 3.12
 
       - name: Export dependency list (excluding local project)
-        run: uv export --all-extras --frozen --no-emit-project --no-hashes -o /tmp/requirements.txt
+        run: uv export --all-extras --frozen --no-emit-project --no-hashes -o ${{ runner.temp }}/requirements.txt
 
       - name: Run pip-audit
-        run: uvx pip-audit --strict --progress-spinner off --ignore-vuln CVE-2026-25990 -r /tmp/requirements.txt
+        run: uvx pip-audit --strict --progress-spinner off --ignore-vuln CVE-2026-25990 -r ${{ runner.temp }}/requirements.txt
 
   secrets:
     name: Secret Detection
