@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 from markdown_vault_mcp.collection import Collection
-from markdown_vault_mcp.config import _ENV_PREFIX, _parse_bool, load_config
+from markdown_vault_mcp.config import _ENV_PREFIX, load_config
 
 # ---------------------------------------------------------------------------
 # Tool icons (Lucide SVGs as data URIs)
@@ -296,10 +296,9 @@ def create_server() -> FastMCP:
     Returns:
         A fully configured :class:`~fastmcp.FastMCP` instance ready to run.
     """
-    raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY")
-    is_read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
     config_snapshot = load_config()
     templates_folder = config_snapshot.templates_folder
+    is_read_only = config_snapshot.read_only
 
     server_name = os.environ.get(f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp")
     default_instructions = _build_default_instructions(read_only=is_read_only)
