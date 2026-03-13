@@ -15,6 +15,9 @@ Use Authelia as your OIDC identity provider to authenticate users with local use
 !!! note
     Authelia does not support Dynamic Client Registration (RFC 7591). Register clients manually in `configuration.yml`.
 
+!!! note "Opaque access tokens"
+    Authelia issues opaque (non-JWT) access tokens. markdown-vault-mcp handles this automatically by verifying the `id_token` instead, which is always a standard JWT. No extra configuration is needed.
+
 For architecture details and a full Docker Compose deployment, see [OIDC Authentication](../deployment/oidc.md).
 
 ### 1. Register client in `configuration.yml`
@@ -260,3 +263,15 @@ These apply to all OIDC providers:
 - **Test with a browser first.** The OIDC flow is easiest to debug in a browser where you can see redirects and error pages.
 - **Check the discovery URL.** Visit `OIDC_CONFIG_URL` in a browser — it should return a JSON document with `authorization_endpoint`, `token_endpoint`, and other fields.
 - **Redirect URI must match exactly.** The `BASE_URL` + `/auth/callback` must match the redirect URI registered with the provider, including scheme (`https://`), domain, port, and path.
+
+### JWT vs opaque access tokens
+
+OIDC providers issue two tokens after login: an **access token** and an **id token**. The id token is always a standard JWT. The access token may be a JWT (Keycloak, Google) or an opaque string (Authelia).
+
+By default, markdown-vault-mcp verifies the **id token**, which works with all providers. If your provider issues JWT access tokens and you need audience-claim validation on that token, set:
+
+```bash
+MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true
+```
+
+Most deployments should leave this unset.

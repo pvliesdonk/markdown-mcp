@@ -195,6 +195,7 @@ Optional token-based authentication for HTTP deployments. OIDC activates when al
 | `MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY` | No | JWT signing key; **required on Linux/Docker** — the default is ephemeral and invalidates tokens on restart. Generate with `openssl rand -hex 32` |
 | `MARKDOWN_VAULT_MCP_OIDC_AUDIENCE` | No | Expected JWT audience claim; leave unset if your provider does not set one |
 | `MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES` | No | Comma-separated required scopes; default `openid` |
+| `MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN` | No | Set `true` to verify the upstream access token as a JWT instead of the id token. Only needed when your provider issues JWT access tokens and you require audience-claim validation on that token. Default: verify the id token (works with all providers, including opaque-token issuers like Authelia) |
 
 ## CLI Reference
 
