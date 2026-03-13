@@ -1628,3 +1628,58 @@ class TestIfMatchParameter:
                 },
             )
         assert result.isError is True
+
+
+# ---------------------------------------------------------------------------
+# Lifespan: auto-build embeddings on startup
+# ---------------------------------------------------------------------------
+
+
+class TestLifespanAutoEmbeddings:
+    """Verify that the lifespan auto-builds embeddings when configured."""
+
+    async def test_embeddings_auto_built_on_startup(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With EMBEDDINGS_PATH set, startup builds vectors automatically."""
+        from unittest.mock import patch
+
+        from .conftest import MockEmbeddingProvider
+
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_READ_ONLY", raising=False)
+        for var in _CLEAR_VARS:
+            monkeypatch.delenv(var, raising=False)
+        embeddings_path = str(tmp_path / "embeddings")
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH", embeddings_path)
+
+        mock_prov = MockEmbeddingProvider()
+        with patch(
+            "markdown_vault_mcp.providers.get_embedding_provider",
+            return_value=mock_prov,
+        ):
+            server = create_server()
+            async with Client(server) as client:
+                result = await client.call_tool_mcp("embeddings_status", {})
+        data = json.loads(result.content[0].text)
+        assert data["chunk_count"] > 0
+
+    async def test_no_embeddings_without_config(
+        self,
+        vault_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Without EMBEDDINGS_PATH, startup does not build embeddings."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_READ_ONLY", raising=False)
+        for var in _CLEAR_VARS:
+            monkeypatch.delenv(var, raising=False)
+
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool_mcp("stats", {})
+        data = json.loads(result.content[0].text)
+        assert data["semantic_search_available"] is False
