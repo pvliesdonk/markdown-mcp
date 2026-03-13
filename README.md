@@ -380,12 +380,13 @@ Override with `MARKDOWN_VAULT_MCP_ATTACHMENT_EXTENSIONS`. Use `*` to allow all n
 
 ## Authentication
 
-The server supports two auth modes (in order of precedence):
+The server supports three auth modes, resolved in order of precedence:
 
 1. **Bearer token** — set `MARKDOWN_VAULT_MCP_BEARER_TOKEN` to a secret string
 2. **OIDC** — set all four required OIDC variables (`BASE_URL`, `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`)
+3. **No auth** — server accepts all connections (default)
 
-If neither is configured, the server accepts unauthenticated connections. **Auth requires `--transport http` (or `sse`).** It has no effect with `--transport stdio`.
+**Auth requires `--transport http` (or `sse`).** It has no effect with `--transport stdio`.
 
 ### Bearer token
 

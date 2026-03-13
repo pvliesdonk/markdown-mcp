@@ -1825,7 +1825,11 @@ class TestBuildBearerAuth:
 
 
 class TestBearerAuthPrecedence:
-    """Tests for bearer vs OIDC auth precedence in create_server()."""
+    """Tests for bearer vs OIDC auth precedence in create_server().
+
+    These tests call ``create_server()`` directly so the real assembly
+    logic is exercised — not just the individual builder functions.
+    """
 
     @pytest.fixture(autouse=True)
     def _clear_all_auth_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1833,11 +1837,17 @@ class TestBearerAuthPrecedence:
             monkeypatch.delenv(var, raising=False)
 
     def test_bearer_wins_over_oidc(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+        self,
+        vault_path: "Path",
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """When both bearer and OIDC are configured, bearer wins."""
         from unittest.mock import MagicMock, patch
 
+        from fastmcp.server.auth import StaticTokenVerifier
+
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
         monkeypatch.setenv("MARKDOWN_VAULT_MCP_BEARER_TOKEN", "my-token")
         for var, val in _OIDC_REQUIRED.items():
             monkeypatch.setenv(var, val)
@@ -1845,32 +1855,43 @@ class TestBearerAuthPrecedence:
         mock_cls = MagicMock()
         with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
             with caplog.at_level(logging.WARNING):
-                from markdown_vault_mcp.mcp_server import (
-                    _build_bearer_auth,
-                    _build_oidc_auth,
-                )
+                server = create_server()
 
-                bearer = _build_bearer_auth()
-                oidc = _build_oidc_auth()
-                assert bearer is not None
-                assert oidc is not None
-
-        # Verify the warning would be logged (tested via the condition)
-        assert bearer is not None
+        # Server must use bearer auth, not OIDC
+        assert isinstance(server.auth, StaticTokenVerifier)
+        assert "using bearer token auth" in caplog.text
 
     def test_falls_through_to_oidc_when_no_bearer(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        vault_path: "Path",
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Without bearer token, OIDC is used if configured."""
         from unittest.mock import MagicMock, patch
 
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
         for var, val in _OIDC_REQUIRED.items():
             monkeypatch.setenv(var, val)
 
         mock_cls = MagicMock()
         with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
-            bearer = _build_bearer_auth()
-            oidc = _build_oidc_auth()
+            server = create_server()
 
-        assert bearer is None
-        assert oidc is not None
+        # Server must use the OIDC mock, not bearer
+        assert server.auth is not None
+        assert server.auth is mock_cls.return_value
+
+    def test_no_auth_when_nothing_configured(
+        self,
+        vault_path: "Path",
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Without any auth vars, server runs unauthenticated."""
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+
+        with caplog.at_level(logging.INFO):
+            server = create_server()
+
+        assert server.auth is None
+        assert "unauthenticated" in caplog.text
