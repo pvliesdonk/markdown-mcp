@@ -112,17 +112,8 @@ labels:
   - "traefik.http.services.markdown-vault-mcp.loadbalancer.server.port=8000"
 ```
 
-If OIDC is enabled, include the prefix in `MARKDOWN_VAULT_MCP_BASE_URL`:
-
-```bash
-MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
-```
-
-Then register callback URI:
-
-```text
-https://mcp.example.com/vault/auth/callback
-```
+!!! note "OIDC subpath deployments use a different pattern"
+    When OIDC is enabled, do **not** include the subpath in `HTTP_PATH`. Instead, put the subpath in `BASE_URL` and configure the reverse proxy to strip the prefix. See the [OIDC subpath deployment guide](oidc.md#subpath-deployments) for details.
 
 ### TLS with Let's Encrypt
 

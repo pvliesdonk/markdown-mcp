@@ -65,18 +65,7 @@ MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
 MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=$(openssl rand -hex 32)
 ```
 
-For subpath deployments (example: MCP endpoint at `/vault/mcp`), use:
-
-```bash
-MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
-MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
-```
-
-And register this callback URI in your provider:
-
-```text
-https://mcp.example.com/vault/auth/callback
-```
+For subpath deployments (e.g., public URL `https://mcp.example.com/vault/mcp`), see [Subpath Deployments](#subpath-deployments) below.
 
 See also `examples/obsidian-oidc.env`.
 
@@ -147,15 +136,75 @@ MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
 MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-stable-hex-key
 ```
 
-For a prefixed deployment (example: `https://mcp.example.com/vault/mcp`), use:
+For a prefixed deployment (e.g., `https://mcp.example.com/vault/mcp`), see [Subpath Deployments](#subpath-deployments) below.
+
+## Subpath Deployments
+
+When OIDC is enabled behind a reverse-proxy subpath, `BASE_URL` and `HTTP_PATH` serve different roles:
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `BASE_URL` | Public URL of the server, **including the subpath prefix** | `https://mcp.example.com/vault` |
+| `HTTP_PATH` | Internal MCP endpoint mount point — **no subpath prefix** | `/mcp` |
+
+The reverse proxy strips the subpath prefix before forwarding to the application. FastMCP concatenates `BASE_URL + HTTP_PATH` to build the public resource URL, so including the prefix in both produces broken URLs with duplicated path segments.
+
+!!! danger "Do not duplicate the subpath"
+    Setting `BASE_URL=https://mcp.example.com/vault` **and** `HTTP_PATH=/vault/mcp` produces a duplicated resource URL: `https://mcp.example.com/vault/vault/mcp`. The subpath belongs in `BASE_URL` only.
+
+### Configuration
+
+Environment variables:
 
 ```bash
-MARKDOWN_VAULT_MCP_HTTP_PATH=/vault/mcp
 MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
+MARKDOWN_VAULT_MCP_HTTP_PATH=/mcp
 ```
 
-And use a matching router rule, for example:
+Register this callback URI in your OIDC provider:
+
+```text
+https://mcp.example.com/vault/auth/callback
+```
+
+### Reverse proxy routing
+
+The reverse proxy must:
+
+1. **Strip the prefix** (`/vault`) from operational routes before forwarding to the app
+2. **Forward OAuth discovery routes** to this service (without stripping prefixes):
+    - `/.well-known/oauth-authorization-server` — authorization server metadata
+    - `/.well-known/oauth-protected-resource/vault/mcp` — protected resource metadata
+
+Example Traefik configuration:
 
 ```yaml
-- "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`) && PathPrefix(`/vault/mcp`)"
+labels:
+  # Operational routes: strip /vault prefix before forwarding
+  - "traefik.http.routers.vault-app.rule=Host(`mcp.example.com`) && PathPrefix(`/vault`)"
+  - "traefik.http.middlewares.strip-vault.stripprefix.prefixes=/vault"
+  - "traefik.http.routers.vault-app.middlewares=strip-vault"
+  - "traefik.http.services.vault-app.loadbalancer.server.port=8000"
+  # OAuth discovery routes: forward without stripping
+  - "traefik.http.routers.vault-wellknown.rule=Host(`mcp.example.com`) && (PathPrefix(`/.well-known/oauth-authorization-server`) || PathPrefix(`/.well-known/oauth-protected-resource/vault/mcp`))"
+  - "traefik.http.routers.vault-wellknown.service=vault-app"
 ```
+
+!!! note
+    This configuration requires that no other OAuth service claims `/.well-known/oauth-authorization-server` on this hostname. See [Shared-hostname limitation](#shared-hostname-limitation) below.
+
+### Shared-hostname limitation
+
+!!! warning "Shared-hostname subpath with native OIDC is not supported"
+    When multiple OAuth-capable services share a hostname (e.g., `mcp-auth-proxy` at the root and `markdown-vault-mcp` at `/vault`), native OIDC on a subpath does not work.
+
+    **Why:** FastMCP serves the OAuth authorization-server metadata at `/.well-known/oauth-authorization-server` (host root), regardless of the subpath in `BASE_URL`. The FastMCP codebase contains an RFC 8414 path-aware override (`OIDCProxy.get_well_known_routes()`) that would serve it at `/.well-known/oauth-authorization-server/vault`. However, this method is not wired into the route mounting flow and is effectively dead code.
+
+    The protected-resource metadata (`/.well-known/oauth-protected-resource/vault/mcp`) is correctly path-namespaced and does not collide. Only the authorization-server discovery route is the problem.
+
+    This works when `markdown-vault-mcp` is the **only** OAuth service on the hostname — the host-root `/.well-known/oauth-authorization-server` does not collide with anything. It breaks when another service already owns that route.
+
+**Recommendations for shared-hostname scenarios:**
+
+- **Dedicated hostname** (preferred): give `markdown-vault-mcp` its own hostname (e.g., `vault.example.com`) so discovery routes do not collide.
+- **External auth gateway**: use `mcp-auth-proxy` as a sidecar instead of native OIDC. The MCP server runs unauthenticated behind the proxy, and the proxy handles OAuth discovery at its own routes.
