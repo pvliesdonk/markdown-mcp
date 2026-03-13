@@ -53,12 +53,12 @@ volumes:
 
 | Container Path | Type | Purpose |
 |---------------|------|---------|
-| `/data/vault` | Bind mount | Your Markdown vault (from `MARKDOWN_VAULT_MCP_SOURCE_DIR`) |
+| `/data/vault` | Bind mount or named volume | Your Markdown vault; pre-created in the image for managed repo mode |
 | `/data/index` | Named volume | SQLite FTS5 index (persists across restarts) |
 | `/data/embeddings` | Named volume | Numpy embedding vectors |
 | `/data/fastembed` | Named volume | FastEmbed model cache (prevents re-downloads) |
 
-The index, embeddings, and FastEmbed cache volumes are automatically created on first run. The first startup triggers a full index build; subsequent starts only reindex changed files.
+All `/data/*` directories are pre-created and owned by the runtime user in the image. For managed repo mode (where the server clones a git repo on first start), `/data/vault` must be writable — this works automatically with named volumes or when UID/GID match the bind-mount owner. The first startup triggers a full index build; subsequent starts only reindex changed files.
 
 ## Traefik Reverse Proxy
 

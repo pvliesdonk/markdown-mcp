@@ -298,7 +298,9 @@ def create_server() -> FastMCP:
     """
     raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY")
     is_read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
-    raw_templates_folder = (os.environ.get(f"{_ENV_PREFIX}_TEMPLATES_FOLDER") or "").strip()
+    raw_templates_folder = (
+        os.environ.get(f"{_ENV_PREFIX}_TEMPLATES_FOLDER") or ""
+    ).strip()
     if raw_templates_folder:
         templates_folder = raw_templates_folder.replace("\\", "/").strip("/")
         templates_folder = templates_folder or "_templates"
@@ -903,7 +905,9 @@ def create_server() -> FastMCP:
         folders = await asyncio.to_thread(collection.list_folders)
         return json.dumps(folders)
 
-    @mcp.resource("toc://vault/{path}", mime_type="application/json", icons=_TOOL_ICONS["read"])
+    @mcp.resource(
+        "toc://vault/{path}", mime_type="application/json", icons=_TOOL_ICONS["read"]
+    )
     async def vault_toc(
         path: str,
         collection: Collection = Depends(get_collection),
@@ -965,7 +969,9 @@ def create_server() -> FastMCP:
     def create_from_template(template_name: str | None = None) -> str:
         """Create a new note by adapting a template from the templates folder."""
         template_hint = "None" if template_name is None else repr(template_name)
-        template_name_clean = (template_name or "").strip().replace("\\", "/").lstrip("/")
+        template_name_clean = (
+            (template_name or "").strip().replace("\\", "/").lstrip("/")
+        )
         if template_name_clean:
             raw_parts = PurePosixPath(template_name_clean).parts
             safe_parts = [part for part in raw_parts if part not in ("", ".", "..")]
