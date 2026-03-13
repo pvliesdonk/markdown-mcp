@@ -162,27 +162,39 @@ For managed mode, the token needs `repo` scope (or `contents: write` for fine-gr
 
 ## UID/GID Configuration
 
-The container runs as a non-root `appuser` (UID 1000 / GID 1000 by default). If the vault is owned by a different UID, reads will fail.
+The container runs as a non-root `appuser` (UID 1000 / GID 1000 by default). On startup, the entrypoint automatically fixes ownership of all `/data/*` directories before dropping privileges — so **named volumes work out of the box** regardless of how Docker initialised them.
 
-=== "Build-time (recommended)"
+This is the same entrypoint + `gosu` pattern used by the official PostgreSQL, Redis, and MySQL Docker images.
 
-    ```bash
-    docker compose build --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
-    ```
+### Runtime UID/GID override
 
-=== "Runtime override"
+To match a specific host user (e.g. for bind-mounted vaults), set `PUID` and `PGID`:
 
-    ```yaml
-    services:
-      markdown-vault-mcp:
-        user: "1001:1001"   # or "${APP_UID}:${APP_GID}" with .env
-    ```
+```yaml
+services:
+  markdown-vault-mcp:
+    environment:
+      PUID: 1001
+      PGID: 1001
+```
 
-=== "Fix host permissions"
+The entrypoint updates `appuser`'s UID/GID to the specified values and chowns `/data` accordingly.
 
-    ```bash
-    chown -R 1000:1000 /path/to/vault
-    ```
+### Build-time UID/GID (alternative for bind mounts)
+
+If you prefer to bake the UID/GID into the image:
+
+```bash
+docker compose build --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
+```
+
+### Fix host permissions (bind mounts only)
+
+For bind-mounted vaults where the host user doesn't match, fix host-side:
+
+```bash
+chown -R 1000:1000 /path/to/vault
+```
 
 ## Troubleshooting
 

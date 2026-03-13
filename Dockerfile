@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends git git-lfs \
+RUN apt-get update && apt-get install -y --no-install-recommends git git-lfs gosu \
     && rm -rf /var/lib/apt/lists/* \
     && git lfs install --system
 
@@ -32,13 +32,13 @@ RUN if [ "$APP_UID" -eq 0 ] || [ "$APP_GID" -eq 0 ]; then \
     && useradd -r --uid $APP_UID --gid $APP_GID --no-log-init -d /app appuser \
     && mkdir -p /data/vault /data/index /data/embeddings /data/fastembed \
     && chown -R appuser:appuser /app /data
-USER appuser
 
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
 
 VOLUME ["/data/vault", "/data/index", "/data/embeddings", "/data/fastembed"]
 
-ENTRYPOINT ["markdown-vault-mcp"]
-CMD ["serve", "--transport", "http"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["markdown-vault-mcp", "serve", "--transport", "http"]
