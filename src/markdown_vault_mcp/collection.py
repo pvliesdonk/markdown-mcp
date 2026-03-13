@@ -1050,10 +1050,12 @@ class Collection:
             # Empty index — fall through to build from scratch.
 
         rows = self._fts.list_notes()
+        num_notes = len(rows)
+        logger.info("build_embeddings: parsing %d notes into chunks", num_notes)
         texts: list[str] = []
         meta: list[dict] = []
 
-        for row in rows:
+        for i, row in enumerate(rows, 1):
             path = row["path"]
             title = row["title"]
             folder = row["folder"]
@@ -1075,6 +1077,13 @@ class Collection:
                         "content": chunk.content,
                     }
                 )
+            if i % 100 == 0 or i == num_notes:
+                logger.info(
+                    "build_embeddings: parsed %d/%d notes (%d chunks so far)",
+                    i,
+                    num_notes,
+                    len(texts),
+                )
 
         # Embed in bounded batches to avoid pathological memory allocation
         # (see issue #159 -- FastEmbed/ONNX can request >200 GB for a single
@@ -1084,10 +1093,10 @@ class Collection:
         for start in range(0, total, _EMBEDDING_BATCH_SIZE):
             end = min(start + _EMBEDDING_BATCH_SIZE, total)
             self._vectors.add(texts[start:end], meta[start:end])
-            logger.debug(
-                "build_embeddings: embedded chunks %d to %d of %d",
-                start,
-                end - 1,
+            logger.info(
+                "build_embeddings: embedded chunks %d–%d of %d",
+                start + 1,
+                end,
                 total,
             )
 
