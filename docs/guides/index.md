@@ -12,7 +12,8 @@ Step-by-step walkthroughs for common deployment scenarios. Each guide takes you 
 | Add semantic search to my vault | [Claude Desktop](claude-desktop.md#step-3-add-semantic-search) |
 | Run the server in a Docker container | [Docker](docker.md) |
 | Add git write support to a container | [Docker](docker.md#step-2-add-git-write-support) |
-| Protect my server with OIDC authentication | [Docker](docker.md#step-3-add-oidc-authentication) |
+| Protect my server with a bearer token | [Authentication](authentication.md#bearer-token) |
+| Protect my server with OIDC authentication | [Authentication](authentication.md#oidc) |
 | Access my vault from desktop, mobile, AND Claude | [Obsidian Everywhere](obsidian-everywhere.md) |
 | Use FastEmbed for local embeddings | [Embeddings](embeddings.md#fastembed) |
 | Use Ollama for embeddings (CPU-only) | [Embeddings](embeddings.md#ollama) |

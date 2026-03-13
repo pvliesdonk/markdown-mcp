@@ -158,128 +158,45 @@ Clients must include the `Authorization: Bearer your-secret-token` header in eve
 
 > **Tip:** Generate a random token with `openssl rand -hex 32`.
 
+For more details on bearer token auth (client usage, when to use it), see the [Authentication guide](authentication.md#bearer-token).
+
 ---
 
 ## Step 4: Add OIDC authentication
 
-**Goal:** Protect the HTTP endpoint with OIDC authentication using Authelia.
+**Goal:** Protect the HTTP endpoint with OIDC authentication (e.g., Authelia, Keycloak).
 
-**Prerequisites:** Step 1 (or Step 2) complete. An [Authelia](https://www.authelia.com/) instance running and accessible. A domain name with TLS (OIDC requires HTTPS).
+**Prerequisites:** Step 1 (or Step 2) complete. An OIDC provider running and accessible. A domain name with TLS (OIDC requires HTTPS).
 
-### Register the client in Authelia
+### Overview
 
-Add this to your Authelia `configuration.yml`:
+OIDC requires four environment variables added to your `.env`:
 
-```yaml
-identity_providers:
-  oidc:
-    clients:
-      - client_id: markdown-vault-mcp
-        client_secret: '$pbkdf2-sha512$...'   # authelia crypto hash generate
-        redirect_uris:
-          - https://mcp.example.com/auth/callback
-          - https://mcp.example.com/vault/auth/callback   # optional when mounted under /vault
-        grant_types: [authorization_code]
-        response_types: [code]
-        pkce_challenge_method: S256
-        scopes: [openid, profile, email]
-```
-
-Generate the client secret hash:
-
-```bash
-docker run --rm authelia/authelia:latest \
-  authelia crypto hash generate pbkdf2 --password 'your-client-secret'
-```
-
-Use the plain-text secret in your `.env` and the hashed version in Authelia's config.
-
-### Generate a JWT signing key
-
-```bash
-openssl rand -hex 32
-```
-
-Save the output — you'll need it in the next step.
-
-### Update the env file
-
-```bash hl_lines="3-9"
-# .env
-MARKDOWN_VAULT_MCP_SOURCE_DIR=/home/user/ObsidianVault
+```bash hl_lines="3-6"
+# .env (add to your existing config)
 MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com
 MARKDOWN_VAULT_MCP_OIDC_CONFIG_URL=https://auth.example.com/.well-known/openid-configuration
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_ID=markdown-vault-mcp
 MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET=your-client-secret
 MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY=your-64-char-hex-key
-MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES=openid,profile,email
-MARKDOWN_VAULT_MCP_READ_ONLY=true
-MARKDOWN_VAULT_MCP_SERVER_NAME=my-vault
-MARKDOWN_VAULT_MCP_EXCLUDE=.obsidian/**,.trash/**
 ```
-
-For subpath deployments with OIDC, the subpath goes in `BASE_URL` only — do not include it in `HTTP_PATH`:
-
-```bash
-MARKDOWN_VAULT_MCP_HTTP_PATH=/mcp
-MARKDOWN_VAULT_MCP_BASE_URL=https://mcp.example.com/vault
-```
-
-The reverse proxy must strip the `/vault` prefix before forwarding. See the [OIDC subpath deployment guide](../deployment/oidc.md#subpath-deployments) for the full Traefik configuration and known limitations.
 
 !!! danger "JWT signing key is required on Linux/Docker"
-    Without `OIDC_JWT_SIGNING_KEY`, FastMCP generates an ephemeral key that invalidates all tokens on restart. Always set a stable key in Docker deployments.
+    Without `OIDC_JWT_SIGNING_KEY`, FastMCP generates an ephemeral key that invalidates all tokens on restart. Generate one with `openssl rand -hex 32`.
 
-### Update Docker Compose for Traefik
+### Detailed setup
 
-Your `compose.yml` should have the Traefik labels and network configured. See the [Docker deployment reference](../deployment/docker.md#traefik-reverse-proxy) for the full compose file, or add these labels:
+For the full OIDC setup including provider registration, Traefik configuration, subpath deployments, and troubleshooting:
 
-```yaml
-services:
-  markdown-vault-mcp:
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.markdown-vault-mcp.rule=Host(`mcp.example.com`)"
-      - "traefik.http.routers.markdown-vault-mcp.tls.certresolver=letsencrypt"
-      - "traefik.http.services.markdown-vault-mcp.loadbalancer.server.port=8000"
-    networks:
-      - traefik
+- [Authentication guide — OIDC section](authentication.md#oidc) — overview and variable reference
+- [OIDC provider setup](oidc-providers.md) — step-by-step for Authelia, Keycloak, Google, GitHub
+- [OIDC deployment reference](../deployment/oidc.md) — Docker Compose, subpath config, architecture
 
-networks:
-  traefik:
-    external: true
-```
-
-For OIDC subpath deployments, the Traefik routing is different — the prefix must be stripped and OAuth discovery routes must be forwarded separately. See the [OIDC subpath deployment guide](../deployment/oidc.md#subpath-deployments) for the full configuration.
-
-### Restart and verify
+### Verify
 
 ```bash
 docker compose up -d
-```
-
-Test the OIDC flow (default non-subpath):
-
-1. Navigate to `https://mcp.example.com` in a browser
-2. You should be redirected to your Authelia login page
-3. After authentication, you should be redirected back with a valid session
-
-Callback URI for this setup:
-
-```text
-https://mcp.example.com/auth/callback
-```
-
-Subpath callback example:
-
-```text
-https://mcp.example.com/vault/auth/callback
-```
-
-Check the container logs for OIDC initialization:
-
-```bash
 docker compose logs markdown-vault-mcp --tail 20
 ```
 
-You should see no OIDC-related errors. If you see "invalid client" errors, verify the `client_id` and `redirect_uris` match between the `.env` and Authelia config.
+You should see no OIDC-related errors. Navigate to your server URL in a browser — you should be redirected to your OIDC provider's login page.

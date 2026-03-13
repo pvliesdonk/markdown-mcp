@@ -87,7 +87,7 @@ MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES=openid,profile,email
 markdown-vault-mcp serve --transport http --port 8000
 ```
 
-Or in Docker — see [Docker OIDC setup](docker.md#step-3-add-oidc-authentication).
+Or in Docker — see [Docker OIDC setup](docker.md#step-4-add-oidc-authentication).
 
 ### Verify
 
@@ -150,7 +150,7 @@ openssl rand -hex 32
 markdown-vault-mcp serve --transport http --port 8000
 ```
 
-Or in Docker — see [Docker OIDC setup](docker.md#step-3-add-oidc-authentication).
+Or in Docker — see [Docker OIDC setup](docker.md#step-4-add-oidc-authentication).
 
 ### Verify
 
@@ -212,7 +212,7 @@ openssl rand -hex 32
 markdown-vault-mcp serve --transport http --port 8000
 ```
 
-Or in Docker — see [Docker OIDC setup](docker.md#step-3-add-oidc-authentication).
+Or in Docker — see [Docker OIDC setup](docker.md#step-4-add-oidc-authentication).
 
 ### Verify
 

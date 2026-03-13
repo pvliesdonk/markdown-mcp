@@ -107,7 +107,7 @@ MARKDOWN_VAULT_MCP_GIT_COMMIT_EMAIL=noreply@markdown-vault-mcp
 
 ## Step 5: Protect with Authelia
 
-Use [OIDC Providers](oidc-providers.md#authelia) for provider-specific setup, then [Docker OIDC setup](docker.md#step-3-add-oidc-authentication) for container wiring.
+Use [OIDC Providers](oidc-providers.md#authelia) for provider-specific setup, then [Docker OIDC setup](docker.md#step-4-add-oidc-authentication) for container wiring.
 
 Target result:
 

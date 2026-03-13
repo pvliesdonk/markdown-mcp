@@ -116,6 +116,7 @@ nav:
       - Claude Desktop: guides/claude-desktop.md
       - Docker: guides/docker.md
       - Embeddings: guides/embeddings.md
+      - Authentication: guides/authentication.md
       - OIDC Providers: guides/oidc-providers.md
       - Obsidian Everywhere: guides/obsidian-everywhere.md
   - MCP Interface:
