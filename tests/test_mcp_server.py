@@ -1838,7 +1838,7 @@ class TestBearerAuthPrecedence:
 
     def test_bearer_wins_over_oidc(
         self,
-        vault_path: "Path",
+        vault_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -1853,9 +1853,11 @@ class TestBearerAuthPrecedence:
             monkeypatch.setenv(var, val)
 
         mock_cls = MagicMock()
-        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
-            with caplog.at_level(logging.WARNING):
-                server = create_server()
+        with (
+            patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls),
+            caplog.at_level(logging.WARNING),
+        ):
+            server = create_server()
 
         # Server must use bearer auth, not OIDC
         assert isinstance(server.auth, StaticTokenVerifier)
@@ -1863,7 +1865,7 @@ class TestBearerAuthPrecedence:
 
     def test_falls_through_to_oidc_when_no_bearer(
         self,
-        vault_path: "Path",
+        vault_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Without bearer token, OIDC is used if configured."""
@@ -1883,7 +1885,7 @@ class TestBearerAuthPrecedence:
 
     def test_no_auth_when_nothing_configured(
         self,
-        vault_path: "Path",
+        vault_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
