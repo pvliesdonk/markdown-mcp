@@ -71,14 +71,12 @@ volumes:
 
 **Volume mounts:**
 
-- `/data/vault` — your Markdown vault (bind-mounted from `MARKDOWN_VAULT_MCP_SOURCE_DIR`)
+- `/data/vault` — your Markdown vault (bind mount or named volume; pre-created in the image for managed repo mode)
 - `/data/index` — SQLite FTS5 index (Docker-managed named volume, persists across restarts)
 - `/data/embeddings` — numpy embedding vectors (Docker-managed named volume)
 - `/data/fastembed` — FastEmbed model cache (Docker-managed named volume)
 
-The index, embeddings, and FastEmbed cache volumes are automatically created on first run. The
-first startup triggers a full index build; subsequent starts only reindex
-changed files.
+All `/data/*` directories are pre-created and owned by the runtime user in the image. The first startup triggers a full index build; subsequent starts only reindex changed files.
 
 For a full list of environment variables, see the configuration reference in
 the README.
