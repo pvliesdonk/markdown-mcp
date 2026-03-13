@@ -186,7 +186,7 @@ labels:
   - "traefik.http.routers.vault-app.middlewares=strip-vault"
   - "traefik.http.services.vault-app.loadbalancer.server.port=8000"
   # OAuth discovery routes: forward without stripping
-  - "traefik.http.routers.vault-wellknown.rule=Host(`mcp.example.com`) && (PathPrefix(`/.well-known/oauth-authorization-server`) || PathPrefix(`/.well-known/oauth-protected-resource/vault`))"
+  - "traefik.http.routers.vault-wellknown.rule=Host(`mcp.example.com`) && (PathPrefix(`/.well-known/oauth-authorization-server`) || PathPrefix(`/.well-known/oauth-protected-resource/vault/mcp`))"
   - "traefik.http.routers.vault-wellknown.service=vault-app"
 ```
 
@@ -198,7 +198,7 @@ labels:
 !!! warning "Shared-hostname subpath with native OIDC is not supported"
     When multiple OAuth-capable services share a hostname (e.g., `mcp-auth-proxy` at the root and `markdown-vault-mcp` at `/vault`), native OIDC on a subpath does not work.
 
-    **Why:** FastMCP serves the OAuth authorization-server metadata at `/.well-known/oauth-authorization-server` (host root), regardless of the subpath in `BASE_URL`. FastMCP's codebase contains an RFC 8414 path-aware override (`OIDCProxy.get_well_known_routes()`) that would serve it at `/.well-known/oauth-authorization-server/vault` instead, but this method is not wired into the route mounting flow — it is effectively dead code.
+    **Why:** FastMCP serves the OAuth authorization-server metadata at `/.well-known/oauth-authorization-server` (host root), regardless of the subpath in `BASE_URL`. The FastMCP codebase contains an RFC 8414 path-aware override (`OIDCProxy.get_well_known_routes()`) that would serve it at `/.well-known/oauth-authorization-server/vault`. However, this method is not wired into the route mounting flow and is effectively dead code.
 
     The protected-resource metadata (`/.well-known/oauth-protected-resource/vault/mcp`) is correctly path-namespaced and does not collide. Only the authorization-server discovery route is the problem.
 
