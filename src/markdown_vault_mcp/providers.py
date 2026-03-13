@@ -334,7 +334,9 @@ class FastEmbedProvider(EmbeddingProvider):
         """
         vectors = [
             vector.tolist()
-            for vector in self._model.embed(texts, batch_size=_FASTEMBED_ONNX_BATCH_SIZE)
+            for vector in self._model.embed(
+                texts, batch_size=_FASTEMBED_ONNX_BATCH_SIZE
+            )
         ]
         if self._dimension is None and vectors:
             self._dimension = len(vectors[0])
