@@ -55,6 +55,9 @@ jobs:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     continue-on-error: ${{ matrix.experimental || false }}
+    permissions:
+      contents: read
+      statuses: write
     strategy:
       fail-fast: false
       matrix:
@@ -90,8 +93,39 @@ jobs:
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
+          override_pr: ${{ github.event.pull_request.number }}
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Post codecov/patch status for non-Python PRs
+        if: matrix.python-version == '3.13' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const hasPythonSourceChanges = files.some(
+              f => f.filename.endsWith('.py')
+            );
+            if (!hasPythonSourceChanges) {
+              const headSha = context.payload.pull_request.head.sha;
+              core.info(`No Python source changes — posting codecov/patch: success to ${headSha}`);
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: headSha,
+                state: 'success',
+                context: 'codecov/patch',
+                description: 'Coverage not affected',
+                target_url: 'https://app.codecov.io/gh/pvliesdonk/markdown-vault-mcp',
+              });
+            } else {
+              core.info('Python source changes detected — Codecov will post patch status');
+            }
 
   audit:
     name: Dependency Audit
