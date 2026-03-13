@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 from markdown_vault_mcp.collection import Collection
-from markdown_vault_mcp.config import _ENV_PREFIX, _parse_bool, load_config
+from markdown_vault_mcp.config import _ENV_PREFIX, load_config
 
 # ---------------------------------------------------------------------------
 # Tool icons (Lucide SVGs as data URIs)
@@ -296,16 +296,9 @@ def create_server() -> FastMCP:
     Returns:
         A fully configured :class:`~fastmcp.FastMCP` instance ready to run.
     """
-    raw_read_only = os.environ.get(f"{_ENV_PREFIX}_READ_ONLY")
-    is_read_only = _parse_bool(raw_read_only) if raw_read_only is not None else True
-    raw_templates_folder = (
-        os.environ.get(f"{_ENV_PREFIX}_TEMPLATES_FOLDER") or ""
-    ).strip()
-    if raw_templates_folder:
-        templates_folder = raw_templates_folder.replace("\\", "/").strip("/")
-        templates_folder = templates_folder or "_templates"
-    else:
-        templates_folder = "_templates"
+    config_snapshot = load_config()
+    templates_folder = config_snapshot.templates_folder
+    is_read_only = config_snapshot.read_only
 
     server_name = os.environ.get(f"{_ENV_PREFIX}_SERVER_NAME", "markdown-vault-mcp")
     default_instructions = _build_default_instructions(read_only=is_read_only)
@@ -973,9 +966,16 @@ def create_server() -> FastMCP:
             (template_name or "").strip().replace("\\", "/").lstrip("/")
         )
         if template_name_clean:
-            raw_parts = PurePosixPath(template_name_clean).parts
-            safe_parts = [part for part in raw_parts if part not in ("", ".", "..")]
-            template_name_clean = str(PurePosixPath(*safe_parts)) if safe_parts else ""
+            resolved: list[str] = []
+            for part in PurePosixPath(template_name_clean).parts:
+                if part in ("", "."):
+                    continue
+                elif part == "..":
+                    if resolved:
+                        resolved.pop()
+                else:
+                    resolved.append(part)
+            template_name_clean = str(PurePosixPath(*resolved)) if resolved else ""
         template_path = (
             str(PurePosixPath(templates_folder) / template_name_clean)
             if template_name_clean
