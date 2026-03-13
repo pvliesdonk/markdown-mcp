@@ -7,6 +7,7 @@ verifying end-to-end behaviour through the full Collection stack.
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -639,6 +640,7 @@ _OIDC_VARS = (
     "MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY",
     "MARKDOWN_VAULT_MCP_OIDC_AUDIENCE",
     "MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES",
+    "MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN",
 )
 
 _OIDC_REQUIRED = {
@@ -884,6 +886,129 @@ class TestBuildOidcAuth:
         assert not any(
             "JWT_SIGNING_KEY" in r.message and r.levelname == "WARNING"
             for r in caplog.records
+        )
+
+    def test_default_verify_id_token_is_true(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """By default, verify_id_token=True (works with opaque access tokens)."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["verify_id_token"] is True
+
+    def test_verify_access_token_disables_verify_id_token(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """OIDC_VERIFY_ACCESS_TOKEN=true reverts to access-token verification."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN", "true")
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["verify_id_token"] is False
+
+    @pytest.mark.parametrize("value", ["false", "0", "no", ""])
+    def test_verify_access_token_falsy_keeps_id_token_default(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        """Falsy values for OIDC_VERIFY_ACCESS_TOKEN keep verify_id_token=True."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN", value)
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert mock_cls.call_args.kwargs["verify_id_token"] is True
+
+    def test_verify_id_token_log_message(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Default config logs that id_token verification is active."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with (
+            patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls),
+            caplog.at_level(logging.INFO, logger="markdown_vault_mcp.mcp_server"),
+        ):
+            _build_oidc_auth()
+
+        assert any("verifying upstream id_token" in r.message for r in caplog.records)
+
+    def test_verify_access_token_log_message(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """OIDC_VERIFY_ACCESS_TOKEN=true logs access-token verification mode."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN", "true")
+
+        mock_cls = MagicMock()
+        with (
+            patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls),
+            caplog.at_level(logging.INFO, logger="markdown_vault_mcp.mcp_server"),
+        ):
+            _build_oidc_auth()
+
+        assert any(
+            "verifying upstream access_token as JWT" in r.message
+            for r in caplog.records
+        )
+
+    def test_warning_when_openid_scope_missing_with_verify_id_token(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Warn when verify_id_token=True but 'openid' is not in scopes."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES", "profile,email")
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert any(
+            "openid" in r.message and r.levelname == "WARNING" for r in caplog.records
+        )
+
+    def test_no_warning_when_openid_scope_present(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No warning when 'openid' is in scopes (default)."""
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls):
+            _build_oidc_auth()
+
+        assert not any(
+            "openid" in r.message and r.levelname == "WARNING" for r in caplog.records
         )
 
 

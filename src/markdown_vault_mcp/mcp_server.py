@@ -238,6 +238,13 @@ def _build_oidc_auth() -> Any:
     ``OIDC_CLIENT_SECRET`` must be set to enable authentication.  If any is
     absent the server starts unauthenticated.
 
+    By default the proxy verifies the upstream ``id_token`` (a standard JWT
+    per OIDC Core) instead of the ``access_token``.  This works with every
+    OIDC provider — including those that issue opaque access tokens (e.g.
+    Authelia).  Set ``MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true`` to revert to
+    access-token verification when you know the provider issues JWT access
+    tokens and you need audience-claim validation on that token.
+
     Returns:
         A configured :class:`~fastmcp.server.auth.oidc_proxy.OIDCProxy` instance,
         or ``None`` when authentication is disabled.
@@ -261,11 +268,38 @@ def _build_oidc_auth() -> Any:
         "openid"
     ]
 
+    # Default: verify id_token (works with all providers, including opaque
+    # access-token issuers like Authelia).  Opt out with
+    # MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true when you need direct
+    # JWT access-token audience validation.
+    verify_access_token = os.environ.get(
+        f"{_ENV_PREFIX}_OIDC_VERIFY_ACCESS_TOKEN", ""
+    ).strip().lower() in ("true", "1", "yes")
+    verify_id_token = not verify_access_token
+
+    if verify_id_token and "openid" not in required_scopes:
+        logger.warning(
+            "OIDC: verify_id_token=True requires the 'openid' scope but it is "
+            "not in MARKDOWN_VAULT_MCP_OIDC_REQUIRED_SCOPES — the id_token may "
+            "be absent from the token response; add 'openid' to the scope list "
+            "or set MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true"
+        )
+
     if jwt_signing_key is None and sys.platform.startswith("linux"):
         logger.warning(
             "OIDC: MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY is not set — "
             "the JWT signing key is ephemeral on Linux; all clients must "
             "re-authenticate after every server restart"
+        )
+
+    if verify_id_token:
+        logger.info(
+            "OIDC: verifying upstream id_token (works with opaque access tokens)"
+        )
+    else:
+        logger.info(
+            "OIDC: verifying upstream access_token as JWT "
+            "(MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true)"
         )
 
     return OIDCProxy(
@@ -276,6 +310,7 @@ def _build_oidc_auth() -> Any:
         audience=audience,
         required_scopes=required_scopes,
         jwt_signing_key=jwt_signing_key,
+        verify_id_token=verify_id_token,
     )
 
 
