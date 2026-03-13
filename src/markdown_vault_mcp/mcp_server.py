@@ -238,6 +238,28 @@ def _build_default_instructions(*, read_only: bool) -> str:
     )
 
 
+def _build_bearer_auth() -> Any:
+    """Build a StaticTokenVerifier from ``MARKDOWN_VAULT_MCP_BEARER_TOKEN``.
+
+    When the env var is set (non-empty), returns a
+    :class:`~fastmcp.server.auth.StaticTokenVerifier` that
+    validates ``Authorization: Bearer <token>`` headers against the
+    configured static token.
+
+    Returns:
+        A configured ``StaticTokenVerifier``, or ``None`` when the env var
+        is absent or empty.
+    """
+    token = os.environ.get(f"{_ENV_PREFIX}_BEARER_TOKEN", "").strip()
+    if not token:
+        return None
+    from fastmcp.server.auth import StaticTokenVerifier
+
+    return StaticTokenVerifier(
+        tokens={token: {"client_id": "bearer", "scopes": ["read", "write"]}}
+    )
+
+
 def _build_oidc_auth() -> Any:
     """Build an OIDCProxy auth provider from environment variables, or return None.
 
@@ -346,13 +368,22 @@ def create_server() -> FastMCP:
     default_instructions = _build_default_instructions(read_only=is_read_only)
     instructions = os.environ.get(f"{_ENV_PREFIX}_INSTRUCTIONS", default_instructions)
 
-    auth = _build_oidc_auth()
-    if auth is None:
-        logger.info(
-            "OIDC auth not configured — server accepts unauthenticated connections"
-        )
-    else:
+    bearer_auth = _build_bearer_auth()
+    oidc_auth = _build_oidc_auth()
+
+    if bearer_auth:
+        auth = bearer_auth
+        logger.info("Bearer token auth enabled")
+        if oidc_auth:
+            logger.warning(
+                "Both BEARER_TOKEN and OIDC are configured — using bearer token auth"
+            )
+    elif oidc_auth:
+        auth = oidc_auth
         logger.info("OIDC auth enabled")
+    else:
+        auth = None
+        logger.info("No auth configured — server accepts unauthenticated connections")
 
     mcp = FastMCP(
         server_name,
