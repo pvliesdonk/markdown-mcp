@@ -241,7 +241,7 @@ def _build_oidc_auth() -> Any:
     By default the proxy verifies the upstream ``id_token`` (a standard JWT
     per OIDC Core) instead of the ``access_token``.  This works with every
     OIDC provider — including those that issue opaque access tokens (e.g.
-    Authelia).  Set ``OIDC_VERIFY_ACCESS_TOKEN=true`` to revert to
+    Authelia).  Set ``MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true`` to revert to
     access-token verification when you know the provider issues JWT access
     tokens and you need audience-claim validation on that token.
 
@@ -269,15 +269,13 @@ def _build_oidc_auth() -> Any:
     ]
 
     # Default: verify id_token (works with all providers, including opaque
-    # access-token issuers like Authelia).  Opt out with OIDC_VERIFY_ACCESS_TOKEN=true
-    # when you need direct JWT access-token audience validation.
-    verify_at = (
-        os.environ.get(f"{_ENV_PREFIX}_OIDC_VERIFY_ACCESS_TOKEN", "")
-        .strip()
-        .lower()
-        in ("true", "1", "yes")
-    )
-    verify_id_token = not verify_at
+    # access-token issuers like Authelia).  Opt out with
+    # MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true when you need direct
+    # JWT access-token audience validation.
+    verify_access_token = os.environ.get(
+        f"{_ENV_PREFIX}_OIDC_VERIFY_ACCESS_TOKEN", ""
+    ).strip().lower() in ("true", "1", "yes")
+    verify_id_token = not verify_access_token
 
     if jwt_signing_key is None and sys.platform.startswith("linux"):
         logger.warning(
@@ -293,7 +291,7 @@ def _build_oidc_auth() -> Any:
     else:
         logger.info(
             "OIDC: verifying upstream access_token as JWT "
-            "(OIDC_VERIFY_ACCESS_TOKEN=true)"
+            "(MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true)"
         )
 
     return OIDCProxy(
