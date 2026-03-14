@@ -22,6 +22,11 @@ if [ "$(id -u)" = '0' ]; then
         usermod -o -u "$TARGET_UID" -g "$TARGET_GID" appuser
     fi
 
+    # Ensure state subdirectories exist inside the volume.
+    # Dockerfile seeds these on first use, but externally-created or
+    # pre-existing volumes may be empty.
+    mkdir -p /data/state/embeddings /data/state/fastembed /data/state/fastmcp
+
     # Fix ownership — named volumes may arrive root-owned.
     # Only recurse into directories still owned by root, to avoid
     # touching bind-mounted vault files on every restart.
