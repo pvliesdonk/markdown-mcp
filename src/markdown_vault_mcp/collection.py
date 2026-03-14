@@ -12,6 +12,7 @@ import fnmatch
 import json
 import logging
 import mimetypes
+import queue
 import shutil
 import threading
 from pathlib import Path
@@ -72,6 +73,10 @@ _RRF_K = 60
 # build_embeddings() — FastEmbed/ONNX can allocate pathologically large buffers
 # when the entire corpus is sent in one batch (see issue #159).
 _EMBEDDING_BATCH_SIZE = 64
+
+# Seconds between automatic background flushes of dirty embeddings to disk.
+# Write operations mark documents as dirty; the flush re-embeds them in bulk.
+_EMBEDDING_FLUSH_INTERVAL = 30
 
 # Default set of allowed attachment extensions (without leading dot, lower-case).
 # .md is always excluded — it is always handled as a markdown note.
@@ -269,6 +274,21 @@ class Collection:
         # this lock again for its mutation phase.
         self._write_lock = threading.RLock()
 
+        # Deferred embedding updates (issue #175).  Write operations add
+        # document paths here instead of re-embedding inline.  A background
+        # timer flushes the set periodically; semantic_search() and close()
+        # flush synchronously.
+        self._dirty_embeddings: set[str] = set()
+        self._embedding_flush_timer: threading.Timer | None = None
+        self._embedding_flush_lock = threading.Lock()
+
+        # Deferred write callback queue (issue #175).  Git commit (on_write
+        # callback) runs in a background worker thread so write methods
+        # return immediately after the FTS update.
+        self._callback_queue: queue.Queue[tuple[Path, str, str] | None] = queue.Queue()
+        self._callback_worker: threading.Thread | None = None
+        self._callback_worker_lock = threading.Lock()
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -318,10 +338,23 @@ class Collection:
     def close(self) -> None:
         """Release resources held by the collection.
 
-        Closes the SQLite connection and, if the ``on_write`` callback
-        has a ``close()`` method (e.g. :class:`~markdown_vault_mcp.git.GitWriteStrategy`),
-        calls it to flush pending git operations.
+        Flushes deferred embeddings and pending write callbacks, then
+        closes the SQLite connection and git strategy.
         """
+        # 1. Flush any deferred embedding updates.
+        self._flush_dirty_embeddings()
+
+        # 2. Drain the write-callback queue (git commits).
+        if self._callback_worker is not None and self._callback_worker.is_alive():
+            self._callback_queue.put(None)  # sentinel
+            self._callback_worker.join(timeout=30)
+            if self._callback_worker.is_alive():
+                logger.warning(
+                    "Write-callback worker did not finish within 30 s; "
+                    "pending git commits may be lost."
+                )
+
+        # 3. Close git strategy (flush push, etc.).
         if self._git_strategy is not None:
             self._git_strategy.close()
         if (
@@ -330,6 +363,8 @@ class Collection:
             and hasattr(self._on_write, "close")
         ):
             self._on_write.close()  # type: ignore[union-attr]
+
+        # 4. Close SQLite.
         self._fts.close()
 
     # ------------------------------------------------------------------
@@ -466,6 +501,8 @@ class Collection:
         filters: dict[str, str] | None = None,
         folder: str | None = None,
     ) -> list[SearchResult]:
+        # Flush deferred embedding updates so results are consistent.
+        self._flush_dirty_embeddings()
         vectors = self._load_vectors()
         # Fetch extra candidates so post-filtering still yields *limit* results.
         candidate_limit = max(limit * 3, 30) if (folder or filters) else limit
@@ -540,6 +577,9 @@ class Collection:
         """
         # Fetch more candidates than needed so RRF has enough to rank.
         candidate_limit = max(limit * 2, 20)
+
+        # Flush deferred embedding updates so results are consistent.
+        self._flush_dirty_embeddings()
 
         fts_results = self._fts.search(
             query, limit=candidate_limit, filters=filters, folder=folder
@@ -1335,31 +1375,129 @@ class Collection:
         return abs_path
 
     def _update_vector_index(self, note: ParsedNote) -> None:
-        """Update the vector index for a single document.
+        """Mark a document for deferred embedding update.
 
-        Deletes existing entries for the document path and re-adds
-        chunks if the vector index is active.
+        The actual re-embedding and save happen during the next flush
+        (periodic timer, semantic search, or close).
 
         Args:
             note: Parsed document to index.
         """
-        if self._vectors is None or self._embeddings_path is None:
+        if self._embeddings_path is None or self._embedding_provider is None:
             return
-        self._vectors.delete_by_path(note.path)
-        texts = [c.content for c in note.chunks]
-        meta = [
-            {
-                "path": note.path,
-                "title": note.title,
-                "folder": _derive_folder(note.path),
-                "heading": c.heading,
-                "content": c.content,
-            }
-            for c in note.chunks
-        ]
-        if texts:
-            self._vectors.add(texts, meta)
-        self._vectors.save(self._embeddings_path)
+        with self._embedding_flush_lock:
+            self._dirty_embeddings.add(note.path)
+        self._schedule_embedding_flush()
+
+    def _schedule_embedding_flush(self) -> None:
+        """Schedule a deferred flush of dirty embeddings."""
+        with self._embedding_flush_lock:
+            if self._embedding_flush_timer is not None:
+                self._embedding_flush_timer.cancel()
+            self._embedding_flush_timer = threading.Timer(
+                _EMBEDDING_FLUSH_INTERVAL,
+                self._flush_dirty_embeddings,
+            )
+            self._embedding_flush_timer.daemon = True
+            self._embedding_flush_timer.start()
+
+    def _flush_dirty_embeddings(self) -> None:
+        """Re-embed all dirty documents and save the vector index once.
+
+        Called by the periodic timer, before semantic search, and on close.
+        Thread-safe: serialised by ``_embedding_flush_lock``.
+        """
+        if self._embeddings_path is None or self._embedding_provider is None:
+            return
+
+        with self._embedding_flush_lock:
+            # Cancel pending timer (we're flushing now).
+            if self._embedding_flush_timer is not None:
+                self._embedding_flush_timer.cancel()
+                self._embedding_flush_timer = None
+
+            # Atomically swap the dirty set.
+            if not self._dirty_embeddings:
+                return
+            paths = self._dirty_embeddings.copy()
+            self._dirty_embeddings.clear()
+
+        # Mutate vector index under _write_lock to prevent races with
+        # reindex(), which also modifies self._vectors under _write_lock.
+        with self._write_lock:
+            vectors = self._load_vectors()
+
+            for path in paths:
+                vectors.delete_by_path(path)
+                abs_path = self._source_dir / path
+                if abs_path.is_file() and path.endswith(".md"):
+                    try:
+                        note = parse_note(
+                            abs_path, self._source_dir, self._chunk_strategy
+                        )
+                        texts = [c.content for c in note.chunks]
+                        meta = [
+                            {
+                                "path": note.path,
+                                "title": note.title,
+                                "folder": _derive_folder(note.path),
+                                "heading": c.heading,
+                                "content": c.content,
+                            }
+                            for c in note.chunks
+                        ]
+                        if texts:
+                            vectors.add(texts, meta)
+                    except (UnicodeDecodeError, OSError) as exc:
+                        logger.warning(
+                            "Deferred embedding failed for %s: %s", path, exc
+                        )
+
+            vectors.save(self._embeddings_path)
+            logger.debug("Flushed deferred embeddings for %d paths", len(paths))
+
+    def _ensure_callback_worker(self) -> None:
+        """Start the background write-callback worker if not running."""
+        with self._callback_worker_lock:
+            if self._callback_worker is not None and self._callback_worker.is_alive():
+                return
+
+            def _worker() -> None:
+                while True:
+                    item = self._callback_queue.get()
+                    if item is None:
+                        break
+                    abs_path, content, operation = item
+                    try:
+                        if self._on_write is None:
+                            logger.error(
+                                "Write callback is None in worker; dropping %s (%s)",
+                                abs_path,
+                                operation,
+                            )
+                            continue
+                        self._on_write(abs_path, content, operation)
+                    except Exception:
+                        logger.error(
+                            "Write callback failed for %s (%s)",
+                            abs_path,
+                            operation,
+                            exc_info=True,
+                        )
+
+            self._callback_worker = threading.Thread(
+                target=_worker, daemon=True, name="write-callback"
+            )
+            self._callback_worker.start()
+
+    def _fire_write_callback(
+        self, abs_path: Path, content: str, operation: str
+    ) -> None:
+        """Submit a write callback to the background worker thread."""
+        if self._on_write is None:
+            return
+        self._ensure_callback_worker()
+        self._callback_queue.put((abs_path, content, operation))
 
     def read_attachment(self, path: str) -> AttachmentContent:
         """Read the binary content of a non-.md attachment.
@@ -1459,8 +1597,7 @@ class Collection:
             abs_path.write_bytes(content)
             result = WriteResult(path=path, created=created)
 
-        if self._on_write is not None:
-            self._on_write(abs_path, "", "write")
+        self._fire_write_callback(abs_path, "", "write")
 
         return result
 
@@ -1530,14 +1667,13 @@ class Collection:
             note = parse_note(abs_path, self._source_dir, self._chunk_strategy)
             self._fts.upsert_note(note)
 
-            # Update vector index if active.
+            # Mark for deferred embedding update.
             self._update_vector_index(note)
 
             result = WriteResult(path=path, created=created)
 
-        # Trigger callback outside lock to prevent deadlock.
-        if self._on_write is not None:
-            self._on_write(abs_path, file_content, "write")
+        # Fire git callback in background thread.
+        self._fire_write_callback(abs_path, file_content, "write")
 
         return result
 
@@ -1606,12 +1742,11 @@ class Collection:
             note = parse_note(abs_path, self._source_dir, self._chunk_strategy)
             self._fts.upsert_note(note)
 
-            # Update vector index if active.
+            # Mark for deferred embedding update.
             self._update_vector_index(note)
 
-        # Trigger callback outside lock to prevent deadlock.
-        if self._on_write is not None:
-            self._on_write(abs_path, new_content, "edit")
+        # Fire git callback in background thread.
+        self._fire_write_callback(abs_path, new_content, "edit")
 
         return EditResult(path=path, replacements=1)
 
@@ -1656,9 +1791,14 @@ class Collection:
                         )
                 abs_path.unlink()
                 self._fts.delete_by_path(path)
-                if self._vectors is not None and self._embeddings_path is not None:
-                    self._vectors.delete_by_path(path)
-                    self._vectors.save(self._embeddings_path)
+                # Mark for deferred vector index cleanup.
+                if (
+                    self._embeddings_path is not None
+                    and self._embedding_provider is not None
+                ):
+                    with self._embedding_flush_lock:
+                        self._dirty_embeddings.add(path)
+                    self._schedule_embedding_flush()
             else:
                 abs_path = self._validate_attachment_path(path)
                 if not abs_path.is_file():
@@ -1671,9 +1811,8 @@ class Collection:
                         )
                 abs_path.unlink()
 
-        # Trigger callback outside lock to prevent deadlock.
-        if self._on_write is not None:
-            self._on_write(abs_path, "", "delete")
+        # Fire git callback in background thread.
+        self._fire_write_callback(abs_path, "", "delete")
 
         return DeleteResult(path=path)
 
@@ -1730,12 +1869,20 @@ class Collection:
                 shutil.move(str(old_abs), str(new_abs))
 
                 self._fts.delete_by_path(old_path)
-                if self._vectors is not None:
-                    self._vectors.delete_by_path(old_path)
 
                 note = parse_note(new_abs, self._source_dir, self._chunk_strategy)
                 self._fts.upsert_note(note)
-                self._update_vector_index(note)
+
+                # Mark both paths for deferred vector update: old_path
+                # entries are deleted (file gone), new_path re-embedded.
+                if (
+                    self._embeddings_path is not None
+                    and self._embedding_provider is not None
+                ):
+                    with self._embedding_flush_lock:
+                        self._dirty_embeddings.add(old_path)
+                        self._dirty_embeddings.add(note.path)
+                    self._schedule_embedding_flush()
 
                 callback_content = new_abs.read_text(encoding="utf-8")
             else:
@@ -1758,8 +1905,7 @@ class Collection:
 
                 callback_content = ""
 
-        # Trigger callback outside lock to prevent deadlock.
-        if self._on_write is not None:
-            self._on_write(new_abs, callback_content, "rename")
+        # Fire git callback in background thread.
+        self._fire_write_callback(new_abs, callback_content, "rename")
 
         return RenameResult(old_path=old_path, new_path=new_path)

@@ -642,6 +642,7 @@ class TestWrite:
         col.build_index()
 
         col.write("cb_test.md", "# Callback\n\nTest.\n")
+        col.close()  # drain deferred callback queue
 
         assert len(calls) == 1
         path, content, operation = calls[0]
@@ -768,6 +769,7 @@ class TestEdit:
         col.build_index()
 
         col.edit("simple.md", "Simple Document", "Modified Document")
+        col.close()  # drain deferred callback queue
 
         assert len(calls) == 1
         _, _, operation = calls[0]
@@ -840,6 +842,7 @@ class TestDelete:
         col.build_index()
 
         col.delete("simple.md")
+        col.close()  # drain deferred callback queue
 
         assert len(calls) == 1
         path, content, operation = calls[0]
@@ -908,6 +911,7 @@ class TestRename:
         col.build_index()
 
         col.rename("simple.md", "moved.md")
+        col.close()  # drain deferred callback queue
 
         assert len(calls) == 1
         path, content, operation = calls[0]
@@ -1360,6 +1364,7 @@ class TestWriteAttachment:
             on_write=lambda *args: calls.append(args),
         )
         col.write_attachment("assets/cb.pdf", b"callback test")
+        col.close()  # drain deferred callback queue
 
         assert len(calls) == 1
         path, content, operation = calls[0]
@@ -1493,6 +1498,7 @@ class TestDeleteAttachment:
         )
         col.build_index()
         col.delete("assets/report.pdf")
+        col.close()  # drain deferred callback queue
 
         assert len(calls) == 1
         _, _, operation = calls[0]
@@ -2931,3 +2937,92 @@ class TestOptimisticConcurrency:
         # Now the stale etag should fail.
         with pytest.raises(ConcurrentModificationError):
             writable.write("simple.md", "# Another write\n", if_match=stale_etag)
+
+
+# ---------------------------------------------------------------------------
+# Deferred embedding and callback tests (issue #175)
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredEmbeddings:
+    """Tests for the deferred embedding update mechanism."""
+
+    def test_dirty_docs_flushed_on_semantic_search(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """Dirty documents are re-embedded when semantic_search is called."""
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=tmp_path / "embeddings",
+            embedding_provider=mock_provider,
+            read_only=False,
+        )
+        col.build_index()
+        col.build_embeddings()
+
+        col.write(
+            "deferred_doc.md",
+            "# Deferred Embedding\n\nUniqueContentForTest.\n",
+        )
+        # The dirty set should contain this path.
+        assert "deferred_doc.md" in col._dirty_embeddings
+
+        # Semantic search triggers flush.
+        results = col.search("UniqueContentForTest", mode="semantic")
+        paths = [r.path for r in results]
+        assert "deferred_doc.md" in paths
+        # Dirty set should now be empty.
+        assert len(col._dirty_embeddings) == 0
+
+    def test_dirty_docs_flushed_on_close(
+        self,
+        vault_path: Path,
+        tmp_path: Path,
+        mock_provider: MockEmbeddingProvider,
+    ) -> None:
+        """Dirty documents are re-embedded when close() is called."""
+        embeddings_path = tmp_path / "embeddings"
+        col = Collection(
+            source_dir=vault_path,
+            embeddings_path=embeddings_path,
+            embedding_provider=mock_provider,
+            read_only=False,
+        )
+        col.build_index()
+        col.build_embeddings()
+
+        col.write(
+            "close_flush.md",
+            "# Close Flush\n\nContent to be flushed on close.\n",
+        )
+        assert "close_flush.md" in col._dirty_embeddings
+
+        col.close()
+        assert len(col._dirty_embeddings) == 0
+
+    def test_git_callback_fires_eventually(self, vault_path: Path) -> None:
+        """Git callback fires in the background after write returns."""
+        import threading
+
+        event = threading.Event()
+        calls: list = []
+
+        def slow_callback(*args: object) -> None:
+            calls.append(args)
+            event.set()
+
+        col = _make_collection(vault_path, read_only=False, on_write=slow_callback)
+        col.build_index()
+
+        col.write("bg_callback.md", "# Background\n\nTest.\n")
+
+        # Callback hasn't fired yet (it's in a background thread).
+        # Wait for it to complete.
+        event.wait(timeout=5)
+        assert len(calls) == 1
+        _, _, operation = calls[0]
+        assert operation == "write"
+        col.close()

@@ -279,20 +279,33 @@ treats as complete on the next startup.
 ### Thread Safety
 
 `Collection` serialises all write operations with a `threading.Lock`. The lock
-is held for the duration of each write (disk write + index update), then
-released **before** the `on_write` callback fires.
+is held for the duration of each write (disk write + FTS index update), then
+released **before** deferred operations are submitted.
 
-This ordering is intentional: the callback may perform slow I/O (e.g. a git
-push) and must not block concurrent writers. The contract is:
+**Deferred operations** (issue #175): both embedding re-computation and the
+`on_write` callback (git commit) are deferred to background threads so write
+methods return immediately after the file write + FTS update (~5ms total
+instead of seconds). Specifically:
+
+- **Embedding updates**: modified document paths are added to a dirty set.
+  A background timer flushes the set every 30 seconds, re-embedding all dirty
+  documents and saving the `.npy` file once per batch. The flush also runs
+  synchronously before semantic/hybrid search (to ensure consistent results)
+  and on `close()` (to prevent data loss).
+- **`on_write` callback** (git commit): submitted to a background worker
+  thread via a queue. The `GitWriteStrategy._lock` preserves commit ordering.
+  The queue is drained on `close()`.
+
+The contract is:
 
 - Concurrent reads are safe without locking.
 - Concurrent writes are serialised.
 - `reindex()` acquires the write lock for its mutation phase (FTS upserts,
   vector updates, tracker save). The filesystem scan phase runs outside the
   lock to minimise lock hold time.
-- The `on_write` callback fires **outside the lock** — it must not itself call
-  write methods on the same Collection instance (deadlock).
-- Callbacks must not raise; exceptions are the callback's responsibility.
+- The `on_write` callback fires in a **background thread** — it must not
+  itself call write methods on the same Collection instance (deadlock).
+- Callbacks must not raise; exceptions are logged and swallowed.
 
 #### Optimistic Concurrency (`if_match`)
 
@@ -331,12 +344,12 @@ resolved path escapes `source_dir`, it returns `None` instead of raising.
 
 `Collection.close()` must be called on shutdown to release resources:
 
-1. Calls `stop()` to halt the background pull loop thread (if running).
-2. Duck-types on `on_write`: if the callback has a `close()` method, calls it (e.g. `GitWriteStrategy.close()` flushes and pushes pending commits).
-3. Closes the SQLite database connection.
+1. Flushes any deferred embedding updates (re-embeds dirty documents, saves `.npy`).
+2. Drains the background write-callback queue (waits for pending git commits).
+3. Closes the `GitWriteStrategy` (flushes and pushes pending commits).
+4. Closes the SQLite database connection.
 
-This enables `GitWriteStrategy` to flush and push any pending commits before
-the process exits. The full lifecycle contract is:
+This ensures no work is lost on shutdown. The full lifecycle contract is:
 
 ```
 Collection(...)
