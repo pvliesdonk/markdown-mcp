@@ -490,7 +490,10 @@ class FTSIndex:
         params: list[object] = [query, *folder_params, *tag_params, limit]
         logger.debug(
             "FTS search: query=%r folder=%r filters=%r limit=%d",
-            query, folder, filters, limit,
+            query,
+            folder,
+            filters,
+            limit,
         )
         cur = self._conn.execute(sql, params)
         rows = cur.fetchall()

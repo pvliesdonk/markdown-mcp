@@ -121,7 +121,8 @@ def _cmd_index(args: argparse.Namespace) -> None:
     stats = collection.build_index(force=args.force)
     logger.info(
         "Indexed %d documents, %d chunks",
-        stats.documents_indexed, stats.chunks_indexed,
+        stats.documents_indexed,
+        stats.chunks_indexed,
     )
     print(f"Indexed {stats.documents_indexed} documents, {stats.chunks_indexed} chunks")
 
@@ -138,7 +139,9 @@ def _cmd_search(args: argparse.Namespace) -> None:
     )
     logger.info(
         "Search complete: %d results for query=%r mode=%s",
-        len(results), args.query, args.mode,
+        len(results),
+        args.query,
+        args.mode,
     )
 
     if args.json:
@@ -157,7 +160,10 @@ def _cmd_reindex(args: argparse.Namespace) -> None:
     result = collection.reindex()
     logger.info(
         "Reindex complete: %d added, %d modified, %d deleted, %d unchanged",
-        result.added, result.modified, result.deleted, result.unchanged,
+        result.added,
+        result.modified,
+        result.deleted,
+        result.unchanged,
     )
     print(
         f"Reindex: {result.added} added, {result.modified} modified, "

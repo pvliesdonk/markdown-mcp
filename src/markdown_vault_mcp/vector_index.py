@@ -230,7 +230,9 @@ class VectorIndex:
 
         logger.debug(
             "VectorIndex.search: query=%r limit=%d index_size=%d",
-            query, limit, self.count,
+            query,
+            limit,
+            self.count,
         )
 
         raw = self._provider.embed([query])

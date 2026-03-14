@@ -3064,12 +3064,12 @@ class TestLoggingAuditSilentPaths:
                 seen_csv = True
             return original_stat(self_path, *a, **kw)
 
-        with caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"):
-            with patch.object(_Path, "stat", stat_that_fails):
-                results = col.list(include_attachments=True)
-        attachment_paths = [
-            r.path for r in results if isinstance(r, AttachmentInfo)
-        ]
+        with (
+            caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"),
+            patch.object(_Path, "stat", stat_that_fails),
+        ):
+            results = col.list(include_attachments=True)
+        attachment_paths = [r.path for r in results if isinstance(r, AttachmentInfo)]
         assert "data.csv" not in attachment_paths
         assert any("stat error" in rec.message for rec in caplog.records)
 
@@ -3089,4 +3089,6 @@ class TestLoggingAuditSilentPaths:
         with caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"):
             result = _fts_row_to_note_info(row)
         assert result.frontmatter == {}
-        assert any("Could not parse frontmatter_json" in rec.message for rec in caplog.records)
+        assert any(
+            "Could not parse frontmatter_json" in rec.message for rec in caplog.records
+        )

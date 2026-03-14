@@ -692,9 +692,7 @@ class Collection:
         try:
             return json.loads(raw)
         except (json.JSONDecodeError, TypeError):
-            logger.warning(
-                "_get_frontmatter: invalid JSON for %s", row.get("path")
-            )
+            logger.warning("_get_frontmatter: invalid JSON for %s", row.get("path"))
             return {}
 
     # ------------------------------------------------------------------

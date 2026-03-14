@@ -256,9 +256,7 @@ def parse_note(
         content_hash=content_hash,
         modified_at=modified_at,
     )
-    logger.debug(
-        "parse_note: %s — title=%r chunks=%d", rel_str, title, len(chunks)
-    )
+    logger.debug("parse_note: %s — title=%r chunks=%d", rel_str, title, len(chunks))
     return note
 
 
