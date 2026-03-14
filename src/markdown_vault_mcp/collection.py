@@ -1379,7 +1379,8 @@ class Collection:
         """
         if self._embeddings_path is None or self._embedding_provider is None:
             return
-        self._dirty_embeddings.add(note.path)
+        with self._embedding_flush_lock:
+            self._dirty_embeddings.add(note.path)
         self._schedule_embedding_flush()
 
     def _schedule_embedding_flush(self) -> None:
@@ -1414,7 +1415,9 @@ class Collection:
             paths = self._dirty_embeddings.copy()
             self._dirty_embeddings.clear()
 
-            # Ensure vectors are loaded.
+        # Mutate vector index under _write_lock to prevent races with
+        # reindex(), which also modifies self._vectors under _write_lock.
+        with self._write_lock:
             vectors = self._load_vectors()
 
             for path in paths:
@@ -1779,7 +1782,8 @@ class Collection:
                     self._embeddings_path is not None
                     and self._embedding_provider is not None
                 ):
-                    self._dirty_embeddings.add(path)
+                    with self._embedding_flush_lock:
+                        self._dirty_embeddings.add(path)
                     self._schedule_embedding_flush()
             else:
                 abs_path = self._validate_attachment_path(path)
@@ -1861,8 +1865,9 @@ class Collection:
                     self._embeddings_path is not None
                     and self._embedding_provider is not None
                 ):
-                    self._dirty_embeddings.add(old_path)
-                    self._dirty_embeddings.add(note.path)
+                    with self._embedding_flush_lock:
+                        self._dirty_embeddings.add(old_path)
+                        self._dirty_embeddings.add(note.path)
                     self._schedule_embedding_flush()
 
                 callback_content = new_abs.read_text(encoding="utf-8")
