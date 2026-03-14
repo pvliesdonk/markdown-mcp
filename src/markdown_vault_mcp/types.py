@@ -195,7 +195,7 @@ class BacklinkInfo:
     source_path: str
     source_title: str
     link_text: str
-    link_type: str
+    link_type: Literal["markdown", "wikilink", "reference"]
     fragment: str | None = None
 
 
@@ -205,7 +205,7 @@ class OutlinkInfo:
 
     target_path: str
     link_text: str
-    link_type: str
+    link_type: Literal["markdown", "wikilink", "reference"]
     fragment: str | None = None
     exists: bool = False
 

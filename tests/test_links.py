@@ -126,6 +126,18 @@ class TestExtractInlineLinks:
         targets = {lnk.target_path for lnk in links}
         assert targets == {"a.md", "b.md"}
 
+    def test_image_link_excluded(self) -> None:
+        """Image links ![alt](src) are not extracted."""
+        links = extract_links("![photo](assets/cat.png)", "index.md")
+        assert links == []
+
+    def test_image_link_alongside_regular(self) -> None:
+        """Regular link is extracted, image link next to it is skipped."""
+        content = "![img](pic.png) and [note](note.md)"
+        links = extract_links(content, "index.md")
+        assert len(links) == 1
+        assert links[0].target_path == "note.md"
+
     def test_empty_link_text_allowed(self) -> None:
         """Empty link text is still extracted."""
         links = extract_links("[](note.md)", "index.md")
@@ -160,6 +172,13 @@ class TestExtractReferenceLinks:
     def test_reference_link_case_insensitive_key(self) -> None:
         """Reference keys are case-insensitive per Markdown spec."""
         content = "See [note][REF]\n\n[ref]: target.md"
+        links = extract_links(content, "index.md")
+        assert len(links) == 1
+        assert links[0].target_path == "target.md"
+
+    def test_reference_definition_with_title_stripped(self) -> None:
+        """Optional CommonMark title in definition is stripped from target."""
+        content = 'See [note][ref]\n\n[ref]: target.md "My Title"'
         links = extract_links(content, "index.md")
         assert len(links) == 1
         assert links[0].target_path == "target.md"

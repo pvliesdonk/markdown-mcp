@@ -277,7 +277,7 @@ def _resolve_link_path(target: str, source_rel: str) -> tuple[str, str | None]:
         elif part != ".":
             normalised.append(part)
 
-    resolved_str = "/".join(normalised) if normalised else target
+    resolved_str = "/".join(normalised)
 
     return resolved_str, fragment
 
@@ -307,6 +307,9 @@ def extract_links(content: str, source_path: str) -> list[LinkInfo]:
 
     # --- Inline markdown links ---
     for m in _RE_INLINE_LINK.finditer(clean):
+        # Skip image links: ![alt](src) shares the same bracket syntax.
+        if m.start() > 0 and clean[m.start() - 1] == "!":
+            continue
         text = m.group(1)
         raw_target = m.group(2).strip()
         if any(raw_target.startswith(p) for p in _EXTERNAL_URL_PREFIXES):
@@ -330,6 +333,8 @@ def extract_links(content: str, source_path: str) -> list[LinkInfo]:
     for m in _RE_REF_DEF.finditer(clean):
         ref_key = m.group(1).strip().lower()
         ref_target = m.group(2).strip()
+        # Strip optional CommonMark title: "...", '...', or (...)
+        ref_target = re.sub(r'\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\))\s*$', "", ref_target)
         ref_defs[ref_key] = ref_target
 
     for m in _RE_REF_USAGE.finditer(clean):
