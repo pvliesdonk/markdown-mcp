@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from markdown_vault_mcp.collection import Collection
-from markdown_vault_mcp.config import _ENV_PREFIX, load_config
+from markdown_vault_mcp.config import _ENV_PREFIX, get_log_level, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -276,10 +276,16 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
+    # -v flag overrides LOG_LEVEL env var; env var overrides default INFO.
+    level = logging.DEBUG if args.verbose else get_log_level()
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=level,
         format="%(levelname)s %(name)s: %(message)s",
     )
+    # httpx is noisy at DEBUG — keep it at WARNING unless explicitly targeted.
+    if level == logging.DEBUG:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     handler = _COMMANDS[args.command]
     try:

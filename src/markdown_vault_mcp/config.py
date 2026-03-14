@@ -17,6 +17,26 @@ logger = logging.getLogger(__name__)
 _ENV_PREFIX = "MARKDOWN_VAULT_MCP"
 
 
+def get_log_level() -> int:
+    """Return the configured log level from ``MARKDOWN_VAULT_MCP_LOG_LEVEL``.
+
+    Accepts standard Python level names (``DEBUG``, ``INFO``, ``WARNING``,
+    ``ERROR``).  Falls back to :data:`logging.INFO` when the variable is
+    unset or contains an unrecognised value.
+
+    Returns:
+        An ``int`` log level constant from the :mod:`logging` module.
+    """
+    raw = os.environ.get(f"{_ENV_PREFIX}_LOG_LEVEL", "").strip().upper()
+    if not raw:
+        return logging.INFO
+    level = logging.getLevelNamesMapping().get(raw)
+    if level is None:
+        logger.warning("Unrecognised LOG_LEVEL=%r — falling back to INFO", raw)
+        return logging.INFO
+    return level
+
+
 def _env(name: str, default: str | None = None) -> str | None:
     """Return the value of ``{_ENV_PREFIX}_{name}`` from the environment.
 

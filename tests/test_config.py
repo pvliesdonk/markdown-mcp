@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 
-from markdown_vault_mcp.config import CollectionConfig, load_config
+from markdown_vault_mcp.config import CollectionConfig, get_log_level, load_config
 
 
 class TestParseHelpers:
@@ -498,3 +499,44 @@ class TestGitLfsConfig:
         strategy = kwargs["on_write"]
         assert isinstance(strategy, GitWriteStrategy)
         assert strategy._git_lfs is True
+
+
+class TestGetLogLevel:
+    """Tests for get_log_level() env var parsing."""
+
+    def test_default_is_info(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_LOG_LEVEL", raising=False)
+        assert get_log_level() == logging.INFO
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("DEBUG", 10),
+            ("debug", 10),
+            ("INFO", 20),
+            ("WARNING", 30),
+            ("ERROR", 40),
+        ],
+    )
+    def test_valid_levels(
+        self, monkeypatch: pytest.MonkeyPatch, value: str, expected: int
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_LOG_LEVEL", value)
+        assert get_log_level() == expected
+
+    def test_invalid_falls_back_to_info(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_LOG_LEVEL", "BOGUS")
+        with caplog.at_level(logging.WARNING):
+            level = get_log_level()
+        assert level == logging.INFO
+        assert "BOGUS" in caplog.text
+
+    def test_empty_string_is_info(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_LOG_LEVEL", "")
+        assert get_log_level() == logging.INFO
+
+    def test_whitespace_only_is_info(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_LOG_LEVEL", "  ")
+        assert get_log_level() == logging.INFO
