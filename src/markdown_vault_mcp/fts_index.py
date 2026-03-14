@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS links (
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_path);
 CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id);
 
+CREATE INDEX IF NOT EXISTS idx_documents_modified_at
+    ON documents(modified_at DESC);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
     path, title, folder, heading, content,
     tokenize='porter unicode61'
@@ -786,6 +789,44 @@ class FTSIndex:
             ORDER BY d.path, l.rowid
         """
         cur = self._conn.execute(sql, params)
+        return [dict(row) for row in cur.fetchall()]
+
+    def get_recent(self, *, limit: int = 20, folder: str | None = None) -> list[dict]:
+        """Return the most recently modified documents.
+
+        Args:
+            limit: Maximum number of documents to return.
+            folder: If provided, restrict to documents in this folder
+                (exact match or sub-folder prefix).
+
+        Returns:
+            List of dicts with the same shape as :meth:`get_note`, ordered
+            by ``modified_at`` descending (most recent first).
+        """
+        if folder is not None:
+            escaped = _escape_like(folder)
+            cur = self._conn.execute(
+                """
+                SELECT path, title, folder, frontmatter_json,
+                       modified_at
+                FROM documents
+                WHERE folder = ? OR folder LIKE ? ESCAPE '\\'
+                ORDER BY modified_at DESC
+                LIMIT ?
+                """,
+                (folder, escaped + "/%", limit),
+            )
+        else:
+            cur = self._conn.execute(
+                """
+                SELECT path, title, folder, frontmatter_json,
+                       modified_at
+                FROM documents
+                ORDER BY modified_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
         return [dict(row) for row in cur.fetchall()]
 
     def close(self) -> None:

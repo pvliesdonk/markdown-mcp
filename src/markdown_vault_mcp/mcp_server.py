@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import datetime
 import json
 import logging
 import os
@@ -126,6 +127,12 @@ _TOOL_ICONS: dict[str, list[Icon]] = {
     "get_outlinks": [
         Icon(
             src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjIiIGQ9Ik0xNSAzaDZ2Nm0tMTEgNUwyMSAzbS0zIDEwdjZhMiAyIDAgMCAxLTIgMkg1YTIgMiAwIDAgMS0yLTJWOGEyIDIgMCAwIDEgMi0yaDYiLz48L3N2Zz4=",
+            mimeType="image/svg+xml",
+        )
+    ],
+    "get_recent": [
+        Icon(
+            src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZyBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjIiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PHBhdGggZD0iTTEyIDZ2Nmw0IDIiLz48L2c+PC9zdmc+",
             mimeType="image/svg+xml",
         )
     ],
@@ -861,6 +868,41 @@ def create_server() -> FastMCP:
         results = await asyncio.to_thread(collection.get_similar, path, limit=limit)
         return [asdict(r) for r in results]
 
+    # --- Recently modified ---
+
+    @mcp.tool(
+        icons=_TOOL_ICONS["get_recent"],
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    )
+    async def get_recent(
+        limit: int = 20,
+        folder: str | None = None,
+        collection: Collection = Depends(get_collection),
+    ) -> list[dict[str, Any]]:
+        """Get the most recently modified notes in the collection.
+
+        Useful for understanding what the user has been working on
+        recently. Returns notes ordered by file modification time
+        (most recent first).
+
+        Args:
+            limit: Maximum number of notes to return (default 20).
+            folder: Optional folder filter. When provided, only returns
+                notes from this folder (e.g. "Journal").
+
+        Returns:
+            List of note info dicts, each with: path, title, folder,
+            frontmatter, modified_at (Unix timestamp), kind ("note").
+        """
+        results = await asyncio.to_thread(
+            collection.get_recent, limit=limit, folder=folder
+        )
+        return [asdict(r) for r in results]
+
     # --- Index management tools ---
 
     @mcp.tool(
@@ -1204,6 +1246,27 @@ def create_server() -> FastMCP:
         """Top 10 semantically similar notes for a document."""
         results = await asyncio.to_thread(collection.get_similar, path, limit=10)
         return json.dumps([asdict(r) for r in results])
+
+    @mcp.resource(
+        "recent://vault",
+        mime_type="application/json",
+        icons=_TOOL_ICONS["get_recent"],
+    )
+    async def vault_recent(
+        collection: Collection = Depends(get_collection),
+    ) -> str:
+        """20 most recently modified notes."""
+        results = await asyncio.to_thread(collection.get_recent, limit=20)
+        items = [
+            {
+                **asdict(r),
+                "modified_at_iso": datetime.datetime.fromtimestamp(
+                    r.modified_at, tz=datetime.UTC
+                ).isoformat(),
+            }
+            for r in results
+        ]
+        return json.dumps(items)
 
     # --- Prompts ---
 
