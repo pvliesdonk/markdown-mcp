@@ -287,6 +287,7 @@ class Collection:
         # return immediately after the FTS update.
         self._callback_queue: queue.Queue[tuple[Path, str, str] | None] = queue.Queue()
         self._callback_worker: threading.Thread | None = None
+        self._callback_worker_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -347,6 +348,11 @@ class Collection:
         if self._callback_worker is not None and self._callback_worker.is_alive():
             self._callback_queue.put(None)  # sentinel
             self._callback_worker.join(timeout=30)
+            if self._callback_worker.is_alive():
+                logger.warning(
+                    "Write-callback worker did not finish within 30 s; "
+                    "pending git commits may be lost."
+                )
 
         # 3. Close git strategy (flush push, etc.).
         if self._git_strategy is not None:
@@ -1385,14 +1391,15 @@ class Collection:
 
     def _schedule_embedding_flush(self) -> None:
         """Schedule a deferred flush of dirty embeddings."""
-        if self._embedding_flush_timer is not None:
-            self._embedding_flush_timer.cancel()
-        self._embedding_flush_timer = threading.Timer(
-            _EMBEDDING_FLUSH_INTERVAL,
-            self._flush_dirty_embeddings,
-        )
-        self._embedding_flush_timer.daemon = True
-        self._embedding_flush_timer.start()
+        with self._embedding_flush_lock:
+            if self._embedding_flush_timer is not None:
+                self._embedding_flush_timer.cancel()
+            self._embedding_flush_timer = threading.Timer(
+                _EMBEDDING_FLUSH_INTERVAL,
+                self._flush_dirty_embeddings,
+            )
+            self._embedding_flush_timer.daemon = True
+            self._embedding_flush_timer.start()
 
     def _flush_dirty_embeddings(self) -> None:
         """Re-embed all dirty documents and save the vector index once.
@@ -1451,30 +1458,37 @@ class Collection:
 
     def _ensure_callback_worker(self) -> None:
         """Start the background write-callback worker if not running."""
-        if self._callback_worker is not None and self._callback_worker.is_alive():
-            return
+        with self._callback_worker_lock:
+            if self._callback_worker is not None and self._callback_worker.is_alive():
+                return
 
-        def _worker() -> None:
-            while True:
-                item = self._callback_queue.get()
-                if item is None:
-                    break
-                abs_path, content, operation = item
-                try:
-                    assert self._on_write is not None
-                    self._on_write(abs_path, content, operation)
-                except Exception:
-                    logger.error(
-                        "Write callback failed for %s (%s)",
-                        abs_path,
-                        operation,
-                        exc_info=True,
-                    )
+            def _worker() -> None:
+                while True:
+                    item = self._callback_queue.get()
+                    if item is None:
+                        break
+                    abs_path, content, operation = item
+                    try:
+                        if self._on_write is None:
+                            logger.error(
+                                "Write callback is None in worker; dropping %s (%s)",
+                                abs_path,
+                                operation,
+                            )
+                            continue
+                        self._on_write(abs_path, content, operation)
+                    except Exception:
+                        logger.error(
+                            "Write callback failed for %s (%s)",
+                            abs_path,
+                            operation,
+                            exc_info=True,
+                        )
 
-        self._callback_worker = threading.Thread(
-            target=_worker, daemon=True, name="write-callback"
-        )
-        self._callback_worker.start()
+            self._callback_worker = threading.Thread(
+                target=_worker, daemon=True, name="write-callback"
+            )
+            self._callback_worker.start()
 
     def _fire_write_callback(
         self, abs_path: Path, content: str, operation: str
