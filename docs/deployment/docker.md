@@ -35,6 +35,7 @@ services:
       MARKDOWN_VAULT_MCP_INDEX_PATH: /data/state/index.db
       MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/state/embeddings/embeddings
       MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/state/fastembed
+      FASTMCP_HOME: /data/state/fastmcp
     restart: unless-stopped
     labels:
       - "traefik.enable=true"

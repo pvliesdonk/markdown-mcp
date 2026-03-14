@@ -29,7 +29,7 @@ if [ "$(id -u)" = '0' ]; then
     # Always fix ownership of state subdirs — mkdir creates as root,
     # but the conditional chown loop below may skip /data/state if it
     # was already owned by appuser from a previous run.
-    chown appuser:appuser /data/state/embeddings /data/state/fastembed /data/state/fastmcp
+    chown appuser:appuser /data/state/*
 
     # Fix ownership — named volumes may arrive root-owned.
     # Only recurse into directories still owned by root, to avoid
