@@ -3050,23 +3050,32 @@ class TestLoggingAuditSilentPaths:
         col = Collection(source_dir=vault, attachment_extensions=["csv"])
         col.build_index()
 
-        # Delete the file after rglob discovers it but before stat().
+        # Patch Path.stat to raise OSError for data.csv.
+        # On Python 3.13, Path.is_file() calls Path.stat() internally; we also
+        # patch is_file() to return True for data.csv so that the is_file() guard
+        # at the top of _list_attachments does not short-circuit before reaching
+        # the explicit stat() call that exercises the warning log.
+        # On Python 3.14, is_file() uses a C-level stat and Path.stat is only
+        # called explicitly; the is_file() patch is a no-op there.
         from pathlib import Path as _Path
 
         original_stat = _Path.stat
-        seen_csv = False
+        original_is_file = _Path.is_file
 
         def stat_that_fails(self_path: _Path, *a: object, **kw: object) -> object:
-            nonlocal seen_csv
             if self_path.name == "data.csv":
-                if seen_csv:
-                    raise OSError("simulated stat failure")
-                seen_csv = True
+                raise OSError("simulated stat failure")
             return original_stat(self_path, *a, **kw)
+
+        def is_file_override(self_path: _Path, *a: object, **kw: object) -> bool:
+            if self_path.name == "data.csv":
+                return True  # file exists; we want is_file() to pass so stat() is reached
+            return original_is_file(self_path, *a, **kw)
 
         with (
             caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"),
             patch.object(_Path, "stat", stat_that_fails),
+            patch.object(_Path, "is_file", is_file_override),
         ):
             results = col.list(include_attachments=True)
         attachment_paths = [r.path for r in results if isinstance(r, AttachmentInfo)]
