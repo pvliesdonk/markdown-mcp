@@ -1191,7 +1191,9 @@ class Collection:
                             count = len(loaded_meta.get("rows", []))
                     except (OSError, json.JSONDecodeError) as exc:
                         logger.warning(
-                            "embeddings_status: could not read metadata — %s", exc
+                            "embeddings_status: could not read metadata from %s — %s",
+                            json_path,
+                            exc,
                         )
 
         return {
