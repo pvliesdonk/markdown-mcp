@@ -56,7 +56,7 @@ identity_providers:
           - email
           - offline_access
         userinfo_signed_response_alg: none
-        token_endpoint_auth_method: client_secret_post
+        token_endpoint_auth_method: client_secret_post  # required by FastMCP's OIDCProxy
         pkce_challenge_method: S256
 ```
 

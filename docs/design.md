@@ -973,9 +973,15 @@ When all four required vars are set (`BASE_URL`, `OIDC_CONFIG_URL`, `OIDC_CLIENT
 ```yaml
 identity_providers:
   oidc:
+    lifespans:
+      custom:
+        mcp_long_lived:
+          access_token: '8h'
+          refresh_token: '30d'
     clients:
       - client_id: markdown-vault-mcp
         client_secret: '$pbkdf2-sha512$...'   # hashed secret
+        lifespan: 'mcp_long_lived'
         redirect_uris:
           - https://mcp.example.com/auth/callback
         grant_types:
@@ -989,6 +995,7 @@ identity_providers:
           - profile
           - email
           - offline_access
+        token_endpoint_auth_method: client_secret_post
 ```
 
 **Linux/Docker note:** FastMCP uses an ephemeral JWT signing key on Linux by default — every restart invalidates all client tokens and forces re-authentication. Set `MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY` to a stable random secret (e.g. `openssl rand -hex 32`) to persist tokens across restarts.
