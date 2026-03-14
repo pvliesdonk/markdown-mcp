@@ -1314,7 +1314,7 @@ class Collection:
                 link_text=row["link_text"],
                 link_type=row["link_type"],
                 fragment=row["fragment"],
-                exists=self._fts.get_note(row["target_path"]) is not None,
+                exists=bool(row["target_exists"]),
             )
             for row in rows
         ]

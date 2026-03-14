@@ -724,22 +724,27 @@ class FTSIndex:
     def get_outlinks(self, path: str) -> list[dict]:
         """Return all links FROM the given document.
 
+        Uses a LEFT JOIN to check target existence in a single query,
+        avoiding N+1 round-trips.
+
         Args:
             path: Relative document path that is the link source
                 (e.g. ``"notes/topic.md"``).
 
         Returns:
             List of dicts with keys ``target_path``, ``link_text``,
-            ``link_type``, ``fragment``.
+            ``link_type``, ``fragment``, ``exists`` (bool).
         """
         cur = self._conn.execute(
             """
             SELECT l.target_path,
                    l.link_text,
                    l.link_type,
-                   l.fragment
+                   l.fragment,
+                   (t.id IS NOT NULL) AS target_exists
             FROM links l
             JOIN documents d ON d.id = l.source_id
+            LEFT JOIN documents t ON t.path = l.target_path
             WHERE d.path = ?
             ORDER BY l.rowid
             """,
