@@ -1915,7 +1915,7 @@ class TestAuthDebugLogging:
         assert "secret-token" not in caplog.text
 
     def test_bearer_debug_logs_absence(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture
     ) -> None:
         with caplog.at_level(logging.DEBUG):
             _build_bearer_auth()
