@@ -49,14 +49,12 @@ services:
     env_file: .env
     volumes:
       - ${MARKDOWN_VAULT_MCP_SOURCE_DIR:?Set MARKDOWN_VAULT_MCP_SOURCE_DIR}:/data/vault
-      - index-data:/data/index
-      - embeddings-data:/data/embeddings
-      - fastembed-data:/data/fastembed
+      - state-data:/data/state
     environment:
       MARKDOWN_VAULT_MCP_SOURCE_DIR: /data/vault
-      MARKDOWN_VAULT_MCP_INDEX_PATH: /data/index/index.db
-      MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/embeddings/embeddings
-      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/fastembed
+      MARKDOWN_VAULT_MCP_INDEX_PATH: /data/state/index.db
+      MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/state/embeddings/embeddings
+      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/state/fastembed
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
@@ -64,17 +62,13 @@ services:
       - "traefik.http.services.markdown-vault-mcp.loadbalancer.server.port=8000"
 
 volumes:
-  index-data:
-  embeddings-data:
-  fastembed-data:
+  state-data:
 ```
 
 **Volume mounts:**
 
 - `/data/vault` — your Markdown vault (bind mount or named volume; pre-created in the image for managed repo mode)
-- `/data/index` — SQLite FTS5 index (Docker-managed named volume, persists across restarts)
-- `/data/embeddings` — numpy embedding vectors (Docker-managed named volume)
-- `/data/fastembed` — FastEmbed model cache (Docker-managed named volume)
+- `/data/state` — all server-managed internal state (Docker-managed named volume): SQLite FTS index, embedding vectors, FastEmbed model cache, and OIDC proxy state
 
 All `/data/*` directories are pre-created and owned by the runtime user in the image. The first startup triggers a full index build; subsequent starts only reindex changed files.
 
@@ -187,14 +181,12 @@ services:
     env_file: .env
     volumes:
       - ${MARKDOWN_VAULT_MCP_SOURCE_DIR:?Set MARKDOWN_VAULT_MCP_SOURCE_DIR}:/data/vault
-      - index-data:/data/index
-      - embeddings-data:/data/embeddings
-      - fastembed-data:/data/fastembed
+      - state-data:/data/state
     environment:
       MARKDOWN_VAULT_MCP_SOURCE_DIR: /data/vault
-      MARKDOWN_VAULT_MCP_INDEX_PATH: /data/index/index.db
-      MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/embeddings/embeddings
-      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/fastembed
+      MARKDOWN_VAULT_MCP_INDEX_PATH: /data/state/index.db
+      MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/state/embeddings/embeddings
+      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/state/fastembed
     networks:
       - internal
     restart: unless-stopped
@@ -224,9 +216,7 @@ services:
       - markdown-vault-mcp
 
 volumes:
-  index-data:
-  embeddings-data:
-  fastembed-data:
+  state-data:
 
 networks:
   traefik:

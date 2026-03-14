@@ -29,14 +29,12 @@ services:
     env_file: .env
     volumes:
       - ${MARKDOWN_VAULT_MCP_SOURCE_DIR:?Set MARKDOWN_VAULT_MCP_SOURCE_DIR}:/data/vault
-      - index-data:/data/index
-      - embeddings-data:/data/embeddings
-      - fastembed-data:/data/fastembed
+      - state-data:/data/state
     environment:
       MARKDOWN_VAULT_MCP_SOURCE_DIR: /data/vault
-      MARKDOWN_VAULT_MCP_INDEX_PATH: /data/index/index.db
-      MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/embeddings/embeddings
-      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/fastembed
+      MARKDOWN_VAULT_MCP_INDEX_PATH: /data/state/index.db
+      MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH: /data/state/embeddings/embeddings
+      MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR: /data/state/fastembed
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
@@ -44,9 +42,7 @@ services:
       - "traefik.http.services.markdown-vault-mcp.loadbalancer.server.port=8000"
 
 volumes:
-  index-data:
-  embeddings-data:
-  fastembed-data:
+  state-data:
 ```
 
 ### Volume Mounts
@@ -54,9 +50,7 @@ volumes:
 | Container Path | Type | Purpose |
 |---------------|------|---------|
 | `/data/vault` | Bind mount or named volume | Your Markdown vault; pre-created in the image for managed repo mode |
-| `/data/index` | Named volume | SQLite FTS5 index (persists across restarts) |
-| `/data/embeddings` | Named volume | Numpy embedding vectors |
-| `/data/fastembed` | Named volume | FastEmbed model cache (prevents re-downloads) |
+| `/data/state` | Named volume | All server-managed internal state: SQLite FTS index, embedding vectors, FastEmbed model cache, and OIDC proxy state |
 
 All `/data/*` directories are pre-created and owned by the runtime user in the image. For managed repo mode (where the server clones a git repo on first start), `/data/vault` must be writable — this works automatically with named volumes or when UID/GID match the bind-mount owner. The first startup triggers a full index build; subsequent starts only reindex changed files.
 

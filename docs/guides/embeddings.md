@@ -137,7 +137,7 @@ MARKDOWN_VAULT_MCP_EMBEDDINGS_PATH=/path/to/store/embeddings
 That's it — no host URL or API key needed. The model downloads automatically on first use and is reused from cache after that.
 
 !!! note "First startup downloads the model"
-    Set `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` to a persistent location. In Docker, mount it as a named volume (for example `/data/fastembed`) to avoid re-downloading on container recreation.
+    Set `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` to a persistent location. In Docker, the default compose layout stores this under `/data/state/fastembed` on the `state-data` named volume to avoid re-downloading on container recreation.
 
 !!! info "Memory usage — in-process vs out-of-process"
     FastEmbed runs the ONNX model **inside the Python process**, so the container itself bears the full inference memory cost. To keep this bounded, the server limits the ONNX-level batch size to 4 chunks per inference call (tunable via the `_FASTEMBED_ONNX_BATCH_SIZE` constant in `providers.py`).

@@ -1065,6 +1065,12 @@ Same pattern as ifcraftcorpus: `python:3.12-slim` base, `uv` for installs.
 CI/CD, GitHub Actions, and PyPI publishing adapted from ifcraftcorpus with
 minimal changes.
 
+**Volume layout**: two volumes — `/data/vault` (user content, bind-mount or
+named volume) and `/data/state` (all internal state: SQLite index, embeddings,
+FastEmbed model cache, OIDC proxy state via `FASTMCP_HOME`). The Dockerfile
+sets `FASTMCP_HOME=/data/state/fastmcp` so OIDCProxy persists JTI mappings
+and upstream tokens across restarts.
+
 **Entrypoint + gosu privilege drop**: the container starts as root and runs
 `docker-entrypoint.sh`, which chowns `/data/*` to `appuser` (fixing
 root-owned named volumes), then drops to non-root via `gosu` before
