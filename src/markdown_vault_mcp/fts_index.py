@@ -67,6 +67,19 @@ CREATE TABLE IF NOT EXISTS document_tags (
 CREATE INDEX IF NOT EXISTS idx_tags_kv ON document_tags(tag_key, tag_value);
 CREATE INDEX IF NOT EXISTS idx_tags_docid ON document_tags(document_id);
 
+CREATE TABLE IF NOT EXISTS links (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL,
+    target_path TEXT NOT NULL,
+    link_text TEXT NOT NULL DEFAULT '',
+    link_type TEXT NOT NULL,
+    fragment TEXT,
+    FOREIGN KEY (source_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_path);
+CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
     path, title, folder, heading, content,
     tokenize='porter unicode61'
@@ -326,6 +339,39 @@ class FTSIndex:
                     (document_id, key, str(value)),
                 )
 
+    def _insert_links(
+        self,
+        cur: sqlite3.Cursor,
+        document_id: int,
+        note: ParsedNote,
+    ) -> None:
+        """Insert all extracted links for a document into ``links``.
+
+        Follows the same delete-then-insert pattern as :meth:`_insert_tags`.
+        Any existing links for ``document_id`` are removed first (via ON DELETE
+        CASCADE when the document row is deleted), so this method simply inserts.
+
+        Args:
+            cur: Active cursor inside the current transaction.
+            document_id: The ``id`` of the parent document row.
+            note: Parsed document whose links are to be inserted.
+        """
+        for link in note.links:
+            cur.execute(
+                """
+                INSERT INTO links (source_id, target_path, link_text,
+                                   link_type, fragment)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    document_id,
+                    link.target_path,
+                    link.link_text,
+                    link.link_type,
+                    link.fragment,
+                ),
+            )
+
     def _delete_document(self, cur: sqlite3.Cursor, path: str) -> int:
         """Delete a document row (cascade deletes sections and tags).
 
@@ -369,6 +415,7 @@ class FTSIndex:
                 doc_id = self._insert_document(cur, note, folder)
                 self._insert_sections(cur, doc_id, note)
                 self._insert_tags(cur, doc_id, note)
+                self._insert_links(cur, doc_id, note)
                 total_chunks += len(note.chunks)
                 logger.debug(
                     "build_from_notes: indexed %d chunks for %s",
@@ -397,6 +444,7 @@ class FTSIndex:
             doc_id = self._insert_document(cur, note, folder)
             self._insert_sections(cur, doc_id, note)
             self._insert_tags(cur, doc_id, note)
+            self._insert_links(cur, doc_id, note)
         logger.debug(
             "upsert_note: indexed %d chunks for %s", len(note.chunks), note.path
         )
@@ -645,6 +693,59 @@ class FTSIndex:
             {"heading": row["heading"], "level": row["heading_level"]}
             for row in cur.fetchall()
         ]
+
+    def get_backlinks(self, path: str) -> list[dict]:
+        """Return all documents that link TO the given path.
+
+        Args:
+            path: Relative document path that is the link target
+                (e.g. ``"notes/topic.md"``).
+
+        Returns:
+            List of dicts with keys ``source_path``, ``source_title``,
+            ``link_text``, ``link_type``, ``fragment``.
+        """
+        cur = self._conn.execute(
+            """
+            SELECT d.path AS source_path,
+                   d.title AS source_title,
+                   l.link_text,
+                   l.link_type,
+                   l.fragment
+            FROM links l
+            JOIN documents d ON d.id = l.source_id
+            WHERE l.target_path = ?
+            ORDER BY d.path, l.rowid
+            """,
+            (path,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def get_outlinks(self, path: str) -> list[dict]:
+        """Return all links FROM the given document.
+
+        Args:
+            path: Relative document path that is the link source
+                (e.g. ``"notes/topic.md"``).
+
+        Returns:
+            List of dicts with keys ``target_path``, ``link_text``,
+            ``link_type``, ``fragment``.
+        """
+        cur = self._conn.execute(
+            """
+            SELECT l.target_path,
+                   l.link_text,
+                   l.link_type,
+                   l.fragment
+            FROM links l
+            JOIN documents d ON d.id = l.source_id
+            WHERE d.path = ?
+            ORDER BY l.rowid
+            """,
+            (path,),
+        )
+        return [dict(row) for row in cur.fetchall()]
 
     def close(self) -> None:
         """Close the underlying database connection.
