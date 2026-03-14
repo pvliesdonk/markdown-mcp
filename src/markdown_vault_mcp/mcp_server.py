@@ -129,6 +129,12 @@ _TOOL_ICONS: dict[str, list[Icon]] = {
             mimeType="image/svg+xml",
         )
     ],
+    "get_similar": [
+        Icon(
+            src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZyBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjIiPjxjaXJjbGUgY3g9IjUiIGN5PSI2IiByPSIzIi8+PHBhdGggZD0iTTEyIDZoNWEyIDIgMCAwIDEgMiAydjciLz48cGF0aCBkPSJtMTUgOWwtMy0zbDMtMyIvPjxjaXJjbGUgY3g9IjE5IiBjeT0iMTgiIHI9IjMiLz48cGF0aCBkPSJNMTIgMThIN2EyIDIgMCAwIDEtMi0yVjkiLz48cGF0aCBkPSJtOSAxNWwzIDNsLTMgMyIvPjwvZz48L3N2Zz4=",
+            mimeType="image/svg+xml",
+        )
+    ],
     "get_broken_links": [
         Icon(
             src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjIiIGQ9Im0xOC44NCAxMi4yNWwxLjcyLTEuNzFoLS4wMmE1LjAwNCA1LjAwNCAwIDAgMC0uMTItNy4wN2E1LjAwNiA1LjAwNiAwIDAgMC02Ljk1IDBsLTEuNzIgMS43MW0tNi41OCA2LjU3bC0xLjcxIDEuNzFhNS4wMDQgNS4wMDQgMCAwIDAgLjEyIDcuMDdhNS4wMDYgNS4wMDYgMCAwIDAgNi45NSAwbDEuNzEtMS43MU04IDJ2M00yIDhoM20xMSAxMXYzbTMtNmgzIi8+PC9zdmc+",
@@ -816,6 +822,45 @@ def create_server() -> FastMCP:
         results = await asyncio.to_thread(collection.get_broken_links, folder=folder)
         return [asdict(r) for r in results]
 
+    # --- Similarity tools (read-only) ---
+
+    @mcp.tool(
+        icons=_TOOL_ICONS["get_similar"],
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    )
+    async def get_similar(
+        path: str,
+        limit: int = 10,
+        collection: Collection = Depends(get_collection),
+    ) -> list[dict[str, Any]]:
+        """Find notes most semantically similar to the given document.
+
+        Uses stored embedding vectors — no re-embedding needed. The
+        reference document is excluded from results. Requires semantic
+        search to be configured (check 'stats' for
+        semantic_search_available). Returns an empty list if embeddings
+        are not available or the document has no stored vectors.
+
+        Args:
+            path: Relative path of the reference document (e.g.
+                "notes/topic.md"). Case-sensitive.
+            limit: Maximum number of similar notes to return (default 10).
+
+        Returns:
+            List of result dicts ranked by similarity (higher score is
+            more similar). Each contains: path, title, folder, content
+            (most similar chunk), score, search_type ("semantic").
+
+        Raises:
+            ValueError: If no document exists at the given path.
+        """
+        results = await asyncio.to_thread(collection.get_similar, path, limit=limit)
+        return [asdict(r) for r in results]
+
     # --- Index management tools ---
 
     @mcp.tool(
@@ -1146,6 +1191,19 @@ def create_server() -> FastMCP:
         """Table of contents for a document — headings with levels."""
         toc = await asyncio.to_thread(collection.get_toc, path)
         return json.dumps(toc)
+
+    @mcp.resource(
+        "similar://vault/{path}",
+        mime_type="application/json",
+        icons=_TOOL_ICONS["get_similar"],
+    )
+    async def vault_similar(
+        path: str,
+        collection: Collection = Depends(get_collection),
+    ) -> str:
+        """Top 10 semantically similar notes for a document."""
+        results = await asyncio.to_thread(collection.get_similar, path, limit=10)
+        return json.dumps([asdict(r) for r in results])
 
     # --- Prompts ---
 

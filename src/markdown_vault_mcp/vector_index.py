@@ -258,6 +258,60 @@ class VectorIndex:
         logger.debug("VectorIndex.search: returning %d results", len(results))
         return results
 
+    def search_by_path(self, path: str, *, limit: int = 10) -> list[dict]:
+        """Return the top-k most similar chunks from *other* documents.
+
+        Looks up the stored embedding vectors for ``path``, averages them
+        if multiple chunks exist, and computes cosine similarity against
+        all chunks from other documents (excludes self-matches).
+
+        Args:
+            path: Relative document path whose stored vectors to use.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of metadata dicts ordered by descending cosine similarity.
+            Each dict contains all stored metadata fields plus a ``score``
+            key.  Returns ``[]`` if ``path`` has no stored embeddings or
+            the index is empty.
+        """
+        if self.count == 0:
+            return []
+
+        # Gather indices for all chunks belonging to this document.
+        doc_indices = [i for i, m in enumerate(self._metadata) if m.get("path") == path]
+        if not doc_indices:
+            return []
+
+        # Average the document's chunk vectors to get a single query vector.
+        doc_vectors = self._embeddings[doc_indices]
+        q_vec = np.mean(doc_vectors, axis=0)
+        norm = np.linalg.norm(q_vec)
+        if norm > 0:
+            q_vec = q_vec / norm
+
+        # Dot product against all stored vectors.
+        scores: np.ndarray = self._embeddings @ q_vec
+
+        # Build (score, index) pairs excluding chunks from the same document.
+        candidates: list[tuple[float, int]] = []
+        for i, score in enumerate(scores):
+            if self._metadata[i].get("path") != path:
+                candidates.append((float(score), i))
+
+        # Sort descending by score and take top-k.
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        top = candidates[: min(limit, len(candidates))]
+
+        results: list[dict] = []
+        for score, idx in top:
+            entry = dict(self._metadata[idx])
+            entry["score"] = score
+            results.append(entry)
+
+        logger.debug("VectorIndex.search_by_path: %s → %d results", path, len(results))
+        return results
+
     def delete_by_path(self, path: str) -> int:
         """Remove all rows for a given document path.
 
