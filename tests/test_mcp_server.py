@@ -1914,9 +1914,7 @@ class TestAuthDebugLogging:
         assert "BEARER_TOKEN is set" in caplog.text
         assert "secret-token" not in caplog.text
 
-    def test_bearer_debug_logs_absence(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_bearer_debug_logs_absence(self, caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level(logging.DEBUG):
             _build_bearer_auth()
         assert "BEARER_TOKEN not set" in caplog.text
@@ -1940,7 +1938,9 @@ class TestAuthDebugLogging:
         assert "config_url" in caplog.text
         assert "client_id" in caplog.text
         assert "<redacted>" in caplog.text  # client_secret is redacted
-        assert _OIDC_REQUIRED["MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET"] not in caplog.text
+        assert (
+            _OIDC_REQUIRED["MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET"] not in caplog.text
+        )
 
     def test_oidc_debug_logs_missing_vars(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

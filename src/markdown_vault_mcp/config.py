@@ -32,9 +32,7 @@ def get_log_level() -> int:
         return logging.INFO
     level = logging.getLevelNamesMapping().get(raw)
     if level is None:
-        logger.warning(
-            "Unrecognised LOG_LEVEL=%r — falling back to INFO", raw
-        )
+        logger.warning("Unrecognised LOG_LEVEL=%r — falling back to INFO", raw)
         return logging.INFO
     return level
 
