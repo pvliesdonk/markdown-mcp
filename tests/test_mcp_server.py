@@ -1895,3 +1895,72 @@ class TestBearerAuthPrecedence:
 
         assert server.auth is None
         assert "unauthenticated" in caplog.text
+
+
+class TestAuthDebugLogging:
+    """Tests for auth DEBUG logging (issue #181)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_all_auth_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in (*_BEARER_VARS, *_OIDC_VARS):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_bearer_debug_logs_presence(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_BEARER_TOKEN", "secret-token")
+        with caplog.at_level(logging.DEBUG):
+            _build_bearer_auth()
+        assert "BEARER_TOKEN is set" in caplog.text
+        assert "secret-token" not in caplog.text
+
+    def test_bearer_debug_logs_absence(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.DEBUG):
+            _build_bearer_auth()
+        assert "BEARER_TOKEN not set" in caplog.text
+
+    def test_oidc_debug_logs_config(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        for var, val in _OIDC_REQUIRED.items():
+            monkeypatch.setenv(var, val)
+
+        mock_cls = MagicMock()
+        with (
+            patch("fastmcp.server.auth.oidc_proxy.OIDCProxy", mock_cls),
+            caplog.at_level(logging.DEBUG),
+        ):
+            _build_oidc_auth()
+
+        assert "OIDC auth config:" in caplog.text
+        assert "config_url" in caplog.text
+        assert "client_id" in caplog.text
+        assert "<redacted>" in caplog.text  # client_secret is redacted
+        assert _OIDC_REQUIRED["MARKDOWN_VAULT_MCP_OIDC_CLIENT_SECRET"] not in caplog.text
+
+    def test_oidc_debug_logs_missing_vars(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Only set BASE_URL, leave others missing
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_BASE_URL", "https://example.com")
+        with caplog.at_level(logging.DEBUG):
+            result = _build_oidc_auth()
+        assert result is None
+        assert "missing env vars" in caplog.text
+
+    def test_startup_summary_logged(
+        self,
+        vault_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault_path))
+        with caplog.at_level(logging.INFO):
+            create_server()
+        assert "Server config:" in caplog.text
+        assert "auth=none" in caplog.text
+        assert "read-only" in caplog.text

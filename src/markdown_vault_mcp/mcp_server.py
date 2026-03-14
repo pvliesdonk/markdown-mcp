@@ -252,7 +252,9 @@ def _build_bearer_auth() -> Any:
     """
     token = os.environ.get(f"{_ENV_PREFIX}_BEARER_TOKEN", "").strip()
     if not token:
+        logger.debug("Bearer auth: BEARER_TOKEN not set — skipping")
         return None
+    logger.debug("Bearer auth: BEARER_TOKEN is set (value redacted)")
     from fastmcp.server.auth import StaticTokenVerifier
 
     return StaticTokenVerifier(
@@ -284,6 +286,17 @@ def _build_oidc_auth() -> Any:
     client_secret = os.environ.get(f"{_ENV_PREFIX}_OIDC_CLIENT_SECRET", "").strip()
 
     if not all([base_url, config_url, client_id, client_secret]):
+        missing = [
+            name
+            for name, val in [
+                ("BASE_URL", base_url),
+                ("OIDC_CONFIG_URL", config_url),
+                ("OIDC_CLIENT_ID", client_id),
+                ("OIDC_CLIENT_SECRET", client_secret),
+            ]
+            if not val
+        ]
+        logger.debug("OIDC auth: disabled — missing env vars: %s", ", ".join(missing))
         return None
 
     from fastmcp.server.auth.oidc_proxy import OIDCProxy
@@ -305,6 +318,17 @@ def _build_oidc_auth() -> Any:
         f"{_ENV_PREFIX}_OIDC_VERIFY_ACCESS_TOKEN", ""
     ).strip().lower() in ("true", "1", "yes")
     verify_id_token = not verify_access_token
+
+    logger.debug("OIDC auth config:")
+    logger.debug("  config_url       = %s", config_url)
+    logger.debug("  client_id        = %s", client_id)
+    logger.debug("  client_secret    = <redacted>")
+    logger.debug("  base_url         = %s", base_url)
+    logger.debug("  audience         = %s", audience or "(not set)")
+    logger.debug("  required_scopes  = %s", required_scopes)
+    logger.debug("  jwt_signing_key  = %s", "(set)" if jwt_signing_key else "(not set)")
+    logger.debug("  verify_id_token  = %s", verify_id_token)
+    logger.debug("  verify_access_token = %s", verify_access_token)
 
     if verify_id_token and "openid" not in required_scopes:
         logger.warning(
@@ -373,6 +397,7 @@ def create_server() -> FastMCP:
 
     if bearer_auth:
         auth = bearer_auth
+        auth_mode = "bearer"
         logger.info("Bearer token auth enabled")
         if oidc_auth:
             logger.warning(
@@ -380,10 +405,21 @@ def create_server() -> FastMCP:
             )
     elif oidc_auth:
         auth = oidc_auth
+        auth_mode = "oidc"
         logger.info("OIDC auth enabled")
     else:
         auth = None
+        auth_mode = "none"
         logger.info("No auth configured — server accepts unauthenticated connections")
+
+    logger.info(
+        "Server config: name=%s auth=%s mode=%s vault=%s embeddings=%s",
+        server_name,
+        auth_mode,
+        "read-only" if is_read_only else "read-write",
+        config_snapshot.source_dir,
+        "enabled" if config_snapshot.embeddings_path else "disabled",
+    )
 
     mcp = FastMCP(
         server_name,
