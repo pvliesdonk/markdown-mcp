@@ -3069,7 +3069,9 @@ class TestLoggingAuditSilentPaths:
 
         def is_file_override(self_path: _Path, *a: object, **kw: object) -> bool:
             if self_path.name == "data.csv":
-                return True  # file exists; we want is_file() to pass so stat() is reached
+                return (
+                    True  # file exists; we want is_file() to pass so stat() is reached
+                )
             return original_is_file(self_path, *a, **kw)
 
         with (
