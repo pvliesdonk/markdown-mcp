@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -3026,3 +3027,86 @@ class TestDeferredEmbeddings:
         _, _, operation = calls[0]
         assert operation == "write"
         col.close()
+
+
+# ---------------------------------------------------------------------------
+# Logging audit — previously-silent error paths now emit log messages (#182)
+# ---------------------------------------------------------------------------
+
+
+class TestLoggingAuditSilentPaths:
+    """Verify that previously-silent except blocks now log at WARNING."""
+
+    def test_list_attachments_stat_error_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_list_attachments logs WARNING when stat() fails on a file."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "doc.md").write_text("# Doc\n", encoding="utf-8")
+        att = vault / "data.csv"
+        att.write_text("a,b\n1,2\n", encoding="utf-8")
+
+        col = Collection(source_dir=vault, attachment_extensions=["csv"])
+        col.build_index()
+
+        # Patch Path.stat to raise OSError for data.csv.
+        # On Python 3.13, Path.is_file() calls Path.stat() internally; we also
+        # patch is_file() to return True for data.csv so that the is_file() guard
+        # at the top of _list_attachments does not short-circuit before reaching
+        # the explicit stat() call that exercises the warning log.
+        # On Python 3.14, is_file() uses a C-level stat and Path.stat is only
+        # called explicitly; the is_file() patch is a no-op there.
+        from pathlib import Path as _Path
+
+        original_stat = _Path.stat
+        original_is_file = _Path.is_file
+
+        def stat_that_fails(self_path: _Path, *a: object, **kw: object) -> object:
+            if self_path.name == "data.csv":
+                raise OSError("simulated stat failure")
+            return original_stat(self_path, *a, **kw)
+
+        def is_file_override(self_path: _Path, *a: object, **kw: object) -> bool:
+            if self_path.name == "data.csv":
+                return (
+                    True  # file exists; we want is_file() to pass so stat() is reached
+                )
+            return original_is_file(self_path, *a, **kw)
+
+        with (
+            caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"),
+            patch.object(_Path, "stat", stat_that_fails),
+            patch.object(_Path, "is_file", is_file_override),
+        ):
+            results = col.list(include_attachments=True)
+        attachment_paths = [r.path for r in results if isinstance(r, AttachmentInfo)]
+        assert "data.csv" not in attachment_paths
+        assert any("stat error" in rec.message for rec in caplog.records)
+
+    def test_get_frontmatter_invalid_json_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Collection._get_frontmatter logs WARNING for invalid JSON."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "note.md").write_text("# Note\n", encoding="utf-8")
+        col = Collection(source_dir=vault)
+        col.build_index()
+
+        bad_row = {
+            "path": "note.md",
+            "title": "Note",
+            "folder": "",
+            "frontmatter_json": "{broken-json",
+            "modified_at": 0.0,
+        }
+        with (
+            caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"),
+            patch.object(col._fts, "get_note", return_value=bad_row),
+        ):
+            result = col._get_frontmatter("note.md")
+        assert result == {}
+        assert any(
+            "_get_frontmatter: invalid JSON" in rec.message for rec in caplog.records
+        )

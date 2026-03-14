@@ -691,7 +691,10 @@ class Collection:
             return {}
         try:
             return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "_get_frontmatter: invalid JSON for %s — %s", row.get("path"), exc
+            )
             return {}
 
     # ------------------------------------------------------------------
@@ -793,7 +796,12 @@ class Collection:
                 continue
             try:
                 rel = abs_path.relative_to(source_resolved)
-            except ValueError:
+            except ValueError as exc:
+                logger.warning(
+                    "_list_attachments: skipping %s — outside source_dir (%s)",
+                    abs_path,
+                    exc,
+                )
                 continue
             rel_path = str(rel)
             # Skip files where any path component (including the filename itself) starts with ".".
@@ -818,7 +826,10 @@ class Collection:
                 continue
             try:
                 stat = abs_path.stat()
-            except OSError:
+            except OSError as exc:
+                logger.warning(
+                    "_list_attachments: skipping %s — stat error (%s)", abs_path, exc
+                )
                 continue
             mime_type, _ = mimetypes.guess_type(rel_path)
             attachments.append(
@@ -1178,8 +1189,12 @@ class Collection:
                             count = len(loaded_meta)
                         else:
                             count = len(loaded_meta.get("rows", []))
-                    except (OSError, json.JSONDecodeError):
-                        pass
+                    except (OSError, json.JSONDecodeError) as exc:
+                        logger.warning(
+                            "embeddings_status: could not read metadata from %s — %s",
+                            json_path,
+                            exc,
+                        )
 
         return {
             "available": True,

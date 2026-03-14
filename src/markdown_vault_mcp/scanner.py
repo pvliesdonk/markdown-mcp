@@ -248,7 +248,7 @@ def parse_note(
 
     chunks = chunk_strategy.chunk(body, metadata)
 
-    return ParsedNote(
+    note = ParsedNote(
         path=rel_str,
         frontmatter=metadata,
         title=title,
@@ -256,6 +256,8 @@ def parse_note(
         content_hash=content_hash,
         modified_at=modified_at,
     )
+    logger.debug("parse_note: %s — title=%r chunks=%d", rel_str, title, len(chunks))
+    return note
 
 
 def scan_directory(
