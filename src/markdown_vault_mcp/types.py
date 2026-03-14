@@ -210,6 +210,17 @@ class OutlinkInfo:
     exists: bool = False
 
 
+@dataclass
+class BrokenLinkInfo:
+    """A link whose target does not exist in the collection."""
+
+    source_path: str
+    source_title: str
+    target_path: str
+    link_text: str
+    link_type: str
+
+
 WriteCallback = Callable[
     [Path, str, Literal["write", "edit", "delete", "rename"]], None
 ]

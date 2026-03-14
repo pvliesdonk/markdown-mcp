@@ -41,6 +41,7 @@ from markdown_vault_mcp.types import (
     AttachmentContent,
     AttachmentInfo,
     BacklinkInfo,
+    BrokenLinkInfo,
     CollectionStats,
     DeleteResult,
     EditResult,
@@ -1276,9 +1277,14 @@ class Collection:
         Returns:
             List of :class:`~markdown_vault_mcp.types.BacklinkInfo` objects
             for each document that contains a link pointing to ``path``.
+
+        Raises:
+            ValueError: If no document exists at the given path.
         """
         self._ensure_initialized()
         self._validate_path(path)
+        if self._fts.get_note(path) is None:
+            raise ValueError(f"Document not found: {path}")
         rows = self._fts.get_backlinks(path)
         return [
             BacklinkInfo(
@@ -1304,9 +1310,14 @@ class Collection:
         Returns:
             List of :class:`~markdown_vault_mcp.types.OutlinkInfo` objects for
             each link originating from ``path``.
+
+        Raises:
+            ValueError: If no document exists at the given path.
         """
         self._ensure_initialized()
         self._validate_path(path)
+        if self._fts.get_note(path) is None:
+            raise ValueError(f"Document not found: {path}")
         rows = self._fts.get_outlinks(path)
         return [
             OutlinkInfo(
@@ -1315,6 +1326,29 @@ class Collection:
                 link_type=row["link_type"],
                 fragment=row["fragment"],
                 exists=bool(row["target_exists"]),
+            )
+            for row in rows
+        ]
+
+    def get_broken_links(self, *, folder: str | None = None) -> list[BrokenLinkInfo]:
+        """Return all links whose target does not exist in the collection.
+
+        Args:
+            folder: If provided, restrict to source documents in this folder
+                (exact match or sub-folder prefix).
+
+        Returns:
+            List of :class:`~markdown_vault_mcp.types.BrokenLinkInfo` objects.
+        """
+        self._ensure_initialized()
+        rows = self._fts.get_broken_links(folder=folder)
+        return [
+            BrokenLinkInfo(
+                source_path=row["source_path"],
+                source_title=row["source_title"],
+                target_path=row["target_path"],
+                link_text=row["link_text"],
+                link_type=row["link_type"],
             )
             for row in rows
         ]

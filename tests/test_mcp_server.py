@@ -169,6 +169,9 @@ class TestToolListing:
         assert "embeddings_status" in names
         assert "reindex" in names
         assert "build_embeddings" in names
+        assert "get_backlinks" in names
+        assert "get_outlinks" in names
+        assert "get_broken_links" in names
         # Write tools absent when read_only=true (default)
         assert "write" not in names
         assert "edit" not in names
@@ -208,6 +211,9 @@ class TestToolAnnotations:
             "list_tags",
             "stats",
             "embeddings_status",
+            "get_backlinks",
+            "get_outlinks",
+            "get_broken_links",
         ):
             ann = by_name[name].annotations
             assert ann is not None, f"{name} missing annotations"
@@ -1180,6 +1186,103 @@ class TestMCPStatsAttachmentExtensions:
         assert "attachment_extensions" in data
         assert isinstance(data["attachment_extensions"], list)
         assert "pdf" in data["attachment_extensions"]
+
+
+# ---------------------------------------------------------------------------
+# Link tools
+# ---------------------------------------------------------------------------
+
+
+class TestLinkTools:
+    """Integration tests for get_backlinks, get_outlinks, get_broken_links."""
+
+    @pytest.fixture
+    def _mcp_env_linked(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Create a vault with interlinked notes for link tool tests."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "index.md").write_text(
+            "# Index\n\nSee [Topic](notes/topic.md) and [Ghost](ghost.md).\n",
+            encoding="utf-8",
+        )
+        (vault / "notes").mkdir()
+        (vault / "notes" / "topic.md").write_text(
+            "# Topic\n\nBack to [Index](../index.md).\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("MARKDOWN_VAULT_MCP_SOURCE_DIR", str(vault))
+        monkeypatch.delenv("MARKDOWN_VAULT_MCP_READ_ONLY", raising=False)
+        for var in _CLEAR_VARS:
+            monkeypatch.delenv(var, raising=False)
+
+    @pytest.mark.usefixtures("_mcp_env_linked")
+    async def test_get_backlinks(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("get_backlinks", {"path": "notes/topic.md"})
+        data = _parse_tool_data(result)
+        assert len(data) == 1
+        assert data[0]["source_path"] == "index.md"
+        assert data[0]["link_text"] == "Topic"
+
+    @pytest.mark.usefixtures("_mcp_env_linked")
+    async def test_get_backlinks_nonexistent_raises(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            with pytest.raises((ToolError, McpError)):
+                await client.call_tool("get_backlinks", {"path": "nope.md"})
+
+    @pytest.mark.usefixtures("_mcp_env_linked")
+    async def test_get_outlinks(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("get_outlinks", {"path": "index.md"})
+        data = _parse_tool_data(result)
+        assert len(data) == 2
+        targets = {d["target_path"] for d in data}
+        assert "notes/topic.md" in targets
+        assert "ghost.md" in targets
+        # notes/topic.md exists, ghost.md does not
+        by_target = {d["target_path"]: d for d in data}
+        assert by_target["notes/topic.md"]["exists"] is True
+        assert by_target["ghost.md"]["exists"] is False
+
+    @pytest.mark.usefixtures("_mcp_env_linked")
+    async def test_get_outlinks_nonexistent_path(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            with pytest.raises((ToolError, McpError)):
+                await client.call_tool("get_outlinks", {"path": "nope.md"})
+
+    @pytest.mark.usefixtures("_mcp_env_linked")
+    async def test_get_broken_links(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("get_broken_links", {})
+        data = _parse_tool_data(result)
+        assert len(data) == 1
+        assert data[0]["target_path"] == "ghost.md"
+        assert data[0]["source_path"] == "index.md"
+
+    @pytest.mark.usefixtures("_mcp_env_linked")
+    async def test_get_broken_links_with_folder_filter(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("get_broken_links", {"folder": "notes"})
+        data = _parse_tool_data(result)
+        # notes/topic.md links to ../index.md which exists — no broken links
+        assert data == []
+
+    @pytest.mark.usefixtures("_mcp_env_linked")
+    async def test_link_tools_available_in_readonly(self) -> None:
+        """Link tools are read-only and available even when vault is read-only."""
+        server = create_server()
+        async with Client(server) as client:
+            tools = await client.list_tools()
+            names = {t.name for t in tools}
+        assert "get_backlinks" in names
+        assert "get_outlinks" in names
+        assert "get_broken_links" in names
 
 
 # ---------------------------------------------------------------------------
