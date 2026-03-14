@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS links (
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_path);
 CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id);
 
+CREATE INDEX IF NOT EXISTS idx_documents_modified_at
+    ON documents(modified_at DESC);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
     path, title, folder, heading, content,
     tokenize='porter unicode61'
@@ -805,7 +808,7 @@ class FTSIndex:
             cur = self._conn.execute(
                 """
                 SELECT path, title, folder, frontmatter_json,
-                       content_hash, modified_at
+                       modified_at
                 FROM documents
                 WHERE folder = ? OR folder LIKE ? ESCAPE '\\'
                 ORDER BY modified_at DESC
@@ -817,7 +820,7 @@ class FTSIndex:
             cur = self._conn.execute(
                 """
                 SELECT path, title, folder, frontmatter_json,
-                       content_hash, modified_at
+                       modified_at
                 FROM documents
                 ORDER BY modified_at DESC
                 LIMIT ?

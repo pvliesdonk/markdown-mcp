@@ -1257,14 +1257,15 @@ def create_server() -> FastMCP:
     ) -> str:
         """20 most recently modified notes."""
         results = await asyncio.to_thread(collection.get_recent, limit=20)
-        items = []
-        for r in results:
-            d = asdict(r)
-            # Convert modified_at to ISO 8601 for human-readable resource.
-            d["modified_at_iso"] = datetime.datetime.fromtimestamp(
-                r.modified_at, tz=datetime.UTC
-            ).isoformat()
-            items.append(d)
+        items = [
+            {
+                **asdict(r),
+                "modified_at_iso": datetime.datetime.fromtimestamp(
+                    r.modified_at, tz=datetime.UTC
+                ).isoformat(),
+            }
+            for r in results
+        ]
         return json.dumps(items)
 
     # --- Prompts ---

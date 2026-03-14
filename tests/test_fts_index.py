@@ -731,6 +731,46 @@ class TestGetRecent:
         paths = {r["path"] for r in rows}
         assert paths == {"Journal/day1.md", "Journal/day2.md"}
 
+    def test_folder_filter_nested_subfolder(self) -> None:
+        """get_recent with folder includes nested sub-folder documents."""
+        idx = FTSIndex(":memory:")
+        notes = [
+            ParsedNote(
+                path="Journal/day1.md",
+                frontmatter={},
+                title="Day 1",
+                chunks=[
+                    Chunk(heading=None, heading_level=0, content="c", start_line=0)
+                ],
+                content_hash="h1",
+                modified_at=100.0,
+            ),
+            ParsedNote(
+                path="Journal/sub/nested.md",
+                frontmatter={},
+                title="Nested",
+                chunks=[
+                    Chunk(heading=None, heading_level=0, content="c", start_line=0)
+                ],
+                content_hash="h2",
+                modified_at=200.0,
+            ),
+            ParsedNote(
+                path="Other/note.md",
+                frontmatter={},
+                title="Other",
+                chunks=[
+                    Chunk(heading=None, heading_level=0, content="c", start_line=0)
+                ],
+                content_hash="h3",
+                modified_at=300.0,
+            ),
+        ]
+        idx.build_from_notes(notes)
+        rows = idx.get_recent(folder="Journal")
+        paths = {r["path"] for r in rows}
+        assert paths == {"Journal/day1.md", "Journal/sub/nested.md"}
+
     def test_empty_index_returns_empty(self) -> None:
         """get_recent on empty index returns []."""
         idx = FTSIndex(":memory:")
