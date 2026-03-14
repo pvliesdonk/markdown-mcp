@@ -360,7 +360,7 @@ def extract_links(content: str, source_path: str) -> list[LinkInfo]:
         link_text = alias.strip() if alias else raw_path
 
         # Split fragment BEFORE appending .md so [[note#heading]] works.
-        fragment: str | None = None
+        fragment = None
         if "#" in raw_path:
             idx = raw_path.index("#")
             fragment = raw_path[idx + 1 :] or None
