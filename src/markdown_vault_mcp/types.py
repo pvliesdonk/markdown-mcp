@@ -218,7 +218,7 @@ class BrokenLinkInfo:
     source_title: str
     target_path: str
     link_text: str
-    link_type: str
+    link_type: Literal["markdown", "wikilink", "reference"]
     fragment: str | None = None
 
 
