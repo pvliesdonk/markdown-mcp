@@ -3074,21 +3074,28 @@ class TestLoggingAuditSilentPaths:
         assert any("stat error" in rec.message for rec in caplog.records)
 
     def test_get_frontmatter_invalid_json_logs_warning(
-        self, caplog: pytest.LogCaptureFixture
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """_get_frontmatter logs WARNING for invalid JSON."""
-        from markdown_vault_mcp.collection import _fts_row_to_note_info
+        """Collection._get_frontmatter logs WARNING for invalid JSON."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "note.md").write_text("# Note\n", encoding="utf-8")
+        col = Collection(source_dir=vault)
+        col.build_index()
 
-        row = {
-            "path": "bad.md",
-            "title": "Bad",
+        bad_row = {
+            "path": "note.md",
+            "title": "Note",
             "folder": "",
             "frontmatter_json": "{broken-json",
             "modified_at": 0.0,
         }
-        with caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"):
-            result = _fts_row_to_note_info(row)
-        assert result.frontmatter == {}
+        with (
+            caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"),
+            patch.object(col._fts, "get_note", return_value=bad_row),
+        ):
+            result = col._get_frontmatter("note.md")
+        assert result == {}
         assert any(
-            "Could not parse frontmatter_json" in rec.message for rec in caplog.records
+            "_get_frontmatter: invalid JSON" in rec.message for rec in caplog.records
         )
