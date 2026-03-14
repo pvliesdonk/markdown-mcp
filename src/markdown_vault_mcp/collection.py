@@ -1355,11 +1355,12 @@ class Collection:
         ]
 
     def get_similar(self, path: str, *, limit: int = 10) -> list[SearchResult]:
-        """Return documents most semantically similar to the given document.
+        """Return the most semantically similar chunks from other documents.
 
         Uses the stored embedding vectors for ``path`` (averaged across
         chunks) to compute cosine similarity against all other documents.
-        No re-embedding is needed.
+        No re-embedding is needed.  Results are at chunk granularity —
+        the same document may appear multiple times if it has many chunks.
 
         Args:
             path: Relative path of the reference document.
@@ -1395,7 +1396,7 @@ class Collection:
                 content=r.get("content", ""),
                 score=r.get("score", 0.0),
                 search_type="semantic",
-                frontmatter={},
+                frontmatter=self._get_frontmatter(r["path"]),
             )
             for r in raw_results
         ]

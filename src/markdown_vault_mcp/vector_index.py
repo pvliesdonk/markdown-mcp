@@ -294,10 +294,9 @@ class VectorIndex:
         scores: np.ndarray = self._embeddings @ q_vec
 
         # Build (score, index) pairs excluding chunks from the same document.
-        doc_path_set = {path}
         candidates: list[tuple[float, int]] = []
         for i, score in enumerate(scores):
-            if self._metadata[i].get("path") not in doc_path_set:
+            if self._metadata[i].get("path") != path:
                 candidates.append((float(score), i))
 
         # Sort descending by score and take top-k.
