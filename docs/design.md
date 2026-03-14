@@ -573,6 +573,20 @@ CREATE INDEX IF NOT EXISTS idx_tags_kv
 CREATE INDEX IF NOT EXISTS idx_tags_docid
     ON document_tags(document_id);
 
+-- Links: inter-document references extracted from markdown content
+CREATE TABLE IF NOT EXISTS links (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL,
+    target_path TEXT NOT NULL,        -- resolved relative path (may not exist)
+    link_text TEXT NOT NULL DEFAULT '',
+    link_type TEXT NOT NULL,          -- 'markdown', 'wikilink', 'reference'
+    fragment TEXT,                    -- heading anchor, NULL if none
+    FOREIGN KEY (source_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_path);
+CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id);
+
 -- FTS5 virtual table for full-text search
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
     path,
@@ -583,6 +597,30 @@ CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
     tokenize='porter unicode61'
 );
 ```
+
+### Link Extraction
+
+Links are extracted from markdown content during `parse_note()` and stored in the
+`links` table. Three formats are supported:
+
+- **Inline markdown**: `[text](path.md)`, `[text](path.md#heading)`
+- **Reference-style**: `[text][ref]` with `[ref]: path.md` definitions
+- **Wikilinks**: `[[path]]`, `[[path|alias]]`, `[[path#heading]]`
+
+**Exclusions**: links inside fenced code blocks (`` ``` ``) and inline code (`` ` ``)
+are not extracted. External URLs (`http://`, `https://`, `mailto:`) and pure anchors
+(`#heading`) are skipped.
+
+**Path resolution**: relative paths are resolved against the source document's
+directory. `../sibling.md` from `Journal/2024/today.md` resolves to
+`Journal/sibling.md`. Traversal above the vault root clamps to root.
+
+**Fragment handling**: `path.md#heading` splits into `target_path=path.md` and
+`fragment=heading`. The fragment is preserved on `LinkInfo` but the target path
+is stored without it.
+
+**Wikilinks**: `[[Note Title]]` appends `.md` → `Note Title.md`. The path is
+stored as-is (no case-insensitive lookup at extraction time).
 
 ## Module Design
 
@@ -639,6 +677,9 @@ class Collection:
     # --- Metadata ---
     def list_folders(self) -> list[str]: ...
     def list_tags(self, field: str = "tags") -> list[str]: ...
+    def get_backlinks(self, path: str) -> list[BacklinkInfo]: ...
+    def get_outlinks(self, path: str) -> list[OutlinkInfo]: ...
+    def get_broken_links(self, *, folder: str | None = None) -> list[BrokenLinkInfo]: ...
     def stats(self) -> CollectionStats: ...
 ```
 
@@ -812,6 +853,9 @@ pattern). Each tool is annotated with MCP `ToolAnnotations`:
 | `reindex` | Incremental reindex | `False` | `False` | `True` |
 | `build_embeddings` | Build/rebuild vector embeddings | `False` | `False` | `True` |
 | `embeddings_status` | Check embedding provider status | `True` | `False` | `True` |
+| `get_backlinks` | Find documents that link to a path | `True` | `False` | `True` |
+| `get_outlinks` | Find links from a document (with exists flag) | `True` | `False` | `True` |
+| `get_broken_links` | Find links to non-existent documents | `True` | `False` | `True` |
 
 **Tool name note**: the MCP tool is registered as `list_documents` (not `list`)
 to avoid shadowing Python's built-in `list`. The underlying `Collection.list()`

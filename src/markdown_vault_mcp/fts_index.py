@@ -752,6 +752,42 @@ class FTSIndex:
         )
         return [dict(row) for row in cur.fetchall()]
 
+    def get_broken_links(self, *, folder: str | None = None) -> list[dict]:
+        """Return all links whose target does not exist as an indexed document.
+
+        Args:
+            folder: If provided, restrict to source documents in this folder
+                (exact match or sub-folder prefix).
+
+        Returns:
+            List of dicts with keys ``source_path``, ``source_title``,
+            ``target_path``, ``link_text``, ``link_type``, ``fragment``.
+        """
+        folder_clause = ""
+        params: list[str] = []
+        if folder is not None:
+            escaped = _escape_like(folder)
+            folder_clause = "AND (d.folder = ? OR d.folder LIKE ? ESCAPE '\\')"
+            params = [folder, escaped + "/%"]
+
+        sql = f"""
+            SELECT d.path AS source_path,
+                   d.title AS source_title,
+                   l.target_path,
+                   l.link_text,
+                   l.link_type,
+                   l.fragment
+            FROM links l
+            JOIN documents d ON d.id = l.source_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM documents d2 WHERE d2.path = l.target_path
+            )
+              {folder_clause}
+            ORDER BY d.path, l.rowid
+        """
+        cur = self._conn.execute(sql, params)
+        return [dict(row) for row in cur.fetchall()]
+
     def close(self) -> None:
         """Close the underlying database connection.
 

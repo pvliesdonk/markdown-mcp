@@ -117,6 +117,24 @@ _TOOL_ICONS: dict[str, list[Icon]] = {
             mimeType="image/svg+xml",
         )
     ],
+    "get_backlinks": [
+        Icon(
+            src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZyBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Ik0xMCAxM2E1IDUgMCAwIDAgNy41NC41NGwzLTNhNSA1IDAgMCAwLTcuMDctNy4wN2wtMS43MiAxLjcxIi8+PHBhdGggZD0iTTE0IDExYTUgNSAwIDAgMC03LjU0LS41NGwtMyAzYTUgNSAwIDAgMCA3LjA3IDcuMDdsMS43MS0xLjcxIi8+PC9nPjwvc3ZnPg==",
+            mimeType="image/svg+xml",
+        )
+    ],
+    "get_outlinks": [
+        Icon(
+            src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjIiIGQ9Ik0xNSAzaDZ2Nm0tMTEgNUwyMSAzbS0zIDEwdjZhMiAyIDAgMCAxLTIgMkg1YTIgMiAwIDAgMS0yLTJWOGEyIDIgMCAwIDEgMi0yaDYiLz48L3N2Zz4=",
+            mimeType="image/svg+xml",
+        )
+    ],
+    "get_broken_links": [
+        Icon(
+            src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjIiIGQ9Im0xOC44NCAxMi4yNWwxLjcyLTEuNzFoLS4wMmE1LjAwNCA1LjAwNCAwIDAgMC0uMTItNy4wN2E1LjAwNiA1LjAwNiAwIDAgMC02Ljk1IDBsLTEuNzIgMS43MW0tNi41OCA2LjU3bC0xLjcxIDEuNzFhNS4wMDQgNS4wMDQgMCAwIDAgLjEyIDcuMDdhNS4wMDYgNS4wMDYgMCAwIDAgNi45NSAwbDEuNzEtMS43MU04IDJ2M00yIDhoM20xMSAxMXYzbTMtNmgzIi8+PC9zdmc+",
+            mimeType="image/svg+xml",
+        )
+    ],
 }
 
 logger = logging.getLogger(__name__)
@@ -694,6 +712,109 @@ def create_server() -> FastMCP:
             vector index), and path (str — vector index file path).
         """
         return await asyncio.to_thread(collection.embeddings_status)
+
+    # --- Link tools (read-only) ---
+
+    @mcp.tool(
+        icons=_TOOL_ICONS["get_backlinks"],
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    )
+    async def get_backlinks(
+        path: str,
+        collection: Collection = Depends(get_collection),
+    ) -> list[dict[str, Any]]:
+        """Find all documents that link TO the given document (backlinks).
+
+        Use this to discover which notes reference a particular document.
+        Backlinks reveal implicit relationships that search alone cannot
+        surface — they show what other authors considered relevant to this
+        document.
+
+        Args:
+            path: Relative path of the target document (e.g.
+                "notes/topic.md"). Case-sensitive.
+
+        Returns:
+            List of dicts, each with: source_path (linking document),
+            source_title, link_text (the clickable text), link_type
+            ("markdown", "wikilink", or "reference"), fragment (heading
+            anchor or null).
+
+        Raises:
+            ValueError: If no document exists at the given path.
+        """
+        results = await asyncio.to_thread(collection.get_backlinks, path)
+        return [asdict(r) for r in results]
+
+    @mcp.tool(
+        icons=_TOOL_ICONS["get_outlinks"],
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    )
+    async def get_outlinks(
+        path: str,
+        collection: Collection = Depends(get_collection),
+    ) -> list[dict[str, Any]]:
+        """Find all links FROM the given document to other documents (outlinks).
+
+        Use this to see what a document references. Each result includes an
+        'exists' flag indicating whether the target document is in the
+        collection — False means the link is broken (target does not exist).
+
+        Args:
+            path: Relative path of the source document (e.g.
+                "notes/topic.md"). Case-sensitive.
+
+        Returns:
+            List of dicts, each with: target_path (linked document),
+            link_text, link_type ("markdown", "wikilink", or "reference"),
+            fragment (heading anchor or null), exists (bool — True if the
+            target is an indexed document).
+
+        Raises:
+            ValueError: If no document exists at the given path.
+        """
+        results = await asyncio.to_thread(collection.get_outlinks, path)
+        return [asdict(r) for r in results]
+
+    @mcp.tool(
+        icons=_TOOL_ICONS["get_broken_links"],
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    )
+    async def get_broken_links(
+        folder: str | None = None,
+        collection: Collection = Depends(get_collection),
+    ) -> list[dict[str, Any]]:
+        """Find all links that point to non-existent documents (broken links).
+
+        Use this to audit link health across the collection. A broken link
+        means the target path does not match any indexed document — the
+        referenced note may have been deleted, renamed, or never created.
+
+        Args:
+            folder: Optional folder filter. When provided, only checks
+                links from documents in this folder (e.g. "Journal").
+                Without this, checks all documents.
+
+        Returns:
+            List of dicts, each with: source_path (document containing the
+            broken link), source_title, target_path (the missing target),
+            link_text, link_type ("markdown", "wikilink", or "reference"),
+            fragment (heading anchor or null).
+        """
+        results = await asyncio.to_thread(collection.get_broken_links, folder=folder)
+        return [asdict(r) for r in results]
 
     # --- Index management tools ---
 
