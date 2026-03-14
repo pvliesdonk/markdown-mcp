@@ -172,6 +172,7 @@ class TestToolListing:
         assert "get_backlinks" in names
         assert "get_outlinks" in names
         assert "get_broken_links" in names
+        assert "get_similar" in names
         # Write tools absent when read_only=true (default)
         assert "write" not in names
         assert "edit" not in names
@@ -214,6 +215,7 @@ class TestToolAnnotations:
             "get_backlinks",
             "get_outlinks",
             "get_broken_links",
+            "get_similar",
         ):
             ann = by_name[name].annotations
             assert ann is not None, f"{name} missing annotations"
@@ -1283,6 +1285,26 @@ class TestLinkTools:
         assert "get_backlinks" in names
         assert "get_outlinks" in names
         assert "get_broken_links" in names
+
+
+class TestSimilarTool:
+    """Integration tests for get_similar tool."""
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_get_similar_no_embeddings_returns_empty(self) -> None:
+        """get_similar returns empty list when embeddings not configured."""
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("get_similar", {"path": "simple.md"})
+        data = _parse_tool_data(result)
+        assert data == []
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_get_similar_nonexistent_raises(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            with pytest.raises((ToolError, McpError)):
+                await client.call_tool("get_similar", {"path": "nonexistent.md"})
 
 
 # ---------------------------------------------------------------------------

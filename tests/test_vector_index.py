@@ -371,3 +371,62 @@ class TestVectorIndexPersistence:
 
         with pytest.raises(VectorIndexCompatibilityError, match="mismatch"):
             VectorIndex.load(base, mock_provider)
+
+
+class TestSearchByPath:
+    """Tests for VectorIndex.search_by_path."""
+
+    def test_returns_similar_from_other_docs(
+        self, mock_provider: MockEmbeddingProvider
+    ) -> None:
+        """search_by_path returns chunks from other documents, not self."""
+        index = VectorIndex(mock_provider)
+        index.add(
+            ["doc A content", "doc B content", "doc C content"],
+            [_make_meta("a.md"), _make_meta("b.md"), _make_meta("c.md")],
+        )
+        results = index.search_by_path("a.md", limit=5)
+        paths = {r["path"] for r in results}
+        assert "a.md" not in paths
+        assert len(results) == 2  # b.md and c.md
+
+    def test_returns_empty_for_nonexistent_path(
+        self, mock_provider: MockEmbeddingProvider
+    ) -> None:
+        """search_by_path returns [] if path has no stored embeddings."""
+        index = VectorIndex(mock_provider)
+        index.add(["content"], [_make_meta("a.md")])
+        assert index.search_by_path("nonexistent.md") == []
+
+    def test_returns_empty_for_empty_index(
+        self, mock_provider: MockEmbeddingProvider
+    ) -> None:
+        """search_by_path returns [] on empty index."""
+        index = VectorIndex(mock_provider)
+        assert index.search_by_path("any.md") == []
+
+    def test_multi_chunk_averaging(self, mock_provider: MockEmbeddingProvider) -> None:
+        """Document with multiple chunks uses mean vector for similarity."""
+        index = VectorIndex(mock_provider)
+        # doc_a has 2 chunks, doc_b has 1
+        index.add(
+            ["chunk1 of a", "chunk2 of a", "content of b"],
+            [
+                _make_meta("a.md", "H1"),
+                _make_meta("a.md", "H2"),
+                _make_meta("b.md"),
+            ],
+        )
+        results = index.search_by_path("a.md", limit=5)
+        assert len(results) == 1
+        assert results[0]["path"] == "b.md"
+        assert "score" in results[0]
+
+    def test_respects_limit(self, mock_provider: MockEmbeddingProvider) -> None:
+        """search_by_path respects the limit parameter."""
+        index = VectorIndex(mock_provider)
+        texts = [f"doc {i}" for i in range(5)]
+        meta = [_make_meta(f"doc{i}.md") for i in range(5)]
+        index.add(texts, meta)
+        results = index.search_by_path("doc0.md", limit=2)
+        assert len(results) == 2

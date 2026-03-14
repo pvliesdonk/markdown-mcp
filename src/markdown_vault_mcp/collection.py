@@ -1354,6 +1354,52 @@ class Collection:
             for row in rows
         ]
 
+    def get_similar(self, path: str, *, limit: int = 10) -> list[SearchResult]:
+        """Return documents most semantically similar to the given document.
+
+        Uses the stored embedding vectors for ``path`` (averaged across
+        chunks) to compute cosine similarity against all other documents.
+        No re-embedding is needed.
+
+        Args:
+            path: Relative path of the reference document.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of :class:`~markdown_vault_mcp.types.SearchResult` objects
+            ordered by descending similarity.  Returns ``[]`` when embeddings
+            are not configured or the document has no stored vectors.
+
+        Raises:
+            ValueError: If no document exists at the given path.
+        """
+        self._ensure_initialized()
+        self._validate_path(path)
+        if self._fts.get_note(path) is None:
+            raise ValueError(f"Document not found: {path}")
+
+        if self._embedding_provider is None or self._embeddings_path is None:
+            return []
+
+        self._load_vectors()
+        if self._vectors is None or self._vectors.count == 0:
+            return []
+
+        raw_results = self._vectors.search_by_path(path, limit=limit)
+        return [
+            SearchResult(
+                path=r["path"],
+                title=r.get("title", ""),
+                folder=r.get("folder", ""),
+                heading=r.get("heading"),
+                content=r.get("content", ""),
+                score=r.get("score", 0.0),
+                search_type="semantic",
+                frontmatter={},
+            )
+            for r in raw_results
+        ]
+
     def stats(self) -> CollectionStats:
         """Return collection-wide statistics.
 
