@@ -319,16 +319,26 @@ def _build_oidc_auth() -> Any:
     ).strip().lower() in ("true", "1", "yes")
     verify_id_token = not verify_access_token
 
-    logger.debug("OIDC auth config:")
-    logger.debug("  config_url       = %s", config_url)
-    logger.debug("  client_id        = %s", client_id)
-    logger.debug("  client_secret    = <redacted>")
-    logger.debug("  base_url         = %s", base_url)
-    logger.debug("  audience         = %s", audience or "(not set)")
-    logger.debug("  required_scopes  = %s", required_scopes)
-    logger.debug("  jwt_signing_key  = %s", "(set)" if jwt_signing_key else "(not set)")
-    logger.debug("  verify_id_token  = %s", verify_id_token)
-    logger.debug("  verify_access_token = %s", verify_access_token)
+    logger.debug(
+        "OIDC auth config:\n"
+        "  config_url          = %s\n"
+        "  client_id           = %s\n"
+        "  client_secret       = <redacted>\n"
+        "  base_url            = %s\n"
+        "  audience            = %s\n"
+        "  required_scopes     = %s\n"
+        "  jwt_signing_key     = %s\n"
+        "  verify_id_token     = %s\n"
+        "  verify_access_token = %s",
+        config_url,
+        client_id,
+        base_url,
+        audience or "(not set)",
+        required_scopes,
+        "(set)" if jwt_signing_key else "(not set)",
+        verify_id_token,
+        verify_access_token,
+    )
 
     if verify_id_token and "openid" not in required_scopes:
         logger.warning(
