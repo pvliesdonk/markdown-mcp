@@ -40,12 +40,14 @@ from markdown_vault_mcp.tracker import ChangeTracker
 from markdown_vault_mcp.types import (
     AttachmentContent,
     AttachmentInfo,
+    BacklinkInfo,
     CollectionStats,
     DeleteResult,
     EditResult,
     IndexStats,
     NoteContent,
     NoteInfo,
+    OutlinkInfo,
     ParsedNote,
     ReindexResult,
     RenameResult,
@@ -1263,6 +1265,59 @@ class Collection:
             h for h in headings if not (h["level"] == 1 and h["heading"] == title)
         )
         return toc
+
+    def get_backlinks(self, path: str) -> list[BacklinkInfo]:
+        """Return all documents that link to the given document.
+
+        Args:
+            path: Relative path of the target document
+                (e.g. ``"notes/topic.md"``).
+
+        Returns:
+            List of :class:`~markdown_vault_mcp.types.BacklinkInfo` objects
+            for each document that contains a link pointing to ``path``.
+        """
+        self._ensure_initialized()
+        self._validate_path(path)
+        rows = self._fts.get_backlinks(path)
+        return [
+            BacklinkInfo(
+                source_path=row["source_path"],
+                source_title=row["source_title"],
+                link_text=row["link_text"],
+                link_type=row["link_type"],
+                fragment=row["fragment"],
+            )
+            for row in rows
+        ]
+
+    def get_outlinks(self, path: str) -> list[OutlinkInfo]:
+        """Return all links from the given document to other documents.
+
+        The ``exists`` field on each :class:`~markdown_vault_mcp.types.OutlinkInfo`
+        indicates whether the target document is currently indexed.
+
+        Args:
+            path: Relative path of the source document
+                (e.g. ``"notes/topic.md"``).
+
+        Returns:
+            List of :class:`~markdown_vault_mcp.types.OutlinkInfo` objects for
+            each link originating from ``path``.
+        """
+        self._ensure_initialized()
+        self._validate_path(path)
+        rows = self._fts.get_outlinks(path)
+        return [
+            OutlinkInfo(
+                target_path=row["target_path"],
+                link_text=row["link_text"],
+                link_type=row["link_type"],
+                fragment=row["fragment"],
+                exists=bool(row["target_exists"]),
+            )
+            for row in rows
+        ]
 
     def stats(self) -> CollectionStats:
         """Return collection-wide statistics.

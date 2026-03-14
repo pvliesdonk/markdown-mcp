@@ -5,13 +5,14 @@ from __future__ import annotations
 import fnmatch
 import logging
 import re
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import frontmatter
 import yaml
 
 from markdown_vault_mcp.hashing import compute_etag
-from markdown_vault_mcp.types import Chunk, ParsedNote
+from markdown_vault_mcp.types import Chunk, LinkInfo, ParsedNote
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -201,6 +202,194 @@ def _resolve_title(metadata: dict[str, Any], content: str, path: Path) -> str:
     return path.stem
 
 
+_EXTERNAL_URL_PREFIXES = ("http://", "https://", "mailto:", "//")
+
+# Fenced code block: matches ``` or ~~~ delimiters (with optional language tag).
+_RE_FENCED_CODE = re.compile(r"```.*?```|~~~.*?~~~", re.DOTALL)
+# Inline code: matches single backtick spans (non-greedy, no newlines inside).
+_RE_INLINE_CODE = re.compile(r"`[^`\n]+`")
+# Inline markdown link: [text](target)
+_RE_INLINE_LINK = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
+# Reference-style link usage: [text][ref] or [text][]
+_RE_REF_USAGE = re.compile(r"\[([^\]]*)\]\[([^\]]*)\]")
+# Reference definition: [ref]: target  (at start of line, optional leading whitespace)
+_RE_REF_DEF = re.compile(r"^\s*\[([^\]]+)\]:\s*(.+)$", re.MULTILINE)
+# Wikilink: [[path]] or [[path|alias]]
+_RE_WIKILINK = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
+
+
+def _strip_code_spans(content: str) -> str:
+    """Remove fenced and inline code spans from markdown content.
+
+    This prevents links inside code examples from being extracted.
+
+    Args:
+        content: Raw markdown body text.
+
+    Returns:
+        Content with fenced and inline code regions replaced by empty strings.
+    """
+    content = _RE_FENCED_CODE.sub("", content)
+    content = _RE_INLINE_CODE.sub("", content)
+    return content
+
+
+def _resolve_link_path(target: str, source_rel: str) -> tuple[str, str | None]:
+    """Resolve a raw link target against the source document's directory.
+
+    Splits off any fragment identifier (``#heading``), resolves the path
+    relative to the source document using POSIX semantics, and clamps any
+    traversal above the vault root to the root.
+
+    Args:
+        target: Raw target string from the link (may include ``#fragment``).
+        source_rel: Relative POSIX path of the source document
+            (e.g. ``"Journal/2024/today.md"``).
+
+    Returns:
+        A ``(resolved_path, fragment)`` tuple where ``resolved_path`` is the
+        vault-relative POSIX path with forward slashes and ``fragment`` is the
+        heading identifier or ``None``.
+    """
+    # Split fragment.
+    fragment: str | None = None
+    if "#" in target:
+        idx = target.index("#")
+        fragment = target[idx + 1 :] or None
+        target = target[:idx]
+
+    if not target:
+        # Link with only a fragment — points to the source document itself.
+        return source_rel, fragment
+
+    # Resolve relative to the source document's directory.
+    source_dir_parts = PurePosixPath(source_rel).parent
+    resolved = source_dir_parts / target
+
+    # Normalise (collapse /../ and /./) without going above root.
+    parts = resolved.parts
+    normalised: list[str] = []
+    for part in parts:
+        if part == "..":
+            if normalised:
+                normalised.pop()
+            # else: clamp — traversal above root is dropped silently
+        elif part != ".":
+            normalised.append(part)
+
+    resolved_str = "/".join(normalised)
+
+    return resolved_str, fragment
+
+
+def extract_links(content: str, source_path: str) -> list[LinkInfo]:
+    """Extract all links from a markdown document body.
+
+    Handles three link formats:
+
+    * **Inline markdown**: ``[text](path.md)``
+    * **Reference-style**: ``[text][ref]`` with ``[ref]: path.md``
+    * **Wikilinks**: ``[[path]]`` or ``[[path|alias]]``
+
+    Links inside fenced code blocks and inline code spans are ignored.
+    External URLs (``http://``, ``https://``, ``mailto:``) are skipped.
+
+    Args:
+        content: Markdown body text (frontmatter already stripped).
+        source_path: Relative POSIX path of the source document, used for
+            resolving relative link targets (e.g. ``"Journal/2024/today.md"``).
+
+    Returns:
+        List of :class:`~markdown_vault_mcp.types.LinkInfo` objects.
+    """
+    clean = _strip_code_spans(content)
+    links: list[LinkInfo] = []
+
+    # --- Inline markdown links ---
+    for m in _RE_INLINE_LINK.finditer(clean):
+        # Skip image links: ![alt](src) shares the same bracket syntax.
+        if m.start() > 0 and clean[m.start() - 1] == "!":
+            continue
+        text = m.group(1)
+        raw_target = m.group(2).strip()
+        if any(raw_target.startswith(p) for p in _EXTERNAL_URL_PREFIXES):
+            continue
+        if raw_target.startswith("#"):
+            # Pure anchor link — skip (points to a section in the same doc).
+            continue
+        resolved, fragment = _resolve_link_path(raw_target, source_path)
+        links.append(
+            LinkInfo(
+                target_path=resolved,
+                link_text=text,
+                link_type="markdown",
+                fragment=fragment,
+            )
+        )
+
+    # --- Reference-style links ---
+    # Collect reference definitions first.
+    ref_defs: dict[str, str] = {}
+    for m in _RE_REF_DEF.finditer(clean):
+        ref_key = m.group(1).strip().lower()
+        ref_target = m.group(2).strip()
+        # Strip optional CommonMark title: "...", '...', or (...)
+        ref_target = re.sub(r'\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\))\s*$', "", ref_target)
+        ref_defs[ref_key] = ref_target
+
+    for m in _RE_REF_USAGE.finditer(clean):
+        text = m.group(1)
+        ref = m.group(2).strip() or text  # empty [ref] falls back to link text
+        ref_key = ref.lower()
+        raw_target = ref_defs.get(ref_key)
+        if raw_target is None:
+            continue
+        if any(raw_target.startswith(p) for p in _EXTERNAL_URL_PREFIXES):
+            continue
+        if raw_target.startswith("#"):
+            continue
+        resolved, fragment = _resolve_link_path(raw_target, source_path)
+        links.append(
+            LinkInfo(
+                target_path=resolved,
+                link_text=text,
+                link_type="reference",
+                fragment=fragment,
+            )
+        )
+
+    # --- Wikilinks ---
+    for m in _RE_WIKILINK.finditer(clean):
+        raw_path = m.group(1).strip()
+        alias = m.group(2)
+        link_text = alias.strip() if alias else raw_path
+
+        # Split fragment BEFORE appending .md so [[note#heading]] works.
+        fragment = None
+        if "#" in raw_path:
+            idx = raw_path.index("#")
+            fragment = raw_path[idx + 1 :] or None
+            raw_path = raw_path[:idx]
+
+        # Wikilinks without .md extension: append it.
+        if not raw_path.lower().endswith(".md"):
+            raw_path = raw_path + ".md"
+
+        resolved, path_fragment = _resolve_link_path(raw_path, source_path)
+        # Prefer the wikilink-level fragment; fall back to any in the path.
+        fragment = fragment or path_fragment
+        links.append(
+            LinkInfo(
+                target_path=resolved,
+                link_text=link_text,
+                link_type="wikilink",
+                fragment=fragment,
+            )
+        )
+
+    return links
+
+
 def parse_note(
     path: Path,
     source_dir: Path,
@@ -247,6 +436,7 @@ def parse_note(
     rel_str = rel_path.as_posix()
 
     chunks = chunk_strategy.chunk(body, metadata)
+    links = extract_links(body, rel_str)
 
     note = ParsedNote(
         path=rel_str,
@@ -255,8 +445,15 @@ def parse_note(
         chunks=chunks,
         content_hash=content_hash,
         modified_at=modified_at,
+        links=links,
     )
-    logger.debug("parse_note: %s — title=%r chunks=%d", rel_str, title, len(chunks))
+    logger.debug(
+        "parse_note: %s — title=%r chunks=%d links=%d",
+        rel_str,
+        title,
+        len(chunks),
+        len(links),
+    )
     return note
 
 

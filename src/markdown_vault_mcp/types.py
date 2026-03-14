@@ -19,6 +19,16 @@ class Chunk:
 
 
 @dataclass
+class LinkInfo:
+    """A link extracted from a markdown document."""
+
+    target_path: str
+    link_text: str
+    link_type: Literal["markdown", "wikilink", "reference"]
+    fragment: str | None = None
+
+
+@dataclass
 class ParsedNote:
     """A parsed markdown document."""
 
@@ -28,6 +38,7 @@ class ParsedNote:
     chunks: list[Chunk]
     content_hash: str
     modified_at: float
+    links: list[LinkInfo] = field(default_factory=list)
 
 
 @dataclass
@@ -175,6 +186,28 @@ class ChangeSet:
     modified: list[str]
     deleted: list[str]
     unchanged: int
+
+
+@dataclass
+class BacklinkInfo:
+    """A document that links to a given path."""
+
+    source_path: str
+    source_title: str
+    link_text: str
+    link_type: Literal["markdown", "wikilink", "reference"]
+    fragment: str | None = None
+
+
+@dataclass
+class OutlinkInfo:
+    """A link from a document to another path."""
+
+    target_path: str
+    link_text: str
+    link_type: Literal["markdown", "wikilink", "reference"]
+    fragment: str | None = None
+    exists: bool = False
 
 
 WriteCallback = Callable[
