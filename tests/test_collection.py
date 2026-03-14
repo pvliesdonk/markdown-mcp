@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -3026,3 +3027,66 @@ class TestDeferredEmbeddings:
         _, _, operation = calls[0]
         assert operation == "write"
         col.close()
+
+
+# ---------------------------------------------------------------------------
+# Logging audit — previously-silent error paths now emit log messages (#182)
+# ---------------------------------------------------------------------------
+
+
+class TestLoggingAuditSilentPaths:
+    """Verify that previously-silent except blocks now log at WARNING."""
+
+    def test_list_attachments_stat_error_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_list_attachments logs WARNING when stat() fails on a file."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "doc.md").write_text("# Doc\n", encoding="utf-8")
+        att = vault / "data.csv"
+        att.write_text("a,b\n1,2\n", encoding="utf-8")
+
+        col = Collection(source_dir=vault, attachment_extensions=["csv"])
+        col.build_index()
+
+        # Delete the file after rglob discovers it but before stat().
+        from pathlib import Path as _Path
+
+        original_stat = _Path.stat
+        seen_csv = False
+
+        def stat_that_fails(self_path: _Path, *a: object, **kw: object) -> object:
+            nonlocal seen_csv
+            if self_path.name == "data.csv":
+                if seen_csv:
+                    raise OSError("simulated stat failure")
+                seen_csv = True
+            return original_stat(self_path, *a, **kw)
+
+        with caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"):
+            with patch.object(_Path, "stat", stat_that_fails):
+                results = col.list(include_attachments=True)
+        attachment_paths = [
+            r.path for r in results if isinstance(r, AttachmentInfo)
+        ]
+        assert "data.csv" not in attachment_paths
+        assert any("stat error" in rec.message for rec in caplog.records)
+
+    def test_get_frontmatter_invalid_json_logs_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_get_frontmatter logs WARNING for invalid JSON."""
+        from markdown_vault_mcp.collection import _fts_row_to_note_info
+
+        row = {
+            "path": "bad.md",
+            "title": "Bad",
+            "folder": "",
+            "frontmatter_json": "{broken-json",
+            "modified_at": 0.0,
+        }
+        with caplog.at_level(logging.WARNING, logger="markdown_vault_mcp.collection"):
+            result = _fts_row_to_note_info(row)
+        assert result.frontmatter == {}
+        assert any("Could not parse frontmatter_json" in rec.message for rec in caplog.records)

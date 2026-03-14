@@ -225,7 +225,13 @@ class VectorIndex:
             RuntimeError: Propagated from the embedding provider.
         """
         if self.count == 0:
+            logger.debug("VectorIndex.search: index empty, returning []")
             return []
+
+        logger.debug(
+            "VectorIndex.search: query=%r limit=%d index_size=%d",
+            query, limit, self.count,
+        )
 
         raw = self._provider.embed([query])
         q_vec = np.array(raw[0], dtype=np.float32)
@@ -247,6 +253,7 @@ class VectorIndex:
             entry["score"] = float(scores[int(idx)])
             results.append(entry)
 
+        logger.debug("VectorIndex.search: returning %d results", len(results))
         return results
 
     def delete_by_path(self, path: str) -> int:

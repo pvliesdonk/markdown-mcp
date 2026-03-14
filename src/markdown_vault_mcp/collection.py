@@ -692,6 +692,9 @@ class Collection:
         try:
             return json.loads(raw)
         except (json.JSONDecodeError, TypeError):
+            logger.warning(
+                "_get_frontmatter: invalid JSON for %s", row.get("path")
+            )
             return {}
 
     # ------------------------------------------------------------------
@@ -794,6 +797,9 @@ class Collection:
             try:
                 rel = abs_path.relative_to(source_resolved)
             except ValueError:
+                logger.warning(
+                    "_list_attachments: skipping %s — outside source_dir", abs_path
+                )
                 continue
             rel_path = str(rel)
             # Skip files where any path component (including the filename itself) starts with ".".
@@ -818,7 +824,10 @@ class Collection:
                 continue
             try:
                 stat = abs_path.stat()
-            except OSError:
+            except OSError as exc:
+                logger.warning(
+                    "_list_attachments: skipping %s — stat error (%s)", abs_path, exc
+                )
                 continue
             mime_type, _ = mimetypes.guess_type(rel_path)
             attachments.append(
@@ -1178,8 +1187,10 @@ class Collection:
                             count = len(loaded_meta)
                         else:
                             count = len(loaded_meta.get("rows", []))
-                    except (OSError, json.JSONDecodeError):
-                        pass
+                    except (OSError, json.JSONDecodeError) as exc:
+                        logger.warning(
+                            "embeddings_stats: could not read metadata — %s", exc
+                        )
 
         return {
             "available": True,
