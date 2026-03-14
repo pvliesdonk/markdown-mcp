@@ -691,8 +691,10 @@ class Collection:
             return {}
         try:
             return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            logger.warning("_get_frontmatter: invalid JSON for %s", row.get("path"))
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "_get_frontmatter: invalid JSON for %s — %s", row.get("path"), exc
+            )
             return {}
 
     # ------------------------------------------------------------------
@@ -794,9 +796,11 @@ class Collection:
                 continue
             try:
                 rel = abs_path.relative_to(source_resolved)
-            except ValueError:
+            except ValueError as exc:
                 logger.warning(
-                    "_list_attachments: skipping %s — outside source_dir", abs_path
+                    "_list_attachments: skipping %s — outside source_dir (%s)",
+                    abs_path,
+                    exc,
                 )
                 continue
             rel_path = str(rel)
