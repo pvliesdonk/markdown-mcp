@@ -967,17 +967,26 @@ When all four required vars are set (`BASE_URL`, `OIDC_CONFIG_URL`, `OIDC_CLIENT
 
 **Token verification:** By default the server verifies the upstream `id_token` (always a standard JWT per OIDC Core) rather than the `access_token`. This works with all providers, including those that issue opaque (non-JWT) access tokens (e.g. Authelia). Set `MARKDOWN_VAULT_MCP_OIDC_VERIFY_ACCESS_TOKEN=true` to revert to access-token JWT verification when audience-claim validation on that token is required.
 
+**Token lifetime recommendations:** MCP clients do not reliably re-authenticate after token expiry. Configure long token lifetimes on your identity provider (e.g. 8h access tokens, 30d refresh tokens) and include `offline_access` in the provider-side scopes. See the [authentication guide](guides/authentication.md#session-drops-after-token-expiry) for details and upstream issue links.
+
 **Authelia client registration** (in your Authelia `configuration.yml`):
 ```yaml
 identity_providers:
   oidc:
+    lifespans:
+      custom:
+        mcp_long_lived:
+          access_token: '8h'
+          refresh_token: '30d'
     clients:
       - client_id: markdown-vault-mcp
         client_secret: '$pbkdf2-sha512$...'   # hashed secret
+        lifespan: 'mcp_long_lived'
         redirect_uris:
           - https://mcp.example.com/auth/callback
         grant_types:
           - authorization_code
+          - refresh_token
         response_types:
           - code
         pkce_challenge_method: S256
@@ -985,6 +994,8 @@ identity_providers:
           - openid
           - profile
           - email
+          - offline_access
+        token_endpoint_auth_method: client_secret_post
 ```
 
 **Linux/Docker note:** FastMCP uses an ephemeral JWT signing key on Linux by default — every restart invalidates all client tokens and forces re-authentication. Set `MARKDOWN_VAULT_MCP_OIDC_JWT_SIGNING_KEY` to a stable random secret (e.g. `openssl rand -hex 32`) to persist tokens across restarts.

@@ -105,6 +105,9 @@ Client → markdown-vault-mcp (OIDCProxy) → OIDC Provider
     openssl rand -hex 32
     ```
 
+!!! tip "Long-running sessions"
+    Configure `offline_access` scope on your identity provider to enable refresh tokens. Combined with long token lifetimes, this prevents session drops during extended use. See [Session drops after token expiry](#session-drops-after-token-expiry) in Troubleshooting.
+
 ### Provider guides
 
 For step-by-step setup with specific providers:
@@ -149,6 +152,19 @@ Authentication only works with HTTP transport. If you're using `--transport stdi
 - Verify `BASE_URL` matches your public URL exactly (including any subpath prefix)
 - For subpath deployments, see the [subpath deployment guide](../deployment/oidc.md#subpath-deployments) — `BASE_URL` must include the prefix, `HTTP_PATH` must not
 - Check that `redirect_uris` in your provider config includes your callback URL (e.g., `https://mcp.example.com/auth/callback`)
+
+### Session drops after token expiry
+
+**Symptom:** the MCP client works for a few hours, then starts returning 401 errors or stops responding. Restarting the client fixes it temporarily.
+
+**Root cause:** MCP clients (Claude.ai, Claude Code) do not reliably re-authenticate when both access and refresh tokens expire. This is a known ecosystem-wide issue:
+
+- Claude Code ignores `scopes_supported` and never requests `offline_access`, so no refresh token is issued ([claude-code#7744](https://github.com/anthropics/claude-code/issues/7744))
+- The MCP Python SDK can deadlock during token refresh inside an active SSE stream ([python-sdk#1326](https://github.com/modelcontextprotocol/python-sdk/issues/1326))
+
+**Workaround:** configure long token lifetimes on your identity provider so tokens outlast a typical session. For example, set access tokens to 8 hours and refresh tokens to 30 days. Also include `offline_access` in the scopes configured on the provider side — even though current clients may not request it, future client updates may use it.
+
+See the [Authelia provider guide](oidc-providers.md#authelia) for specific configuration.
 
 ### Opaque access tokens (Authelia)
 
