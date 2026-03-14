@@ -810,7 +810,7 @@ def create_server() -> FastMCP:
         Returns:
             List of dicts, each with: source_path (document containing the
             broken link), source_title, target_path (the missing target),
-            link_text, link_type.
+            link_text, link_type, fragment (heading anchor or null).
         """
         results = await asyncio.to_thread(collection.get_broken_links, folder=folder)
         return [asdict(r) for r in results]
