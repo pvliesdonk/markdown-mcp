@@ -283,7 +283,7 @@ def main() -> None:
         format="%(levelname)s %(name)s: %(message)s",
     )
     # httpx is noisy at DEBUG — keep it at WARNING unless explicitly targeted.
-    if level <= logging.DEBUG:
+    if level == logging.DEBUG:
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
 
