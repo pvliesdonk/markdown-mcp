@@ -219,6 +219,7 @@ class BrokenLinkInfo:
     target_path: str
     link_text: str
     link_type: str
+    fragment: str | None = None
 
 
 WriteCallback = Callable[

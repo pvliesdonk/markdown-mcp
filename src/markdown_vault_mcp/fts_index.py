@@ -761,7 +761,7 @@ class FTSIndex:
 
         Returns:
             List of dicts with keys ``source_path``, ``source_title``,
-            ``target_path``, ``link_text``, ``link_type``.
+            ``target_path``, ``link_text``, ``link_type``, ``fragment``.
         """
         folder_clause = ""
         params: list[str] = []
@@ -775,10 +775,13 @@ class FTSIndex:
                    d.title AS source_title,
                    l.target_path,
                    l.link_text,
-                   l.link_type
+                   l.link_type,
+                   l.fragment
             FROM links l
             JOIN documents d ON d.id = l.source_id
-            WHERE l.target_path NOT IN (SELECT path FROM documents)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM documents d2 WHERE d2.path = l.target_path
+            )
               {folder_clause}
             ORDER BY d.path, l.rowid
         """
