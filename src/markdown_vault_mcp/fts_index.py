@@ -788,6 +788,44 @@ class FTSIndex:
         cur = self._conn.execute(sql, params)
         return [dict(row) for row in cur.fetchall()]
 
+    def get_recent(self, *, limit: int = 20, folder: str | None = None) -> list[dict]:
+        """Return the most recently modified documents.
+
+        Args:
+            limit: Maximum number of documents to return.
+            folder: If provided, restrict to documents in this folder
+                (exact match or sub-folder prefix).
+
+        Returns:
+            List of dicts with the same shape as :meth:`get_note`, ordered
+            by ``modified_at`` descending (most recent first).
+        """
+        if folder is not None:
+            escaped = _escape_like(folder)
+            cur = self._conn.execute(
+                """
+                SELECT path, title, folder, frontmatter_json,
+                       content_hash, modified_at
+                FROM documents
+                WHERE folder = ? OR folder LIKE ? ESCAPE '\\'
+                ORDER BY modified_at DESC
+                LIMIT ?
+                """,
+                (folder, escaped + "/%", limit),
+            )
+        else:
+            cur = self._conn.execute(
+                """
+                SELECT path, title, folder, frontmatter_json,
+                       content_hash, modified_at
+                FROM documents
+                ORDER BY modified_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [dict(row) for row in cur.fetchall()]
+
     def close(self) -> None:
         """Close the underlying database connection.
 

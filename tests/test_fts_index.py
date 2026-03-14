@@ -645,3 +645,93 @@ class TestWALMode:
         finally:
             writer_conn.close()
             reader_conn.close()
+
+
+class TestGetRecent:
+    """Tests for FTSIndex.get_recent()."""
+
+    def test_returns_notes_ordered_by_mtime_desc(self) -> None:
+        """get_recent returns notes most-recent first."""
+        idx = FTSIndex(":memory:")
+        notes = [
+            ParsedNote(
+                path=f"note{i}.md",
+                frontmatter={},
+                title=f"Note {i}",
+                chunks=[
+                    Chunk(heading=None, heading_level=0, content="c", start_line=0)
+                ],
+                content_hash=f"h{i}",
+                modified_at=float(i * 100),
+            )
+            for i in range(5)
+        ]
+        idx.build_from_notes(notes)
+        rows = idx.get_recent(limit=5)
+        mtimes = [r["modified_at"] for r in rows]
+        assert mtimes == sorted(mtimes, reverse=True)
+
+    def test_respects_limit(self) -> None:
+        """get_recent returns at most `limit` rows."""
+        idx = FTSIndex(":memory:")
+        notes = [
+            ParsedNote(
+                path=f"note{i}.md",
+                frontmatter={},
+                title=f"Note {i}",
+                chunks=[
+                    Chunk(heading=None, heading_level=0, content="c", start_line=0)
+                ],
+                content_hash=f"h{i}",
+                modified_at=float(i),
+            )
+            for i in range(10)
+        ]
+        idx.build_from_notes(notes)
+        rows = idx.get_recent(limit=3)
+        assert len(rows) == 3
+
+    def test_folder_filter(self) -> None:
+        """get_recent with folder returns only matching documents."""
+        idx = FTSIndex(":memory:")
+        notes = [
+            ParsedNote(
+                path="root.md",
+                frontmatter={},
+                title="Root",
+                chunks=[
+                    Chunk(heading=None, heading_level=0, content="c", start_line=0)
+                ],
+                content_hash="h1",
+                modified_at=100.0,
+            ),
+            ParsedNote(
+                path="Journal/day1.md",
+                frontmatter={},
+                title="Day 1",
+                chunks=[
+                    Chunk(heading=None, heading_level=0, content="c", start_line=0)
+                ],
+                content_hash="h2",
+                modified_at=200.0,
+            ),
+            ParsedNote(
+                path="Journal/day2.md",
+                frontmatter={},
+                title="Day 2",
+                chunks=[
+                    Chunk(heading=None, heading_level=0, content="c", start_line=0)
+                ],
+                content_hash="h3",
+                modified_at=300.0,
+            ),
+        ]
+        idx.build_from_notes(notes)
+        rows = idx.get_recent(folder="Journal")
+        paths = {r["path"] for r in rows}
+        assert paths == {"Journal/day1.md", "Journal/day2.md"}
+
+    def test_empty_index_returns_empty(self) -> None:
+        """get_recent on empty index returns []."""
+        idx = FTSIndex(":memory:")
+        assert idx.get_recent() == []

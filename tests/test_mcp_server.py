@@ -173,6 +173,7 @@ class TestToolListing:
         assert "get_outlinks" in names
         assert "get_broken_links" in names
         assert "get_similar" in names
+        assert "get_recent" in names
         # Write tools absent when read_only=true (default)
         assert "write" not in names
         assert "edit" not in names
@@ -216,6 +217,7 @@ class TestToolAnnotations:
             "get_outlinks",
             "get_broken_links",
             "get_similar",
+            "get_recent",
         ):
             ann = by_name[name].annotations
             assert ann is not None, f"{name} missing annotations"
@@ -1305,6 +1307,45 @@ class TestSimilarTool:
         async with Client(server) as client:
             with pytest.raises((ToolError, McpError)):
                 await client.call_tool("get_similar", {"path": "nonexistent.md"})
+
+
+class TestRecentTool:
+    """Integration tests for get_recent tool and recent://vault resource."""
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_get_recent_returns_notes(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool("get_recent", {"limit": 5})
+        data = _parse_tool_data(result)
+        assert isinstance(data, list)
+        assert len(data) <= 5
+        assert all("path" in d for d in data)
+        assert all("modified_at" in d for d in data)
+        # Verify ordering: most recent first
+        mtimes = [d["modified_at"] for d in data]
+        assert mtimes == sorted(mtimes, reverse=True)
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_get_recent_empty_folder(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "get_recent", {"folder": "nonexistent_folder"}
+            )
+        data = _parse_tool_data(result)
+        assert data == []
+
+    @pytest.mark.usefixtures("_mcp_env")
+    async def test_recent_resource(self) -> None:
+        server = create_server()
+        async with Client(server) as client:
+            result = await client.read_resource("recent://vault")
+        data = json.loads(result[0].text)
+        assert isinstance(data, list)
+        assert len(data) <= 20
+        if data:
+            assert "modified_at_iso" in data[0]
 
 
 # ---------------------------------------------------------------------------

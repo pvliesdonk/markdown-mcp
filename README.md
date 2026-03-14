@@ -301,6 +301,7 @@ markdown-vault-mcp reindex [--source-dir PATH] [--index-path PATH]
 | `get_outlinks` | Find all links from a document, with existence check |
 | `get_broken_links` | Find all links pointing to non-existent documents |
 | `get_similar` | Find semantically similar notes by document path |
+| `get_recent` | Get the most recently modified notes |
 
 Write tools (`write`, `edit`, `delete`, `rename`) are only available when `MARKDOWN_VAULT_MCP_READ_ONLY=false`.
 
@@ -317,6 +318,7 @@ MCP resources expose vault metadata as structured JSON that clients can read dir
 | `folders://vault` | All folder paths in the vault |
 | `toc://vault/{path}` | Table of contents (heading outline) for a specific document (template) |
 | `similar://vault/{path}` | Top 10 semantically similar notes for a document (template) |
+| `recent://vault` | 20 most recently modified notes with ISO timestamps |
 
 ### Prompts
 

@@ -1401,6 +1401,24 @@ class Collection:
             for r in raw_results
         ]
 
+    def get_recent(
+        self, *, limit: int = 20, folder: str | None = None
+    ) -> list[NoteInfo]:
+        """Return the most recently modified documents.
+
+        Args:
+            limit: Maximum number of documents to return.
+            folder: If provided, restrict to documents in this folder
+                (exact match or sub-folder prefix).
+
+        Returns:
+            List of :class:`~markdown_vault_mcp.types.NoteInfo` objects
+            ordered by modification time (most recent first).
+        """
+        self._ensure_initialized()
+        rows = self._fts.get_recent(limit=limit, folder=folder)
+        return [_fts_row_to_note_info(row) for row in rows]
+
     def stats(self) -> CollectionStats:
         """Return collection-wide statistics.
 
