@@ -43,7 +43,7 @@ The repository includes a `compose.yml`. If you cloned the repo, just run:
 docker compose up -d
 ```
 
-This mounts your vault at `/data/vault` inside the container and creates named volumes for the index and embeddings.
+This mounts your vault at `/data/vault` inside the container and creates a named volume (`state-data`) for all server-managed internal state (FTS index, embeddings, model cache, OIDC proxy state).
 
 ### Optional: run under a reverse-proxy subpath
 

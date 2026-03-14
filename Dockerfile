@@ -30,15 +30,16 @@ RUN if [ "$APP_UID" -eq 0 ] || [ "$APP_GID" -eq 0 ]; then \
     fi \
     && groupadd -r --gid $APP_GID --non-unique appuser \
     && useradd -r --uid $APP_UID --gid $APP_GID --no-log-init -d /app appuser \
-    && mkdir -p /data/vault /data/index /data/embeddings /data/fastembed \
+    && mkdir -p /data/vault /data/state/embeddings /data/state/fastembed /data/state/fastmcp \
     && chown -R appuser:appuser /app /data
 
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:$PATH" \
+    FASTMCP_HOME=/data/state/fastmcp
 
 EXPOSE 8000
 
-VOLUME ["/data/vault", "/data/index", "/data/embeddings", "/data/fastembed"]
+VOLUME ["/data/vault", "/data/state"]
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["markdown-vault-mcp", "serve", "--transport", "http"]

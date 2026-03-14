@@ -34,7 +34,7 @@ All configuration is via environment variables. Most use the `MARKDOWN_VAULT_MCP
 | `MARKDOWN_VAULT_MCP_OLLAMA_MODEL` | string | `nomic-embed-text` | Ollama embedding model name |
 | `MARKDOWN_VAULT_MCP_OLLAMA_CPU_ONLY` | bool | `false` | Force Ollama to use CPU only |
 | `MARKDOWN_VAULT_MCP_FASTEMBED_MODEL` | string | `nomic-ai/nomic-embed-text-v1.5` | FastEmbed model name |
-| `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` | path | FastEmbed default | FastEmbed model cache directory (set this to a persistent Docker volume) |
+| `MARKDOWN_VAULT_MCP_FASTEMBED_CACHE_DIR` | path | FastEmbed default | FastEmbed model cache directory (in Docker, stored under `/data/state/fastembed`) |
 
 !!! note "Embedding provider auto-detection"
     When `EMBEDDING_PROVIDER` is not set, the server tries providers in this order:

@@ -154,7 +154,7 @@ Check the embedding provider configuration and vector index status. Use this to 
   "available": true,
   "provider": "OllamaProvider",
   "chunk_count": 156,
-  "path": "/data/embeddings/embeddings"
+  "path": "/data/state/embeddings/embeddings"
 }
 ```
 
